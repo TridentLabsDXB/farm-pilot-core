@@ -35,6 +35,11 @@ Jobs: rollup every 10 min (idempotent); retention at start + every 6 h in 5000-r
 ## API
 `POST /api/login|logout`, `GET /api/me|state|health`, `POST /api/commands`, Admin: `GET/POST /api/users`, `POST /api/users/:id`, `PUT /api/settings`. WebSocket `/ws` pushes `telemetry` and `command` events. Roles: Operator = view + commands; Admin = also Settings.
 
+## Firewall (test bench)
+No public port is opened. The runtime binds the private cluster address (`10.0.0.3:4100`) and the broker binds `127.0.0.1:1884` only. ufw's default INPUT policy is DROP.
+Rule added 2026-11-15: `ufw allow from 172.16.0.0/12 to any port 4100 proto tcp comment 'NPM container -> farmpilot-core'`.
+Reason: the shared Nginx Proxy Manager runs as a Docker container on this host and reaches the runtime from a Docker network (observed source `172.19.0.3`). Without the rule ufw dropped those packets (`[UFW BLOCK] ... DPT=4100`) and NPM answered 504. The existing rules already allow that range to ports 3000, 10000 and 8086 the same way. Access is restricted for users by the NPM Access List (VPN address range), not by this rule.
+
 ## Provenance
 `web/src/cabinet/SOURCE.md` records the main-repo commit the Control Cabinet CSS was copied from.
 
