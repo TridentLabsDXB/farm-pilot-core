@@ -1,0 +1,24 @@
+/* 2026-11-06 -- "Control Cabinet" design tokens, ONE set shared by every cabinet-styled component.
+   Moved here unchanged from the top of HumidityControllerCard.css (HumiCore card, root .hcc) so the Power page (root .pcc)
+   reuses them instead of defining a second set. Variable names keep the --hcc- prefix on purpose: renaming would touch every
+   rule of the HumiCore card for no visual gain. Add a new cabinet root class to the selector list to share them (.pmc = Power Meters dashboard card, .gwc = Gateway card, .thc = Temperature / Humidity sensor card, .wsc = Weather Station card, .wfb = Weather Forecast board and compact card).
+   Contrast: text #e5e7eb / muted #9ca3af on #101316 are both above 4.5:1. */
+.core, .hcc, .pcc, .pmc, .gwc, .thc, .wsc, .wfb, .vfc, .wpc, .wsc-tab, .spc {
+  --hcc-panel: #101316;
+  --hcc-inset: #07090a;
+  --hcc-inset2: #0d1013;
+  --hcc-line: #2d343b;
+  --hcc-line2: #3a434c;
+  --hcc-text: #e5e7eb;
+  --hcc-muted: #9ca3af;
+  --hcc-cyan: #7dd3fc;
+  --hcc-amber: #fbbf24;
+  --hcc-green: #4ade80;
+  --hcc-info: #38bdf8;
+  --hcc-red: #f87171;
+  /* 2026-11-06 (Round 127) -- Humidity blue. Default = the Farm Green humidity colour of lib/theme.tsx (#60a5fa); the HumiCore card overrides it
+     inline from useThemeColors().humidity so it always matches the Humidity line of the Temperature & Humidity charts. */
+  --hcc-humidity: #60a5fa;
+  --hcc-head: "Rajdhani", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --hcc-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}

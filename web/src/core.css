@@ -1,0 +1,54 @@
+/* FARM-PILOT CORE -- Control Cabinet look. Tokens come from cabinet/cabinetTokens.css (see cabinet/SOURCE.md); every rule is scoped under .core. */
+html, body { margin: 0; background: #0b0e10; }
+.core { min-height: 100vh; color: var(--hcc-text); font-family: var(--hcc-head); background: #0b0e10; }
+.core *, .core *::before, .core *::after { box-sizing: border-box; }
+.core-top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 12px 24px; border-bottom: 1px solid var(--hcc-line); background: #101316; }
+.core-top h1 { margin: 0; font-size: 24px; letter-spacing: .08em; font-weight: 700; margin-right: auto; }
+.core-top nav { display: flex; gap: 8px; }
+.core-user { font-family: var(--hcc-mono); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--hcc-muted); }
+.core-main { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; padding: 24px; align-items: start; }
+.core-card { position: relative; padding: 24px; border-radius: 10px; border: 1px solid var(--hcc-line2); display: flex; flex-direction: column; gap: 16px;
+  background: linear-gradient(160deg, #20262b, #161a1e); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 4px #14181b, 0 6px 18px rgba(0,0,0,.35); }
+.core-card::before, .core-card::after { content: ""; position: absolute; top: 8px; width: 6px; height: 6px; border-radius: 50%; background: #3a434c; }
+.core-card::before { left: 8px; } .core-card::after { right: 8px; }
+.core-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.core-name, .core-title { margin: 0; font-weight: 700; font-size: 30px; line-height: 1.05; letter-spacing: .04em; }
+.core-plate { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; background: var(--hcc-inset2); border: 1px solid var(--hcc-line); border-radius: 6px;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.6); font-family: var(--hcc-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+.core-lamp { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #4b5563; display: inline-block; }
+.core-plate[data-state="run"] .core-lamp { background: var(--hcc-green); box-shadow: 0 0 6px var(--hcc-green); }
+.core-plate[data-state="run"] .core-word { color: var(--hcc-green); }
+.core-plate[data-state="stopped"] .core-lamp { background: #9ca3af; }
+.core-plate[data-state="nodata"] .core-lamp { background: transparent; box-shadow: inset 0 0 0 1px #4b5563; }
+.core-plate[data-state="stopped"] .core-word, .core-plate[data-state="nodata"] .core-word { color: var(--hcc-muted); }
+.core-wells { display: grid; gap: 16px; padding: 16px; background: #101316; border: 1px solid var(--hcc-line); border-radius: 6px; }
+.core-well { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: var(--hcc-inset); border: 1px solid var(--hcc-line); border-radius: 6px; box-shadow: inset 0 2px 6px rgba(0,0,0,.7); }
+.core-cap { font-family: var(--hcc-mono); text-transform: uppercase; letter-spacing: .14em; font-size: 12px; color: var(--hcc-muted); }
+.core-digits { font-family: var(--hcc-mono); font-weight: 700; font-size: 34px; line-height: 1.1; }
+.core-digits small { font-size: 14px; font-weight: 400; color: var(--hcc-muted); }
+.core-cyan { color: var(--hcc-cyan); } .core-amber { color: var(--hcc-amber); } .core-humidity { color: var(--hcc-humidity); } .core-dim { color: var(--hcc-muted); }
+.core-foot { font-family: var(--hcc-mono); font-size: 12px; color: var(--hcc-muted); overflow-wrap: anywhere; }
+.core-keys { display: flex; gap: 16px; }
+.core-key { min-height: 44px; min-width: 44px; padding: 0 20px; font-family: var(--hcc-head); font-weight: 700; font-size: 16px; letter-spacing: .1em; text-transform: uppercase; color: var(--hcc-text); cursor: pointer;
+  background: linear-gradient(#2a3138, #1d2328); border: 1px solid #7a8696; border-radius: 6px; }
+.core-keys .core-key { flex: 1; min-height: 56px; }
+.core-key[aria-pressed="true"], .core-key-primary { border-color: var(--hcc-green); color: var(--hcc-green); }
+.core-key-danger { border-color: var(--hcc-red); color: var(--hcc-red); }
+.core-key:disabled { opacity: .45; cursor: not-allowed; }
+.core-key:focus-visible, .core-input:focus-visible { outline: 2px solid var(--hcc-info); outline-offset: 2px; }
+.core-cmd { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: var(--hcc-inset2); border: 1px solid var(--hcc-line); border-radius: 6px; }
+.core-cmdline { font-family: var(--hcc-mono); font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.core-cmd[data-status="sent"] .core-lamp { background: var(--hcc-info); box-shadow: 0 0 6px var(--hcc-info); }
+.core-cmd[data-status="confirmed"] .core-lamp { background: var(--hcc-green); box-shadow: 0 0 6px var(--hcc-green); }
+.core-cmd[data-status="timeout"] .core-lamp { background: var(--hcc-red); box-shadow: 0 0 6px var(--hcc-red); }
+.core-cmd[data-status="timeout"] b { color: var(--hcc-red); } .core-cmd[data-status="confirmed"] b { color: var(--hcc-green); } .core-cmd[data-status="sent"] b { color: var(--hcc-info); }
+.core-msg { margin: 0; font-size: 15px; color: var(--hcc-text); }
+.core-login { display: grid; place-items: center; padding: 24px; }
+.core-login .core-card { width: min(380px, 100%); }
+.core-input { min-height: 44px; padding: 0 12px; font-family: var(--hcc-mono); font-size: 15px; color: var(--hcc-text); background: var(--hcc-inset); border: 1px solid #7a8696; border-radius: 6px; }
+.core-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.core-settings { grid-template-columns: 1fr; max-width: 900px; }
+.core-table { width: 100%; border-collapse: collapse; font-family: var(--hcc-mono); font-size: 13px; }
+.core-table th { text-align: left; color: var(--hcc-muted); text-transform: uppercase; letter-spacing: .14em; font-weight: 400; }
+.core-table td, .core-table th { padding: 8px 6px; border-bottom: 1px solid var(--hcc-line); }
+@media (prefers-reduced-motion: no-preference) { .core-lamp { transition: background .2s; } }

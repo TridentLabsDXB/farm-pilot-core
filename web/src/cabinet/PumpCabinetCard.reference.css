@@ -1,0 +1,38 @@
+@import "./cabinetTokens.css";
+/* 2026-11-10 (Round 140) -- "Control Cabinet" look for the WPump equipment card on the zone dashboards (components/PumpCabinetCard.tsx, root .wpc).
+   Read-only: no keys. Same plate as the Temperature / Humidity sensor tile (ThSensorCard.css). Every rule is scoped under .wpc. */
+.wpc { position: relative; box-sizing: border-box; width: 100%; max-width: 300px; padding: 18px; border-radius: 10px; border: 1px solid var(--hcc-line2);
+  background: linear-gradient(160deg, #20262b, #161a1e); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 0 0 4px #14181b, 0 6px 18px rgba(0, 0, 0, 0.35);
+  color: var(--hcc-text); font-family: var(--hcc-head); display: flex; flex-direction: column; gap: 12px; }
+.wpc *, .wpc *::before, .wpc *::after { box-sizing: border-box; }
+.wpc-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+/* 2026-11-10 -- Round 144: title style is ONE rule for all three screens (zone dashboard, Automation module share the look table, Custom Dashboard fill variant): Rajdhani 700, 30 px, .04em; the fill variant never overrides it. The status plate stays right of the title and drops below it only when the CELL cannot hold both (flex-wrap on the head, based on the item widths, not a screen breakpoint). */
+.wpc-name { margin: 0; font-family: var(--hcc-head); font-weight: 700; font-size: 30px; line-height: 1.05; letter-spacing: 0.04em; min-width: 0; overflow-wrap: anywhere; }
+.wpc-plate { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; background: var(--hcc-inset2); border: 1px solid var(--hcc-line); border-radius: 6px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6); font-family: var(--hcc-mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+.wpc-lamp { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #4b5563; }
+.wpc-plate[data-state="run"] .wpc-lamp { background: var(--hcc-green); box-shadow: 0 0 6px var(--hcc-green); }
+.wpc-plate[data-state="run"] .wpc-word { color: var(--hcc-green); }
+.wpc-plate[data-state="stopped"] .wpc-lamp { background: #9ca3af; }
+.wpc-plate[data-state="nodata"] .wpc-lamp { background: transparent; box-shadow: inset 0 0 0 1px #4b5563; }
+.wpc-plate[data-state="stopped"] .wpc-word, .wpc-plate[data-state="nodata"] .wpc-word { color: var(--hcc-muted); }
+.wpc-well { position: relative; height: 122px; padding-bottom: 8px; display: flex; align-items: flex-end; /* picture sits below the engraved caption, never under it */ justify-content: center; background: var(--hcc-inset); border: 1px solid var(--hcc-line); border-radius: 6px; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7); }
+.wpc-cap { position: absolute; top: 8px; left: 10px; font-family: var(--hcc-mono); text-transform: uppercase; letter-spacing: 0.14em; font-size: 12px; color: var(--hcc-muted); }
+.wpc-well img { position: relative; top: 6px; display: block; width: 132px; height: 86px; object-fit: contain; }
+.wpc-well img.stopped { filter: grayscale(0.75) brightness(0.55); }
+.wpc-well img.nodata { filter: grayscale(1) brightness(0.4); }
+.wpc-foot { font-family: var(--hcc-mono); font-size: 12px; color: var(--hcc-muted); overflow-wrap: anywhere; }
+@media (max-width: 520px) { .wpc { max-width: none; } }
+/* 2026-11-10 -- Round 143: Custom Dashboard pump widget. Fills the widget cell (width and row height; the well takes the spare height so there is no
+   empty band under the card), picture centred in the well below the caption and scaled to the cell width up to 220 px. Only the widget passes it. */
+.wpc.wpc-fill { max-width: none; height: 100%; }
+.wpc.wpc-fill .wpc-well { height: auto; min-height: 122px; flex: 1; align-items: center; justify-content: center; padding: 40px 0 8px; /* >= 12 px under the WATER PUMP caption (top 8 + about 15 high) */ }
+/* 2026-11-10 -- Round 145: picture weight matches the VFD picture beside it (VfdWell: 100% of its content box, 120 px max, about 47-50% of the well) and the zone card (132 px of 296): 46% of the well (spec said about 50; 46 is what VFD and zone card measure), 190 px max, 96 px floor (never wider than the well), centred both ways, never scaled to the row height. Fill variant only. */
+.wpc.wpc-fill .wpc-well img { top: 0; width: clamp(96px, 46%, 190px); max-width: 100%; height: auto; max-height: none; }
+/* 2026-11-10 -- Round 146: zone-dashboard (non-fill) well. It was 122 px high with the caption absolutely placed in the same space as the picture, so the
+   picture's water edge sat a few pixels above the bottom border and looked small. Now a column: caption row on top, then the picture centred (auto
+   margins) in the remaining height, about 60% of the well, 180 px max, with clear space under it. Scoped with :not(.wpc-fill) so the Custom Dashboard fill
+   variant (Rounds 143-145) is untouched; the Automation module has its own markup and does not use .wpc. */
+.wpc:not(.wpc-fill) .wpc-well { height: auto; min-height: 144px; flex-direction: column; align-items: stretch; justify-content: flex-start; padding: 8px 0 12px; }
+.wpc:not(.wpc-fill) .wpc-cap { position: static; flex: none; margin: 0 10px 10px; }
+.wpc:not(.wpc-fill) .wpc-well img { top: 0; flex: none; margin: auto; width: min(60%, 180px); height: auto; }

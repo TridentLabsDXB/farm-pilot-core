@@ -1,0 +1,51 @@
+import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Db } from "./db.js";
+import { audit } from "./db.js";
+import { config } from "./config.js";
+
+export type Role = "operator" | "admin";
+export interface AuthUser { id: number; username: string; role: Role; }
+
+export function hashPassword(pw: string): string {
+  const salt = randomBytes(16); const h = scryptSync(pw, salt, 64);
+  return `scrypt$${salt.toString("hex")}$${h.toString("hex")}`;
+}
+export function verifyPassword(pw: string, stored: string): boolean {
+  const [alg, s, h] = stored.split("$"); if (alg !== "scrypt" || !s || !h) return false;
+  const calc = scryptSync(pw, Buffer.from(s, "hex"), 64); const want = Buffer.from(h, "hex");
+  return calc.length === want.length && timingSafeEqual(calc, want);
+}
+const sha = (t: string) => createHash("sha256").update(t).digest("hex");
+
+// First boot only: create the Admin. Password from CORE_ADMIN_PASSWORD, else random, written ONCE to <dataDir>/initial-admin-password (mode 600).
+export function ensureAdmin(db: Db) {
+  const n = (db.prepare("SELECT COUNT(*) c FROM users").get() as { c: number }).c; if (n > 0) return;
+  const pw = process.env.CORE_ADMIN_PASSWORD || randomBytes(9).toString("base64url");
+  db.prepare("INSERT INTO users(username,pass_hash,role,created_at) VALUES('admin',?,'admin',?)").run(hashPassword(pw), Date.now());
+  if (!process.env.CORE_ADMIN_PASSWORD) writeFileSync(join(config.dataDir, "initial-admin-password"), `admin / ${pw}\n`, { mode: 0o600 });
+  audit(db, "system", "system", "user.bootstrap", { username: "admin" });
+}
+
+export function createSession(db: Db, userId: number): string {
+  const token = randomBytes(32).toString("base64url");
+  db.prepare("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)").run(sha(token), userId, Date.now() + config.sessionHours * 3600_000);
+  return token;
+}
+export function userFromToken(db: Db, token: string | undefined): AuthUser | null {
+  if (!token) return null;
+  const r = db.prepare("SELECT u.id,u.username,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.active=1").get(sha(token), Date.now()) as AuthUser | undefined;
+  return r ?? null;
+}
+export const destroySession = (db: Db, token: string) => db.prepare("DELETE FROM sessions WHERE token_hash=?").run(sha(token));
+export const purgeSessions = (db: Db) => db.prepare("DELETE FROM sessions WHERE expires_at<?").run(Date.now());
+
+// Failed-login throttle (in memory): 5 failures per username+ip in 5 minutes locks that pair for 5 minutes.
+const fails = new Map<string, { n: number; until: number; first: number }>();
+export function throttled(key: string, now = Date.now()) { const f = fails.get(key); return !!f && f.until > now; }
+export function noteFail(key: string, now = Date.now()) {
+  const f = fails.get(key); if (!f || now - f.first > 300_000) { fails.set(key, { n: 1, until: 0, first: now }); return; }
+  f.n++; if (f.n >= 5) f.until = now + 300_000;
+}
+export const clearFails = (key: string) => fails.delete(key);

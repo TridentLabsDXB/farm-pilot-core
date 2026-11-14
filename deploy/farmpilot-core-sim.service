@@ -1,0 +1,25 @@
+# DEV / TEST BENCH ONLY. Installed by deploy/install-sim.sh, never by deploy.sh, and never part of the box image.
+[Unit]
+Description=Farm-Pilot CORE simulator (dev only)
+After=farmpilot-core.service
+Requires=farmpilot-core.service
+
+[Service]
+User=fpcore
+Group=fpcore
+WorkingDirectory=/opt/farmpilot-core
+EnvironmentFile=-/etc/farmpilot-core-sim.env
+ExecStart=/opt/farmpilot-core/node/bin/node /opt/farmpilot-core/dist/sim/simulator.js
+Restart=always
+RestartSec=3
+MemoryMax=256M
+CPUWeight=10
+IOWeight=10
+Nice=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
