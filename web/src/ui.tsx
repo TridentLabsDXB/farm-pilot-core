@@ -7,6 +7,13 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 export const hhmm = (ts: number) => { const d = new Date(ts); return `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 export const dateOnly = (ts: number) => { const d = new Date(ts); return `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`; };
 export const dt = (ts: number | null | undefined) => (ts ? `${dateOnly(ts)} ${hhmm(ts)}` : "--");
+/** Parses "16 Nov 2026" (also ISO 2026-11-16). Returns local noon of that day, or null. */
+export const parseDate = (txt: string): number | null => {
+  const t = txt.trim(); let y: number, m: number, d: number; let r = /^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})$/.exec(t);
+  if (r) { d = +r[1]; y = +r[3]; m = MON.findIndex((x) => r![2].toLowerCase().startsWith(x.toLowerCase())); if (m < 0) return null; }
+  else if ((r = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t))) { y = +r[1]; m = +r[2] - 1; d = +r[3]; } else return null;
+  const dte = new Date(y, m, d, 12); return dte.getFullYear() === y && dte.getMonth() === m && dte.getDate() === d ? dte.getTime() : null;
+};
 export const dayMon = (ts: number) => { const d = new Date(ts); return `${d.getDate()} ${MON[d.getMonth()]}`; };
 
 export type Tone = "ok" | "warn" | "alarm" | "off" | "info";

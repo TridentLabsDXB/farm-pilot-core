@@ -13,7 +13,7 @@ interface SList { types: TypeInfo[]; sensors: SensorView[]; zones: { id: number;
 export default function SensorsPage({ scada, reload }: { scada: Scada | null; reload: () => void }) {
   const [list, setList] = useState<SList | null>(null); const [gw, setGw] = useState<GwInfo | null>(null);
   const [msg, setMsg] = useState<{ t: "ok" | "err"; s: string } | null>(null); const [busy, setBusy] = useState(false);
-  const [adding, setAdding] = useState(false); const [confirm, setConfirm] = useState<any>(null); const [advanced, setAdvanced] = useState(false);
+  const [adding, setAdding] = useState(false); const [confirm, setConfirm] = useState<any>(null);
   const load = useCallback(() => { api<SList>("/sensors").then(setList).catch((e) => setMsg({ t: "err", s: errText(e) })); api<GwInfo>("/gateway").then(setGw).catch(() => {}); }, []);
   useEffect(() => { load(); }, [load, scada]);
   const ok = (s: string) => setMsg({ t: "ok", s }); const fail = (e: unknown) => setMsg({ t: "err", s: errText(e) });
@@ -25,14 +25,13 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
     catch (e: any) { if (e.status === 409 && /confirmation required/.test(e.message)) { const p = await api<any>("/gateway/sync/plan", { method: "POST", json: { type: "th" } }).catch(() => null); setConfirm(p); } else fail(e); }
     finally { setBusy(false); load(); reload(); }
   };
-  const setInterval_ = async (s: SensorView, v: string) => {
-    let sec = Number(v); if (v === "custom") { const x = prompt(`Reporting interval in seconds (${th?.min}-${th?.max})`, String(s.intervalSec)); if (!x) return; sec = Number(x); }
-    try { await api(`/sensors/${s.serial}`, { method: "PATCH", json: { interval: sec } }); load(); } catch (e) { fail(e); }
-  };
-  const presets = (s: SensorView) => { const t = list.types.find((x) => x.key === s.type)!; const set = new Set(t.presets.filter((p) => p !== 30 || advanced || s.intervalSec === 30)); set.add(s.intervalSec); return [...set].sort((a, b) => a - b); };
+  // Only the server's allowed set is offered (T/H: 1 min, 5 min; plus 30 s in commissioning mode). The server rejects anything else.
+  const setInterval_ = async (s: SensorView, v: string) => { try { await api(`/sensors/${s.serial}`, { method: "PATCH", json: { interval: Number(v) } }); load(); } catch (e) { fail(e); } };
+  const presets = (s: SensorView) => { const t = list.types.find((x) => x.key === s.type)!; return [...new Set([...t.presets, s.intervalSec])].sort((a, b) => a - b); };   // a stored value that is no longer allowed is still shown, and flagged
+  const setCommissioning = async (on: boolean) => { try { await api("/gateway/settings", { method: "PUT", json: { commissioning: on } }); load(); } catch (e) { fail(e); } };
   const changes = sensors.filter((s) => s.syncState !== "in_gateway");
   const interval = (s: SensorView) => (
-    <span className="fp-row" style={{ gap: 6 }}><select className="fp-input" aria-label={`Interval for ${s.label}`} value={s.intervalSec} onChange={(e) => setInterval_(s, e.target.value)}>{presets(s).map((p) => <option key={p} value={p}>{dur(p)}</option>)}<option value="custom">Custom...</option></select>{s.applying && <Chip tone="info">APPLYING</Chip>}</span>);
+    <span className="stack"><select className="fp-input" aria-label={`Interval for ${s.label}`} value={s.intervalSec} onChange={(e) => setInterval_(s, e.target.value)}>{presets(s).map((p) => <option key={p} value={p}>{dur(p)}{s.intervalOk || p !== s.intervalSec ? "" : " (not allowed)"}</option>)}</select>{!s.intervalOk && <Chip tone="warn" title="This stored value is not in the allowed set. Choose an allowed interval.">NOT ALLOWED</Chip>}{s.applying && <Chip tone="info">APPLYING</Chip>}</span>);
   return (<>
     <section className="fp-card">
       <div className="fp-row fp-spread"><div><h3>Gateway</h3><span className="fp-cap">{gw.model} · {linkText(gw.link)} · address {gw.info.address ?? "--"} · map v{gw.mapVersion} · poll {gw.settings.pollSec} s</span></div>
@@ -46,7 +45,7 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
     <div className="fp-two"><section className="fp-card">
       <div className="fp-row fp-spread"><h3>Sensors</h3><div className="fp-row"><button className="fp-btn" onClick={() => setAdding(true)}>Add sensors</button>{scanSupported() && <button className="fp-btn" onClick={() => setAdding(true)}>Scan QR</button>}</div></div>
       <span className="fp-hint">Click a row to open the sensor: label, zone, calibration, replace and remove are all on its page.</span>
-      <label className="fp-row fp-cap"><input type="checkbox" checked={advanced} onChange={(e) => setAdvanced(e.target.checked)} /> Advanced / commissioning: allow the 30 s interval (short intervals reduce battery life)</label>
+      <label className="fp-row fp-cap" style={{ textTransform: "none", letterSpacing: ".02em" }}><input type="checkbox" checked={!!th?.commissioning} onChange={(e) => setCommissioning(e.target.checked)} /> Commissioning mode: also allow {(th?.commissioningPresets ?? []).map((p) => dur(p)).join(", ") || "short intervals"} (short intervals reduce battery life). Allowed otherwise: {(th?.presets ?? []).filter((p) => !(th?.commissioningPresets ?? []).includes(p)).map(dur).join(", ")}.</label>
       <div className="fp-gt" role="table" aria-label="Sensors">
         <div className="fp-gr head" role="row"><span>Slot</span><span>Serial</span><span>Label / zone</span><span>Interval</span><span>Battery / signal</span><span>State</span><span /></div>
         {sensors.map((s) => (

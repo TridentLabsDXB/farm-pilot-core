@@ -8,7 +8,7 @@ export interface SensorView {
   serial?: string; slot?: number | null; label: string; type: string; status: Status; zoneId: number | null; intervalSec: number;
   temperature?: number; humidity?: number; voltage?: number; rssi?: number; rssiBand: string; lowVoltage: number;
   raw?: { temperature?: number; humidity?: number }; lastChange: number | null; offlineAfterSec: number;
-  calibrated: boolean; calDue: boolean; calDueAt?: number | null; calibratedAt?: number | null; calibratedBy?: string; checkSensor: boolean; applying: boolean; labelSet?: boolean;
+  calibrated: boolean; calDue: boolean; calDueAt?: number | null; calibratedAt?: number | null; calibratedBy?: string; checkSensor: boolean; applying: boolean; intervalOk: boolean; labelSet?: boolean;
   syncState: "in_gateway" | "not_sent" | "changed"; sentInterval?: number | null; replaced?: boolean;
 }
 export interface Alarm { kind: "gateway_offline" | "no_update" | "low_battery" | "calibration_due"; severity: "alarm" | "warning"; text: string; serial?: string; since?: number | null; }
@@ -31,7 +31,7 @@ export function buildView(db: Db, reg: Registry, svc: GatewayService, admin: boo
     const calDueRow = calRows.find((c) => c.due_at !== null && c.due_at < now);
     const v: SensorView = { label: s.label || s.serial, type: s.type, status, zoneId: s.zone_id, intervalSec: s.reporting_interval, temperature: lt.temperature?.v, humidity: lt.humidity?.v, voltage: lt.voltage?.v, rssi: lt.rssi?.v,
       rssiBand: rssiBand(lt.rssi?.v, st.rssiGood, st.rssiPoor), lowVoltage: lowV, lastChange: s.last_change, offlineAfterSec: s.reporting_interval * st.offlineMultiplier, calibrated: calRows.length > 0, calDue: !!calDueRow, calDueAt: calDueRow?.due_at ?? latestCal?.due_at ?? null,
-      calibratedAt: latestCal?.calibrated_at ?? null, calibratedBy: latestCal?.calibrated_by, checkSensor: calRows.some((c) => c.check_sensor), applying: s.sent_slot !== null && !s.interval_confirmed,
+      calibratedAt: latestCal?.calibrated_at ?? null, calibratedBy: latestCal?.calibrated_by, checkSensor: calRows.some((c) => c.check_sensor), applying: s.sent_slot !== null && !s.interval_confirmed, intervalOk: reg.intervalOk(s.type, s.reporting_interval),
       syncState: s.sent_slot === null ? "not_sent" : s.sent_slot !== s.slot || s.sent_interval !== s.reporting_interval ? "changed" : "in_gateway" };
     if (admin) { v.serial = s.serial; v.labelSet = !!s.label; v.slot = s.slot; v.sentInterval = s.sent_interval; v.raw = { temperature: lt.temperature_raw?.v, humidity: lt.humidity_raw?.v }; }
     sensors.push(v);

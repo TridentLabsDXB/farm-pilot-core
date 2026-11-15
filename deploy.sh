@@ -14,6 +14,8 @@ if [ "${1:-}" != "--no-pull" ]; then echo "==> git pull --ff-only"; git pull --f
 # which fails on this box (no make/g++) after npm ci has already emptied node_modules. Found 2026-11-16 during Milestone 2 deploy.
 echo "==> npm ci"; npm ci --ignore-scripts --no-audit --no-fund; npm --prefix web ci --ignore-scripts --no-audit --no-fund
 echo "==> build"; npm run build
+# Build stamp, shown by /api/health ("build"), so it is always possible to tell which commit the bench runs. "-dirty" = uncommitted changes were built.
+{ git rev-parse --short HEAD | tr -d '\n'; [ -n "$(git status --porcelain --untracked-files=no)" ] && printf -- "-dirty"; echo; } > dist/BUILD 2>/dev/null || echo unknown > dist/BUILD
 chown -R root:root src dist web/dist deploy 2>/dev/null || true; chmod -R a+rX . 
 if ! cmp -s deploy/farmpilot-core.service /etc/systemd/system/farmpilot-core.service; then
   echo "==> updating systemd unit"; install -m 644 deploy/farmpilot-core.service /etc/systemd/system/farmpilot-core.service; systemctl daemon-reload

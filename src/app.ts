@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fstatic from "@fastify/static";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -18,6 +18,7 @@ import type { GatewayService } from "./gateway/service.js";
 import { registerGatewayRoutes } from "./gateway/routes.js";
 
 const COOKIE = "core_session";
+const buildStamp = () => { try { return readFileSync(join(dirname(fileURLToPath(import.meta.url)), "BUILD"), "utf8").trim(); } catch { return "unknown"; } };
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
 export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null) {
@@ -36,7 +37,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   });
   const admin = async (req: any, reply: any) => { if (req.user?.role !== "admin") return reply.code(403).send({ error: "admin only" }); };
 
-  app.get("/api/health", async () => ({ ok: true, uptime_s: Math.round(process.uptime()), rss_mb: Math.round(process.memoryUsage().rss / 1048576),
+  app.get("/api/health", async () => ({ ok: true, build: buildStamp(), uptime_s: Math.round(process.uptime()), rss_mb: Math.round(process.memoryUsage().rss / 1048576),
     db_mb: Math.round((statSync(config.dbPath).size) / 1048576 * 10) / 10 }));
 
   app.post<{ Body: { username?: string; password?: string } }>("/api/login", async (req, reply) => {

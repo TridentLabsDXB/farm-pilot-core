@@ -5,7 +5,7 @@ import { parse } from "yaml";
 export type FieldType = "i16" | "u16" | "u32" | "i32";
 export interface FieldDef { reg: number; type: FieldType; scale: number; unit: string; calibrated: boolean; word_order: "high_first" | "low_first"; }
 export interface TypeDef {
-  key: string; enabled: boolean; label: string; models: string[]; groups: number; low_voltage: number; default_interval: number; presets: number[];
+  key: string; enabled: boolean; label: string; models: string[]; groups: number; low_voltage: number; default_interval: number; presets: number[]; commissioning_presets: number[];
   config: { base: number; regs_per_group: number; write_fc: number[]; read_fc: number; serial: { reg: number; regs: number; word_order: "high_first" | "low_first" };
     interval: { reg: number; unit: string; min: number; max: number }; control: { reg: number; value_on_add: number } };
   data: { base: number; regs_per_channel: number; read_fc: number; fields: Record<string, FieldDef> };
@@ -63,6 +63,7 @@ export function parseRegMap(text: string): RegMap {
       if (!isNum(f.scale) || f.scale === 0) w(`field ${fk}: scale must be a non-zero number`);
       fields[fk] = { reg: f.reg, type: f.type, scale: f.scale, unit: String(f.unit ?? ""), calibrated: !!f.calibrated, word_order: f.word_order === "low_first" ? "low_first" : "high_first" };
     }
+    for (const pv of [...(t?.presets ?? []), ...(t?.commissioning_presets ?? [])]) if (!isNum(pv) || !isNum(c.interval?.min) || pv < c.interval.min || pv > c.interval.max) w(`interval preset ${pv} is outside config.interval min..max`);
     if (isInt(t?.groups) && isInt(c.base) && isInt(c.regs_per_group)) {
       const hi = c.base + t.groups * c.regs_per_group - 1; if (hi > 0xffff) w("config range exceeds 0xFFFF"); ranges.push({ name: `${key}.config`, lo: c.base, hi });
     }
@@ -71,7 +72,7 @@ export function parseRegMap(text: string): RegMap {
     }
     types[key] = { key, enabled: t?.enabled === true, label: String(t?.label ?? key), models: Array.isArray(t?.models) ? t.models.map(String) : [], groups: t?.groups,
       low_voltage: isNum(t?.low_voltage) ? t.low_voltage : 3.2, default_interval: isInt(t?.default_interval, 1, 1e6) ? t.default_interval : 300,
-      presets: Array.isArray(t?.presets) ? t.presets.filter(isNum) : [], config: { base: c.base, regs_per_group: c.regs_per_group, write_fc: c.write_fc, read_fc: c.read_fc,
+      presets: Array.isArray(t?.presets) ? t.presets.filter(isNum) : [], commissioning_presets: Array.isArray(t?.commissioning_presets) ? t.commissioning_presets.filter(isNum) : [], config: { base: c.base, regs_per_group: c.regs_per_group, write_fc: c.write_fc, read_fc: c.read_fc,
         serial: { reg: c.serial?.reg, regs: 2, word_order: c.serial?.word_order }, interval: { reg: c.interval?.reg, unit: String(c.interval?.unit ?? "seconds"), min: c.interval?.min, max: c.interval?.max },
         control: { reg: c.control?.reg, value_on_add: isInt(c.control?.value_on_add) ? c.control.value_on_add : 0 } },
       data: { base: d.base, regs_per_channel: d.regs_per_channel, read_fc: d.read_fc, fields } };

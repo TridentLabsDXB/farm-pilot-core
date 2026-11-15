@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Scada, type SensorView } from "./api";
 import { go } from "./App";
-import { Battery, Chip, Modal, Signal, StatusChip, SYNC, ago, dateOnly, dayMon, dt, dur, errText, fmt, hhmm } from "./ui";
+import { Battery, Chip, Modal, Signal, StatusChip, SYNC, ago, dateOnly, dayMon, dt, dur, errText, fmt, hhmm, parseDate } from "./ui";
+const addMonths = (n: number) => { const d = new Date(); d.setMonth(d.getMonth() + n); return d.getTime(); };
 
 interface Detail { sensor: SensorView | null; row: { serial: string; type: string; label: string; replacedBy: string | null; slot: number | null }; calibrations: any[]; active: Record<string, any>; limits: Record<string, { maxOffset: number; gainMin: number; gainMax: number }>;
   type: { presets: number[]; min: number; max: number; label: string } }
@@ -42,7 +43,7 @@ export default function SensorDetail({ serial, focus, scada, reload }: { serial:
   return (<>
     <section className="fp-card">
       <div className="fp-row fp-spread"><button className="fp-btn small" onClick={() => go("/settings/sensors")}>← Sensors</button>{s && <span className="fp-row"><StatusChip status={s.status} /><Chip tone={SYNC[s.syncState][0]}>{SYNC[s.syncState][1]}</Chip></span>}</div>
-      <div className="fp-row fp-spread"><div><h3>{d.row.label || "No label"}</h3><span className="fp-cap">{serial} · {d.type.label} · slot {d.row.slot ?? "--"}{d.row.replacedBy ? ` · replaced by ${d.row.replacedBy}` : ""}</span></div>
+      <div className="fp-row fp-spread"><div><h3>{d.row.label || serial}</h3><span className="fp-cap">{d.type.label} · slot {d.row.slot ?? "--"}{d.row.label ? ` · ${serial}` : ""}{d.row.replacedBy ? ` · replaced by ${d.row.replacedBy}` : ""}</span></div>
         {s && <Identity serial={serial} label={d.row.label} zoneId={s.zoneId} zones={zones} onDone={() => { load(); reload(); }} onErr={(e) => setMsg({ t: "err", s: e })} />}</div>
       {msg && <p className={`fp-msg ${msg.t}`} role="status">{msg.s}</p>}
       {!s && <p className="fp-msg fp-muted">This sensor was replaced. Its history stays available; it is no longer polled.</p>}
@@ -57,7 +58,7 @@ export default function SensorDetail({ serial, focus, scada, reload }: { serial:
       <div className="fp-tiles" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))" }}>
         <div className="fp-tile"><span className="fp-cap">Battery</span><Battery v={s.voltage} low={s.lowVoltage} /><span className="fp-cap" style={{ textTransform: "none" }}>{s.voltage && s.voltage < s.lowVoltage ? "LOW" : "OK"}, warns below {s.lowVoltage.toFixed(2)} V</span></div>
         <div className="fp-tile"><span className="fp-cap">Signal</span><Signal rssi={s.rssi} band={s.rssiBand} /></div>
-        <div className="fp-tile"><span className="fp-cap">Reporting interval</span><span className="fp-num" style={{ fontWeight: 700 }}>{dur(s.intervalSec)} {s.applying && <Chip tone="info">APPLYING</Chip>}</span><span className="fp-cap" style={{ textTransform: "none" }}>offline after {dur(s.offlineAfterSec)}</span></div></div>
+        <div className="fp-tile"><span className="fp-cap">Reporting interval</span><span className="fp-num" style={{ fontWeight: 700 }}>{dur(s.intervalSec)} {s.applying && <Chip tone="info">APPLYING</Chip>}{!s.intervalOk && <Chip tone="warn" title="Not in the allowed set; choose another on the sensor list.">NOT ALLOWED</Chip>}</span><span className="fp-cap" style={{ textTransform: "none" }}>offline after {dur(s.offlineAfterSec)}</span></div></div>
     </div>
     <div ref={calRef} style={{ scrollMarginTop: 88 }}><CalCard d={d} metric={metric} raw={raw} serial={serial} onDone={(m) => { setMsg({ t: "ok", s: m }); load(); reload(); }} onErr={(e) => setMsg({ t: "err", s: e })} /></div>
     </div>}
@@ -85,7 +86,7 @@ function CalCard({ d, metric, raw, serial, onDone, onErr }: { d: Detail; metric:
   }, [mode, ref, raw2, ref2, off, gain, raw]);
   const viol = calc ? [...(Math.abs(calc.offset) > lim.maxOffset ? [`offset ${calc.offset} is outside ±${lim.maxOffset}`] : []), ...(calc.gain < lim.gainMin || calc.gain > lim.gainMax ? [`gain ${calc.gain} is outside ${lim.gainMin}-${lim.gainMax}`] : [])] : [];
   const apply = () => {
-    const dueAt = due ? new Date(due + "T12:00:00").getTime() : null;
+    const dueAt = due.trim() ? parseDate(due) : null;
     const body: any = { metric, method: mode, dueAt, confirmOutOfLimits: ok };
     if (mode === "offset") Object.assign(body, { raw, reference: Number(ref) }); else if (mode === "two_point") Object.assign(body, { raw, reference: Number(ref), raw2: Number(raw2), reference2: Number(ref2) }); else Object.assign(body, { offset: Number(off), gain: Number(gain) });
     api(`/sensors/${serial}/calibrate`, { method: "POST", json: body }).then(() => { setRef(""); setOk(false); onDone("Calibration applied."); }).catch((e) => onErr(errText(e)));
@@ -102,8 +103,11 @@ function CalCard({ d, metric, raw, serial, onDone, onErr }: { d: Detail; metric:
       <div className="fp-inset"><span className="fp-cap">3 · New correction</span>
         {calc ? <div className="fp-num" style={{ marginTop: 4 }}>{mode === "offset" && raw !== undefined ? `raw ${raw.toFixed(1)}, reference ${ref}, ` : ""}offset {calc.offset >= 0 ? "+" : ""}{calc.offset}{calc.gain !== 1 ? `, gain ${calc.gain}` : ""}</div> : <div className="fp-num fp-muted" style={{ marginTop: 4 }}>enter the values above</div>}
         {calc && (viol.length ? <div style={{ marginTop: 6 }}><Chip tone="alarm">OUTSIDE LIMIT</Chip><p className="fp-msg err">{viol.join("; ")}. The sensor will be flagged CHECK SENSOR.</p><label className="fp-row"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} /> I understand, apply anyway</label></div> : <div style={{ marginTop: 6 }}><Chip tone="ok">WITHIN LIMIT ±{lim.maxOffset}</Chip></div>)}</div>
-      <label className="fp-field"><span className="fp-cap">Calibration due date (optional)</span><input className="fp-input" type="date" value={due} onChange={(e) => setDue(e.target.value)} /></label>
-      <div className="fp-row"><button className="fp-btn primary" disabled={!calc || (viol.length > 0 && !ok)} onClick={apply}>Apply calibration</button><button className="fp-btn" onClick={() => { setRef(""); setRaw2(""); setRef2(""); setOk(false); }}>Cancel</button></div>
+      <div className="fp-field"><span className="fp-cap">Calibration due date (optional)</span>
+        <div className="fp-row"><input className="fp-input" style={{ width: 150 }} aria-label="Calibration due date" value={due} onChange={(e) => setDue(e.target.value)} placeholder="16 Nov 2026" />
+          <button type="button" className="fp-btn small" onClick={() => setDue(dateOnly(addMonths(6)))}>+6 months</button><button type="button" className="fp-btn small" onClick={() => setDue(dateOnly(addMonths(12)))}>+1 year</button>{due && <button type="button" className="fp-btn small" onClick={() => setDue("")}>Clear</button>}</div>
+        {due.trim() !== "" && parseDate(due) === null && <span className="fp-msg err">Use a date like 16 Nov 2026.</span>}</div>
+      <div className="fp-row"><button className="fp-btn primary" disabled={!calc || (viol.length > 0 && !ok) || (due.trim() !== "" && parseDate(due) === null)} onClick={apply}>Apply calibration</button><button className="fp-btn" onClick={() => { setRef(""); setRaw2(""); setRef2(""); setOk(false); }}>Cancel</button></div>
       <span className="fp-cap" style={{ textTransform: "none" }}>{act ? `Calibrated ${dt(act.calibrated_at)} by ${act.calibrated_by}${act.due_at ? `, due ${dateOnly(act.due_at)}` : ""}` : "Not calibrated. The sensor shows raw values."}</span>
       <div className="fp-row"><button className="fp-btn small danger" disabled={!act} onClick={() => setConfirmReset(true)}>Reset to raw</button><button className="fp-btn small" onClick={() => setHist(!hist)}>History</button></div>
       {hist && <ul className="fp-list">{hist2.map((c) => <li key={c.id}><span>{dt(c.calibrated_at)} · {c.method}</span><span className="fp-muted">×{c.gain} {c.offset >= 0 ? "+" : ""}{c.offset} · {c.calibrated_by}{c.active ? " · ACTIVE" : ""}</span></li>)}{!hist2.length && <li className="fp-muted">No calibration yet.</li>}</ul>}

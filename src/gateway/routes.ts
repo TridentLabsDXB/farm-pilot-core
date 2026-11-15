@@ -18,7 +18,7 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   const A = (req: any) => ({ username: req.user.username as string, role: req.user.role as string });
   app.setErrorHandler((err: any, _req, reply) => { if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message, ...(err.extra as object) }); reply.send(err); });
   const guard = <T>(f: () => T) => { const r = f(); push(); return r; };
-  const typesInfo = () => Object.values(reg.map.types).filter((t) => t.enabled).map((t) => ({ key: t.key, label: t.label, ...reg.usage(t.key), presets: t.presets, defaultInterval: t.default_interval, min: t.config.interval.min, max: t.config.interval.max, models: t.models }));
+  const typesInfo = () => Object.values(reg.map.types).filter((t) => t.enabled).map((t) => ({ key: t.key, label: t.label, ...reg.usage(t.key), presets: reg.allowedIntervals(t.key), commissioningPresets: t.commissioning_presets, commissioning: reg.settings().commissioning, defaultInterval: t.default_interval, min: t.config.interval.min, max: t.config.interval.max, models: t.models }));
 
   app.get("/api/scada", async (req) => buildView(db, reg, svc, (req as any).user.role === "admin"));
   app.get("/api/alarms", async (req) => buildView(db, reg, svc, false).alarms);
@@ -37,7 +37,9 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   app.post<{ Body: { type: string } }>("/api/gateway/sync/plan", { preHandler: admin }, async (req) => svc.preview(String(req.body?.type ?? "th")));
   app.post<{ Body: { types?: string[]; confirm?: boolean } }>("/api/gateway/sync", { preHandler: admin }, async (req) => { const r = await svc.sync(A(req), req.body?.types?.length ? req.body.types : ["th"], !!req.body?.confirm); push(); return r; });
   app.post<{ Body: { confirmText?: string } }>("/api/gateway/delete-all", { preHandler: admin }, async (req) => {
-    if (req.body?.confirmText !== "DELETE ALL") throw new HttpError(400, 'type "DELETE ALL" to confirm'); await svc.deleteAll(A(req)); push(); return { ok: true };
+    // Strong confirmation: the Admin must type the farm name exactly (as shown in the dialog). Wrong text = nothing happens, and the refusal is audited too.
+    if (req.body?.confirmText !== config.farm) { audit(db, A(req).username, A(req).role, "gateway.delete_all.refused", { reason: "confirmation text did not match" }); throw new HttpError(400, `type the farm name "${config.farm}" to confirm`); }
+    await svc.deleteAll(A(req)); push(); return { ok: true };
   });
   app.post<{ Body: { serial: string } }>("/api/gateway/unassigned/ignore", { preHandler: admin }, async (req) => { svc.ignore(A(req), String(req.body?.serial ?? "")); push(); return { ok: true }; });
   app.post<{ Body: { serial: string } }>("/api/gateway/unassigned/add", { preHandler: admin }, async (req) => guard(() => {

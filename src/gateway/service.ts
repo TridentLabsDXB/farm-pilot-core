@@ -149,10 +149,13 @@ export class GatewayService extends EventEmitter {
   /** Factory reset of the gateway: FC06 0x0003 = 0. Callers must have an explicit Admin confirmation. */
   async deleteAll(a: Actor) {
     this.requireOnline(); this.syncing = true; await this.pause();
+    const inGateway = this.reg.all().filter((s) => s.sent_slot !== null && !s.replaced_by).length;
+    audit(this.db, a.username, a.role, "gateway.delete_all.request", { sensors_in_gateway: inGateway });          // written BEFORE the destructive write
     try {
-      await this.drv!.deleteAll(); audit(this.db, a.username, a.role, "gateway.delete_all", {});
+      await this.drv!.deleteAll(); audit(this.db, a.username, a.role, "gateway.delete_all", { sensors_in_gateway_before: inGateway });
       for (const t of Object.values(this.drv!.map.types)) if (t.enabled) { this.lastConfig[t.key] = await this.drv!.readConfig(t.key, "write"); this.reconcile(t.key); }
       this.db.prepare("DELETE FROM pending_removals").run();
+    } catch (e) { audit(this.db, a.username, a.role, "gateway.delete_all.failed", { error: String((e as Error)?.message ?? e) }); throw e;
     } finally { this.syncing = false; this.resume(); this.emit("update"); }
   }
 }

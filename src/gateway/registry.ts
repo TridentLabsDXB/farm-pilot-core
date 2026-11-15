@@ -17,12 +17,13 @@ export class Registry {
   settings() {
     const g = (k: string, d: number) => Number(getSetting(this.db, k, String(d)));
     const types: Record<string, { low_voltage: number }> = {}; for (const t of Object.values(this.map.types)) types[t.key] = { low_voltage: g(`gw.low_voltage.${t.key}`, t.low_voltage) };
-    return { pollSec: g("gw.poll_sec", 30), offlineMultiplier: g("gw.offline_mult", this.map.health.offline_multiplier), offlineCycles: g("gw.offline_cycles", 3), rssiGood: g("gw.rssi_good", this.map.health.rssi_good_above), rssiPoor: g("gw.rssi_poor", this.map.health.rssi_poor_below),
+    return { commissioning: getSetting(this.db, "gw.commissioning", "0") === "1", pollSec: g("gw.poll_sec", 30), offlineMultiplier: g("gw.offline_mult", this.map.health.offline_multiplier), offlineCycles: g("gw.offline_cycles", 3), rssiGood: g("gw.rssi_good", this.map.health.rssi_good_above), rssiPoor: g("gw.rssi_poor", this.map.health.rssi_poor_below),
       calDueWarnDays: g("cal.default_due_days", 0), types, limits: this.limits() };
   }
   limits(): Record<string, Limits> { try { return { ...DEFAULT_LIMITS, ...JSON.parse(getSetting(this.db, "cal.limits", "{}")) }; } catch { return DEFAULT_LIMITS; } }
   saveSettings(a: Actor, b: any) {
     const num = (v: unknown, lo: number, hi: number, name: string) => { const n = Number(v); if (!Number.isFinite(n) || n < lo || n > hi) throw bad(`${name} must be ${lo}..${hi}`); return n; };
+    if (b.commissioning !== undefined) { if (typeof b.commissioning !== "boolean") throw bad("commissioning must be true or false"); setSetting(this.db, "gw.commissioning", b.commissioning ? "1" : "0"); }
     if (b.pollSec !== undefined) setSetting(this.db, "gw.poll_sec", String(num(b.pollSec, 10, 3600, "pollSec")));
     if (b.offlineMultiplier !== undefined) setSetting(this.db, "gw.offline_mult", String(num(b.offlineMultiplier, 1, 20, "offlineMultiplier")));
     if (b.rssiGood !== undefined || b.rssiPoor !== undefined) { const g = num(b.rssiGood ?? this.settings().rssiGood, -130, 0, "rssiGood"), p = num(b.rssiPoor ?? this.settings().rssiPoor, -130, 0, "rssiPoor"); if (p >= g) throw bad("poor must be below good"); setSetting(this.db, "gw.rssi_good", String(g)); setSetting(this.db, "gw.rssi_poor", String(p)); }
@@ -30,6 +31,12 @@ export class Registry {
     if (b.limits) setSetting(this.db, "cal.limits", JSON.stringify(b.limits));
     audit(this.db, a.username, a.role, "gateway.settings", b);
   }
+
+  // ---- reporting intervals ----
+  // The ONLY accepted intervals are the type's presets (T/H: 1 min and 5 min), plus the commissioning presets (T/H: 30 s) while the Admin commissioning option is on.
+  // Nothing else is accepted: no custom values, no 10 s. A value that is already stored (older builds, backups, groups adopted from the gateway) stays displayable and is flagged.
+  allowedIntervals(type: string): number[] { const t = this.map.types[type]; return [...t.presets, ...(this.settings().commissioning ? t.commissioning_presets : [])].sort((a, b) => a - b); }
+  intervalOk(type: string, sec: number) { return this.allowedIntervals(type).includes(sec); }
 
   // ---- sensors ----
   list(): SensorRow[] { return this.db.prepare("SELECT * FROM sensors WHERE replaced_by IS NULL ORDER BY type, COALESCE(slot, 999), serial").all() as SensorRow[]; }
@@ -67,8 +74,8 @@ export class Registry {
     if (b.label !== undefined) this.db.prepare("UPDATE sensors SET label=? WHERE serial=?").run(String(b.label).slice(0, 60), serial);
     if (b.zone_id !== undefined) this.assignZone(a, serial, b.zone_id);
     if (b.interval !== undefined) {
-      const t = this.map.types[s.type].config.interval, v = Number(b.interval);
-      if (!Number.isInteger(v) || v < t.min || v > t.max) throw bad(`interval must be a whole number of seconds ${t.min}..${t.max}`);
+      const v = Number(b.interval), ok = this.allowedIntervals(s.type); const words = ok.map((x) => (x % 60 === 0 ? `${x / 60} min` : `${x} s`)).join(", ");
+      if (!Number.isInteger(v) || !ok.includes(v)) throw bad(`interval must be one of: ${words}${this.settings().commissioning || !this.map.types[s.type].commissioning_presets.length ? "" : ` (${this.map.types[s.type].commissioning_presets.map((x) => x + " s").join(", ")} needs commissioning mode)`}`);
       this.db.prepare("UPDATE sensors SET reporting_interval=? WHERE serial=?").run(v, serial);
     }
     audit(this.db, a.username, a.role, "sensor.update", { serial, ...b });
