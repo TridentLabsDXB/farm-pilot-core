@@ -11,19 +11,30 @@ export interface SensorRow { serial: string; type: string; label: string; zone_i
 
 export const topicFor = (type: string) => `gateway/${type}`;
 
+export const COMMISSIONING_MS = 8 * 3600_000;
 export class Registry {
+  now = () => Date.now();                                  // replaceable clock (tests)
   constructor(private db: Db, public map: RegMap) {}
+  /** Commissioning mode (short T/H intervals allowed). Switches itself off after 8 hours; the automatic switch-off is audited as user "system". Checked on every read, so it holds even if no timer runs. */
+  commissioning(): { on: boolean; until: number | null } {
+    if (getSetting(this.db, "gw.commissioning", "0") !== "1") return { on: false, until: null };
+    const now = this.now(); let since = Number(getSetting(this.db, "gw.commissioning_since", "0"));
+    if (!since) { since = now; setSetting(this.db, "gw.commissioning_since", String(since)); }
+    if (now - since >= COMMISSIONING_MS) { setSetting(this.db, "gw.commissioning", "0"); setSetting(this.db, "gw.commissioning_since", "0"); audit(this.db, "system", "system", "gateway.commissioning.auto_off", { since, after_hours: 8 }); return { on: false, until: null }; }
+    return { on: true, until: since + COMMISSIONING_MS };
+  }
   // ---- settings ----
   settings() {
     const g = (k: string, d: number) => Number(getSetting(this.db, k, String(d)));
     const types: Record<string, { low_voltage: number }> = {}; for (const t of Object.values(this.map.types)) types[t.key] = { low_voltage: g(`gw.low_voltage.${t.key}`, t.low_voltage) };
-    return { commissioning: getSetting(this.db, "gw.commissioning", "0") === "1", pollSec: g("gw.poll_sec", 30), offlineMultiplier: g("gw.offline_mult", this.map.health.offline_multiplier), offlineCycles: g("gw.offline_cycles", 3), rssiGood: g("gw.rssi_good", this.map.health.rssi_good_above), rssiPoor: g("gw.rssi_poor", this.map.health.rssi_poor_below),
+    const c = this.commissioning();
+    return { commissioning: c.on, commissioningUntil: c.until, pollSec: g("gw.poll_sec", 30), offlineMultiplier: g("gw.offline_mult", this.map.health.offline_multiplier), offlineCycles: g("gw.offline_cycles", 3), rssiGood: g("gw.rssi_good", this.map.health.rssi_good_above), rssiPoor: g("gw.rssi_poor", this.map.health.rssi_poor_below),
       calDueWarnDays: g("cal.default_due_days", 0), types, limits: this.limits() };
   }
   limits(): Record<string, Limits> { try { return { ...DEFAULT_LIMITS, ...JSON.parse(getSetting(this.db, "cal.limits", "{}")) }; } catch { return DEFAULT_LIMITS; } }
   saveSettings(a: Actor, b: any) {
     const num = (v: unknown, lo: number, hi: number, name: string) => { const n = Number(v); if (!Number.isFinite(n) || n < lo || n > hi) throw bad(`${name} must be ${lo}..${hi}`); return n; };
-    if (b.commissioning !== undefined) { if (typeof b.commissioning !== "boolean") throw bad("commissioning must be true or false"); setSetting(this.db, "gw.commissioning", b.commissioning ? "1" : "0"); }
+    if (b.commissioning !== undefined) { if (typeof b.commissioning !== "boolean") throw bad("commissioning must be true or false"); const was = this.commissioning().on; setSetting(this.db, "gw.commissioning", b.commissioning ? "1" : "0"); if (b.commissioning && !was) setSetting(this.db, "gw.commissioning_since", String(this.now())); if (!b.commissioning) setSetting(this.db, "gw.commissioning_since", "0"); }
     if (b.pollSec !== undefined) setSetting(this.db, "gw.poll_sec", String(num(b.pollSec, 10, 3600, "pollSec")));
     if (b.offlineMultiplier !== undefined) setSetting(this.db, "gw.offline_mult", String(num(b.offlineMultiplier, 1, 20, "offlineMultiplier")));
     if (b.rssiGood !== undefined || b.rssiPoor !== undefined) { const g = num(b.rssiGood ?? this.settings().rssiGood, -130, 0, "rssiGood"), p = num(b.rssiPoor ?? this.settings().rssiPoor, -130, 0, "rssiPoor"); if (p >= g) throw bad("poor must be below good"); setSetting(this.db, "gw.rssi_good", String(g)); setSetting(this.db, "gw.rssi_poor", String(p)); }

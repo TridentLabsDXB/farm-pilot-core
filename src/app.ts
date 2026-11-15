@@ -81,6 +81,12 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
     audit(db, req.user!.username, req.user!.role, "user.update", { id, password: password !== undefined, active });
     return { ok: true };
   });
+  app.delete<{ Params: { id: string } }>("/api/users/:id", { preHandler: admin }, async (req, reply) => {
+    const id = Number(req.params.id); const u = db.prepare("SELECT username FROM users WHERE id=?").get(id) as { username: string } | undefined;
+    if (!u) return reply.code(404).send({ error: "user not found" }); if (id === req.user!.id) return reply.code(400).send({ error: "cannot delete yourself" });
+    db.transaction(() => { db.prepare("DELETE FROM sessions WHERE user_id=?").run(id); db.prepare("DELETE FROM users WHERE id=?").run(id); audit(db, req.user!.username, req.user!.role, "user.delete", { id, username: u.username }); })();
+    return { ok: true };      // audit_log keeps every row the user ever wrote (append-only), by username
+  });
   app.put<{ Body: { commandTimeoutSec?: number } }>("/api/settings", { preHandler: admin }, async (req, reply) => {
     const v = Number(req.body?.commandTimeoutSec);
     if (!Number.isInteger(v) || v < 3 || v > 120) return reply.code(400).send({ error: "timeout 3-120 s" });

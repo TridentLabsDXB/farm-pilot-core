@@ -18,5 +18,5 @@ export interface SensorView {
 }
 export interface Alarm { kind: string; severity: "alarm" | "warning"; text: string; serial?: string; since?: number | null; }
 export interface ZoneView { id: number; name: string; type: string; status: string; noUpdate: number; lowBattery: number; avgTemperature: number | null; avgHumidity: number | null; reporting: number; total: number; sensors: SensorView[]; }
-export interface Scada { gateway: { enabled: boolean; online: boolean; lastOk: number | null; model: string }; zones: ZoneView[]; sensors: SensorView[]; alarms: Alarm[]; settings: { rssiGood: number; rssiPoor: number }; now: number; }
+export interface Scada { commissioning?: { on: boolean; until: number | null }; gateway: { enabled: boolean; online: boolean; lastOk: number | null; model: string }; zones: ZoneView[]; sensors: SensorView[]; alarms: Alarm[]; settings: { rssiGood: number; rssiPoor: number }; now: number; }
 export interface TypeInfo { key: string; label: string; used: number; groups: number; presets: number[]; commissioningPresets: number[]; commissioning: boolean; defaultInterval: number; min: number; max: number; models: string[]; }

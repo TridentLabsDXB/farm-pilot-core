@@ -38,3 +38,8 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   return <div className="fp-modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className="fp-card fp-dialog"><div className="fp-row fp-spread"><h3>{title}</h3><button className="fp-btn small" onClick={onClose} aria-label="Close">Close</button></div>{children}</div></div>;
 }
 export const errText = (e: any) => String(e?.message ?? e);
+
+/** Shown while commissioning mode (short T/H intervals) is on; it switches itself off after 8 hours. */
+export const CommissioningBanner = ({ until, onOff }: { until: number | null; onOff?: () => void }) => (
+  <div className="fp-banner" data-tone="warn" role="status"><b>COMMISSIONING MODE ON</b><span>short intervals reduce battery life · switches off by itself at {until ? hhmm(until) : "--"}</span>{onOff && <button className="fp-btn small" onClick={onOff}>Switch off now</button>}</div>
+);

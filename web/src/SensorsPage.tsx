@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type Scada, type SensorView, type TypeInfo } from "./api";
 import { go } from "./App";
 import Scan, { scanSupported } from "./Scan";
-import { Battery, Chip, Modal, Signal, SYNC, StatusChip, ago, dt, dur, errText } from "./ui";
+import { Battery, Chip, CommissioningBanner, Modal, Signal, SYNC, StatusChip, ago, dt, dur, errText } from "./ui";
 
 export const linkText = (l: GwInfo["link"]) => (!l ? "no link configured" : l.transport === "rtu-serial" ? `${l.serialPath} · ${l.baud} 8${l.parity === "none" ? "N" : l.parity === "even" ? "E" : "O"}1` : `${l.transport === "tcp" ? "Modbus TCP" : "RTU over TCP"} ${l.host}:${l.port}`);
 export interface GwInfo { link: null | { transport: string; host: string; port: number; serialPath: string; baud: number; parity: string; dataBits: number; stopBits: number; address: number; timeoutMs: number; retries: number }; enabled: boolean; online: boolean; lastOk: number | null; lastError: string | null; model: string; mapVersion: number; info: { address?: number; version?: number }; types: TypeInfo[]; unsent: number;
@@ -33,6 +33,7 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
   const interval = (s: SensorView) => (
     <span className="stack"><select className="fp-input" aria-label={`Interval for ${s.label}`} value={s.intervalSec} onChange={(e) => setInterval_(s, e.target.value)}>{presets(s).map((p) => <option key={p} value={p}>{dur(p)}{s.intervalOk || p !== s.intervalSec ? "" : " (not allowed)"}</option>)}</select>{!s.intervalOk && <Chip tone="warn" title="This stored value is not in the allowed set. Choose an allowed interval.">NOT ALLOWED</Chip>}{s.applying && <Chip tone="info">APPLYING</Chip>}</span>);
   return (<>
+    {th?.commissioning && <CommissioningBanner until={scada?.commissioning?.until ?? null} onOff={() => setCommissioning(false)} />}
     <section className="fp-card">
       <div className="fp-row fp-spread"><div><h3>Gateway</h3><span className="fp-cap">{gw.model} · {linkText(gw.link)} · address {gw.info.address ?? "--"} · map v{gw.mapVersion} · poll {gw.settings.pollSec} s</span></div>
         {!gw.enabled ? <Chip tone="off">NO GATEWAY</Chip> : gw.online ? <Chip tone="ok">GATEWAY ONLINE</Chip> : <Chip tone="alarm">GATEWAY OFFLINE</Chip>}</div>
@@ -45,7 +46,7 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
     <div className="fp-two"><section className="fp-card">
       <div className="fp-row fp-spread"><h3>Sensors</h3><div className="fp-row"><button className="fp-btn" onClick={() => setAdding(true)}>Add sensors</button>{scanSupported() && <button className="fp-btn" onClick={() => setAdding(true)}>Scan QR</button>}</div></div>
       <span className="fp-hint">Click a row to open the sensor: label, zone, calibration, replace and remove are all on its page.</span>
-      <label className="fp-row fp-cap" style={{ textTransform: "none", letterSpacing: ".02em" }}><input type="checkbox" checked={!!th?.commissioning} onChange={(e) => setCommissioning(e.target.checked)} /> Commissioning mode: also allow {(th?.commissioningPresets ?? []).map((p) => dur(p)).join(", ") || "short intervals"} (short intervals reduce battery life). Allowed otherwise: {(th?.presets ?? []).filter((p) => !(th?.commissioningPresets ?? []).includes(p)).map(dur).join(", ")}.</label>
+      <label className="fp-row fp-cap" style={{ textTransform: "none", letterSpacing: ".02em" }}><input type="checkbox" checked={!!th?.commissioning} onChange={(e) => setCommissioning(e.target.checked)} /> Commissioning mode (switches off by itself after 8 hours): also allow {(th?.commissioningPresets ?? []).map((p) => dur(p)).join(", ") || "short intervals"} (short intervals reduce battery life). Allowed otherwise: {(th?.presets ?? []).filter((p) => !(th?.commissioningPresets ?? []).includes(p)).map(dur).join(", ")}.</label>
       <div className="fp-gt" role="table" aria-label="Sensors">
         <div className="fp-gr head" role="row"><span>Slot</span><span>Serial</span><span>Label / zone</span><span>Interval</span><span>Battery / signal</span><span>State</span><span /></div>
         {sensors.map((s) => (

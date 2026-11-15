@@ -3,14 +3,32 @@
 // Interval rule (enforced by the API): T/H accepts 1 min and 5 min always, 30 s only in commissioning mode, never 10 s. This script switches commissioning mode ON for the run
 // (30 s keeps "no update" detection reasonably quick), checks that 10 s and 45 s are rejected, and switches it OFF again at the end. Takes about 7 minutes.
 // It creates, freezes and removes things: do NOT run it on the bench while someone is reviewing it (it raises NO UPDATE and GATEWAY OFFLINE alarms on purpose).
-const BASE = process.env.BASE, CTL = process.env.CTL, U = process.env.USER_NAME || process.env.USER, P = process.env.PASS, OPU = process.env.OP_USER, OPP = process.env.OP_PASS;
+//
+// SAFETY: by default it only runs against an isolated dev instance (loopback address, port other than 4100). Anything else, including the bench, needs the explicit
+// flag  --bench  (and then waits 10 s so it can be aborted). It never acts as a human account: with USER_NAME/PASS (an Admin) it creates its OWN admin user
+// "acceptance" with a random password, does everything as that user (so the audit log shows who acted), and deletes the user again at the end, also after a failure or Ctrl-C.
+const BASE = process.env.BASE, CTL = process.env.CTL, ADMIN_U = process.env.USER_NAME, ADMIN_P = process.env.PASS, OPU = process.env.OP_USER, OPP = process.env.OP_PASS;
+const ACC_USER = "acceptance", ACC_PASS = (await import("node:crypto")).randomBytes(18).toString("base64url");
+if (!BASE || !CTL || !ADMIN_U || !ADMIN_P) { console.error("usage: BASE=... CTL=... USER_NAME=<admin> PASS=... node scripts/acceptance.mjs [--bench]"); process.exit(2); }
+{ const u = new URL(BASE); const dev = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(u.hostname) && (u.port || "80") !== "4100";
+  if (!dev && !process.argv.includes("--bench")) { console.error(`REFUSING to run against ${BASE}: it is not an isolated dev instance. Run it on a dev copy, or add --bench to run it on the bench on purpose.`); process.exit(2); }
+  if (!dev) { console.log(`!! running on the BENCH (${BASE}) as user "${ACC_USER}". It raises NO UPDATE and GATEWAY OFFLINE alarms on purpose. Starting in 10 s, Ctrl-C to abort.`); await new Promise((r) => setTimeout(r, 10000)); } }
 let cookie = ""; const sleep = (ms) => new Promise((r) => setTimeout(r, ms)); let fails = 0;
-const api = async (m, p, b) => { const r = await fetch(BASE + "/api" + p, { method: m, headers: { "content-type": "application/json", cookie }, body: b ? JSON.stringify(b) : undefined }); const sc = r.headers.get("set-cookie"); if (sc) cookie = sc.split(";")[0]; return { status: r.status, body: await r.json().catch(() => ({})) }; };
+const api = async (m, p, b) => { const r = await fetch(BASE + "/api" + p, { method: m, headers: b ? { "content-type": "application/json", cookie } : { cookie }, body: b ? JSON.stringify(b) : undefined }); const sc = r.headers.get("set-cookie"); if (sc) cookie = sc.split(";")[0]; return { status: r.status, body: await r.json().catch(() => ({})) }; };
 const ctl = (p) => fetch(CTL + p, { method: "POST" }).then((r) => r.json());
 const check = (name, ok, extra = "") => { console.log(`${ok ? "PASS" : "FAIL"}  ${name} ${extra}`); if (!ok) fails++; };
 const SERIALS = ["4A01B3F2", "4A01B3F3", "4A01B3F4", "4A01B3F5", "4A01B3F6", "4A01B3F7", "4A01B3F8", "4A01B3F9"];
 
-check("login", (await api("POST", "/login", { username: U, password: P })).status === 200);
+let cleaned = false;
+async function cleanup() {                    // always remove the acceptance user, whatever happened
+  if (cleaned) return; cleaned = true; cookie = "";
+  try { await api("POST", "/login", { username: ADMIN_U, password: ADMIN_P }); const list = (await api("GET", "/users")).body; const u = Array.isArray(list) && list.find((x) => x.username === ACC_USER); if (u) await api("DELETE", `/users/${u.id}`); } catch { /* best effort */ }
+}
+process.on("SIGINT", async () => { await cleanup(); process.exit(130); }); process.on("unhandledRejection", async (e) => { console.error(e); await cleanup(); process.exit(1); });
+await api("POST", "/login", { username: ADMIN_U, password: ADMIN_P }); { const list = (await api("GET", "/users")).body; const old = Array.isArray(list) && list.find((x) => x.username === ACC_USER); if (old) await api("DELETE", `/users/${old.id}`); }
+check("create own acceptance user", (await api("POST", "/users", { username: ACC_USER, password: ACC_PASS, role: "admin" })).status === 200);
+check("login as acceptance", (await api("POST", "/login", { username: ACC_USER, password: ACC_PASS })).status === 200);
+if (process.argv.includes("--selftest")) { await cleanup(); cookie = ""; await api("POST", "/login", { username: ADMIN_U, password: ADMIN_P }); const l = (await api("GET", "/users")).body; check("acceptance user removed", !l.some((x) => x.username === ACC_USER)); console.log(fails ? "SELFTEST FAILED" : "SELFTEST OK (create user, login, delete user)"); process.exit(fails ? 1 : 0); }
 check("commissioning mode on", (await api("PUT", "/gateway/settings", { commissioning: true })).status === 200);
 check("add 8 T/H serials", (await api("POST", "/sensors", { type: "th", serials: SERIALS })).status === 200);
 check("duplicate rejected", (await api("POST", "/sensors", { type: "th", serials: [SERIALS[0]] })).status === 400);
@@ -42,4 +60,5 @@ await ctl("/start"); await sleep(40000); v = (await api("GET", "/scada")).body; 
 check("commissioning mode off again", (await api("PUT", "/gateway/settings", { commissioning: false })).status === 200);
 const after = (await api("GET", "/sensors")).body.sensors; check("stored 30 s values are flagged, still displayed", after.filter((s) => s.intervalSec === 30).every((s) => s.intervalOk === false) && after.some((s) => s.intervalSec === 30));
 check("30 s now rejected", (await api("PATCH", `/sensors/${SERIALS[0]}`, { interval: 30 })).status === 400);
+await cleanup(); { cookie = ""; await api("POST", "/login", { username: ADMIN_U, password: ADMIN_P }); const l = (await api("GET", "/users")).body; check("acceptance user removed", !l.some((x) => x.username === ACC_USER)); }
 console.log(fails ? `\n${fails} FAILED` : "\nALL PASSED"); process.exit(fails ? 1 : 0);

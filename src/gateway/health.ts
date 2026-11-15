@@ -51,5 +51,5 @@ export function buildView(db: Db, reg: Registry, svc: GatewayService, admin: boo
     const status = !online ? "unknown" : !ss.length ? "empty" : noUp ? "no_update" : low ? "low_battery" : "ok";
     return { id: z.id, name: z.name, type: z.type, status, noUpdate: noUp, lowBattery: low, avgTemperature: avg((v) => v.temperature), avgHumidity: avg((v) => v.humidity), reporting: rep.length, total: ss.length, sensors: ss.map((x) => x.v) };
   });
-  return { gateway: { enabled: svc.enabled, online, lastOk: svc.lastOk, model: reg.map.gateway_model }, zones, sensors, alarms, settings: { rssiGood: st.rssiGood, rssiPoor: st.rssiPoor }, now };
+  return { commissioning: { on: st.commissioning, until: st.commissioningUntil }, gateway: { enabled: svc.enabled, online, lastOk: svc.lastOk, model: reg.map.gateway_model }, zones, sensors, alarms, settings: { rssiGood: st.rssiGood, rssiPoor: st.rssiPoor }, now };
 }

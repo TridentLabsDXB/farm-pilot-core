@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { Db } from "../db.js";
 import { audit } from "../db.js";
 import { config } from "../config.js";
+import { AlarmTracker } from "./alarms.js";
 import { buildView } from "./health.js";
 import { HttpError, type Registry } from "./registry.js";
 import type { GatewayService } from "./service.js";
@@ -21,7 +22,12 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   const typesInfo = () => Object.values(reg.map.types).filter((t) => t.enabled).map((t) => ({ key: t.key, label: t.label, ...reg.usage(t.key), presets: reg.allowedIntervals(t.key), commissioningPresets: t.commissioning_presets, commissioning: reg.settings().commissioning, defaultInterval: t.default_interval, min: t.config.interval.min, max: t.config.interval.max, models: t.models }));
 
   app.get("/api/scada", async (req) => buildView(db, reg, svc, (req as any).user.role === "admin"));
+  // Alarm history: the tracker opens/closes alarm_events rows whenever the gateway reports, and every 15 s (staleness is time-based). It also expires commissioning mode after 8 h.
+  const tracker = new AlarmTracker(db, reg, svc); const tick = () => { try { reg.settings(); tracker.tick(); } catch (e) { app.log.error(e); } };
+  const timer = setInterval(tick, 15_000); timer.unref(); app.addHook("onClose", async () => clearInterval(timer)); svc.on("update", tick);
   app.get("/api/alarms", async (req) => buildView(db, reg, svc, false).alarms);
+  app.get<{ Querystring: { limit?: string } }>("/api/alarms/history", async (req) => { tracker.tick(); return tracker.history(Number(req.query.limit ?? 50) || 50, (req as any).user.role === "admin"); });
+  app.post<{ Params: { id: string } }>("/api/alarms/:id/ack", async (req) => { const r = tracker.ack(A(req), Number(req.params.id)); push(); return { ok: true, acked_by: r.acked_by, acked_at: r.acked_at }; });
   app.get("/api/gateway/status", async () => ({ enabled: svc.enabled, online: svc.online, lastOk: svc.lastOk, model: reg.map.gateway_model }));
 
   // ---- gateway ----

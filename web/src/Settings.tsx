@@ -33,7 +33,8 @@ function UsersPage() {
       <table className="fp-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th /></tr></thead><tbody>{users.map((u) => (
         <tr key={u.id}><td className="h">{u.username}</td><td>{u.role}</td><td>{u.active ? "ACTIVE" : "DISABLED"}</td><td><div className="fp-row">
           <button className="fp-btn small" onClick={() => { const p = prompt(`New password for ${u.username} (8+ characters)`); if (p) run(() => api(`/users/${u.id}`, { method: "POST", json: { password: p } }), "Password changed."); }}>Password</button>
-          <button className="fp-btn small" onClick={() => run(() => api(`/users/${u.id}`, { method: "POST", json: { active: !u.active } }), "Updated.")}>{u.active ? "Disable" : "Enable"}</button></div></td></tr>))}</tbody></table>
+          <button className="fp-btn small" onClick={() => run(() => api(`/users/${u.id}`, { method: "POST", json: { active: !u.active } }), "Updated.")}>{u.active ? "Disable" : "Enable"}</button>
+          <button className="fp-btn small danger" onClick={() => confirm(`Delete user ${u.username}? Their past actions stay in the audit log.`) && run(() => api(`/users/${u.id}`, { method: "DELETE" }), "User deleted.")}>Delete</button></div></td></tr>))}</tbody></table>
       <form className="fp-row" onSubmit={(e) => { e.preventDefault(); run(() => api("/users", { method: "POST", json: nu }), "User added.").then(() => setNu({ username: "", password: "", role: "operator" })); }}>
         <input className="fp-input" placeholder="username" aria-label="New username" value={nu.username} onChange={(e) => setNu({ ...nu, username: e.target.value })} />
         <input className="fp-input" placeholder="password (8+)" aria-label="New password" type="password" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} />

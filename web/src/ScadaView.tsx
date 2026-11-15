@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type Cmd, type Scada, type SensorView, type State, type ZoneView } from "./api";
-import { Battery, Chip, Signal, StatusChip, ago, fmt, useNow, type Tone } from "./ui";
+import { Battery, Chip, CommissioningBanner, Signal, StatusChip, ago, fmt, useNow, type Tone } from "./ui";
 
 const ZONE_STATUS = (z: ZoneView): [Tone, string] => z.status === "unknown" ? ["off", "UNKNOWN"] : z.status === "empty" ? ["off", "NO SENSORS"] : z.noUpdate ? ["warn", `${z.noUpdate} NO UPDATE`] : z.lowBattery ? ["warn", "LOW BATTERY"] : ["ok", "ONLINE"];
 
@@ -60,6 +60,7 @@ export default function ScadaView({ state, scada, reload }: { state: State | nul
   const tone = !scada.alarms.length ? "ok" : scada.alarms.some((a) => a.severity === "alarm") ? "alarm" : "warn";
   return (
     <main className="fp-page">
+      {scada.commissioning?.on && <CommissioningBanner until={scada.commissioning.until} />}
       <div className="fp-banner" data-tone={tone} role="status">{!scada.alarms.length ? <><span className="fp-lamp" style={{ width: 10, height: 10, background: "currentColor", borderRadius: "50%" }} />NO ACTIVE ALARMS</> : <><b>{scada.alarms.length} ACTIVE ALARM{scada.alarms.length > 1 ? "S" : ""}</b><span>{worst}</span></>}</div>
       <div className="fp-grid">
         {scada.zones.map((z) => <Zone key={z.id} z={z} now={now} />)}

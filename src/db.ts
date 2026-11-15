@@ -95,5 +95,11 @@ CREATE TABLE IF NOT EXISTS calibrations (
   due_at INTEGER, active INTEGER NOT NULL DEFAULT 1, check_sensor INTEGER NOT NULL DEFAULT 0);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cal_active ON calibrations(serial, metric) WHERE active=1;
 CREATE TABLE IF NOT EXISTS gateway_state (id INTEGER PRIMARY KEY CHECK (id=1), online INTEGER NOT NULL DEFAULT 0, last_ok INTEGER, version INTEGER, address INTEGER, map_version INTEGER, last_error TEXT, updated_at INTEGER);
+-- Alarm history: one row per alarm episode (raised -> cleared), with who acknowledged it. Written by AlarmTracker; the live alarm list itself is still computed on demand.
+CREATE TABLE IF NOT EXISTS alarm_events (
+  id INTEGER PRIMARY KEY, kind TEXT NOT NULL, source TEXT NOT NULL, severity TEXT NOT NULL, text TEXT NOT NULL,
+  raised_at INTEGER NOT NULL, cleared_at INTEGER, acked_by TEXT, acked_at INTEGER);
+CREATE INDEX IF NOT EXISTS idx_alarm_raised ON alarm_events(raised_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_open ON alarm_events(kind, source) WHERE cleared_at IS NULL;
 CREATE TABLE IF NOT EXISTS sync_runs (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, username TEXT NOT NULL, type TEXT NOT NULL, ok INTEGER NOT NULL, result TEXT NOT NULL);
 `;
