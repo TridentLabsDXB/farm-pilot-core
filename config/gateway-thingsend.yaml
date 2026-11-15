@@ -1,0 +1,131 @@
+# ThingSend XZ-DS-MUS2 register map. Source of truth: manual "XZ-DS-MUS2 manual V20".
+# Every value marked ASSUMED is NOT in the manual and must be verified on the real gateway (see README, "Hardware validation checklist").
+# To swap in a real value: edit this file, bump map_version, restart farmpilot-core. The loader refuses to start polling if the file is invalid.
+gateway_model: XZ-DS-MUS2
+manual_version: V20
+map_version: 1
+byte_order: big_endian        # each register is 16 bits, high byte first (per manual)
+default_gateway_address: 1    # ASSUMED. Never 123 or 160; 0x00 and 0xFF are broadcast.
+serial_pattern: "^[0-9A-Fa-f]{8}$"   # 32-bit gateway address as 8 hex digits, as printed on the label. ASSUMED until a label is checked.
+
+system:                       # FC04 read, FC06 write
+  address:       { reg: 0x0000, read_fc: 4, write_fc: 6 }   # FC06 write = set gateway address
+  group_address: { reg: 0x0001, read_fc: 4 }
+  version:       { reg: 0x0002, read_fc: 4 }
+  delete_all:    { reg: 0x0003, write_fc: 6, value: 0 }     # FC06 0x0003 = 0 deletes all configured sensors
+
+health:                       # defaults, all ASSUMED until the battery type is confirmed; Admin can override in Settings
+  offline_multiplier: 3       # missed intervals before "no update"
+  rssi_good_above: -90
+  rssi_poor_below: -105
+
+types:
+  th:                         # XZ-DS01-TH2D / XZ-DS01-TP2C
+    enabled: true
+    label: "T/H"
+    models: [XZ-DS01-TH2D, XZ-DS01-TP2C]
+    groups: 30
+    low_voltage: 3.20         # ASSUMED
+    default_interval: 300     # 5 min
+    presets: [30, 60, 300]
+    config:
+      base: 0x0100            # end 0x0177
+      regs_per_group: 4       # [serial_hi, serial_lo, interval, control]  (order ASSUMED)
+      write_fc: [6, 16]
+      read_fc: 4
+      serial:   { reg: 0, type: u32, regs: 2, word_order: high_first }   # ASSUMED
+      interval: { reg: 2, unit: seconds, min: 10, max: 86400 }          # unit, min, max ASSUMED
+      control:  { reg: 3, value_on_add: 0 }                              # meaning ASSUMED
+    data:
+      base: 0x0001
+      regs_per_channel: 4
+      read_fc: 3
+      fields:
+        temperature: { reg: 0, type: i16, scale: 0.1,  unit: C,   calibrated: true }
+        humidity:    { reg: 1, type: u16, scale: 0.1,  unit: "%RH", calibrated: true }
+        voltage:     { reg: 2, type: u16, scale: 0.01, unit: V }
+        rssi:        { reg: 3, type: i16, scale: 1,    unit: dBm }
+
+  # ---- Disabled placeholders (Milestone 2b). Layouts from the manual. ----
+  gas:                        # CO2 and other gases
+    enabled: false
+    label: "Gas"
+    models: []
+    groups: 15
+    default_interval: 300
+    presets: [60, 300, 900]
+    config: { base: 0x0200, regs_per_group: 4, write_fc: [6, 16], read_fc: 4,
+      serial: { reg: 0, type: u32, regs: 2, word_order: high_first }, interval: { reg: 2, unit: seconds, min: 10, max: 86400 }, control: { reg: 3, value_on_add: 0 } }
+    data:
+      base: 0x1001
+      regs_per_channel: 8
+      read_fc: 3
+      fields:
+        gas_ppm:     { reg: 0, type: u16, scale: 1,    unit: ppm }
+        gas_percent: { reg: 1, type: u16, scale: 0.01, unit: "%" }
+        gas_index:   { reg: 2, type: u16, scale: 1,    unit: "" }
+        pressure:    { reg: 3, type: u16, scale: 1,    unit: mbar }   # 0 = unsupported
+        temperature: { reg: 4, type: i16, scale: 0.1,  unit: C }
+        humidity:    { reg: 5, type: u16, scale: 0.1,  unit: "%RH" }
+        voltage:     { reg: 6, type: u16, scale: 0.01, unit: V }
+        rssi:        { reg: 7, type: i16, scale: 1,    unit: dBm }
+  light:                      # XZ-DS01-LUA, lux/UV
+    enabled: false
+    label: "Light"
+    models: [XZ-DS01-LUA]
+    groups: 30
+    default_interval: 300
+    presets: [60, 300, 900]
+    config: { base: 0x0300, regs_per_group: 4, write_fc: [6, 16], read_fc: 4,
+      serial: { reg: 0, type: u32, regs: 2, word_order: high_first }, interval: { reg: 2, unit: seconds, min: 10, max: 86400 }, control: { reg: 3, value_on_add: 0 } }
+    data:
+      base: 0x2001
+      regs_per_channel: 4
+      read_fc: 3
+      fields:     # lux is u32 over 2 regs; UV variant is /1000
+        lux:     { reg: 0, type: u32, scale: 1,    unit: lux, word_order: high_first }
+        voltage: { reg: 2, type: u16, scale: 0.01, unit: V }
+        rssi:    { reg: 3, type: i16, scale: 1,    unit: dBm }
+  door_smoke:                 # XZ-DS01-DMA
+    enabled: false
+    label: "Door/Smoke"
+    models: [XZ-DS01-DMA]
+    groups: 30
+    default_interval: 300
+    presets: [60, 300, 900]
+    config: { base: 0x0500, regs_per_group: 4, write_fc: [6, 16], read_fc: 4,
+      serial: { reg: 0, type: u32, regs: 2, word_order: high_first }, interval: { reg: 2, unit: seconds, min: 10, max: 86400 }, control: { reg: 3, value_on_add: 0 } }
+    data:
+      base: 0x4001
+      regs_per_channel: 4
+      read_fc: 3
+      fields:
+        status:  { reg: 0, type: u16, scale: 1,    unit: "" }
+        reserved: { reg: 1, type: i16, scale: 1,    unit: "" }   # manual unclear: temperature or reserved
+        voltage: { reg: 2, type: u16, scale: 0.01, unit: V }
+        rssi:    { reg: 3, type: i16, scale: 1,    unit: dBm }
+  soil:                       # XZ-DSF3-SMA/B-X
+    enabled: false
+    label: "Soil"
+    models: [XZ-DSF3-SMA-X, XZ-DSF3-SMB-X]
+    groups: 10
+    default_interval: 1800    # 30 min
+    presets: [1800, 3600, 10800]
+    config: { base: 0x0600, regs_per_group: 4, write_fc: [6, 16], read_fc: 4,
+      serial: { reg: 0, type: u32, regs: 2, word_order: high_first }, interval: { reg: 2, unit: seconds, min: 60, max: 86400 }, control: { reg: 3, value_on_add: 0 } }
+    data:
+      base: 0x5001            # manual text says 0x4001 but its sample frame uses 0x5001: VERIFY (0x4001 would overlap door_smoke)
+      regs_per_channel: 10
+      read_fc: 3
+      fields:
+        temperature: { reg: 0, type: i16, scale: 0.1,  unit: C }
+        humidity:    { reg: 1, type: u16, scale: 0.1,  unit: "%" }
+        ph:          { reg: 2, type: u16, scale: 0.1,  unit: pH }
+        ec:          { reg: 3, type: u16, scale: 1,    unit: uS/cm }
+        salinity:    { reg: 4, type: u16, scale: 1,    unit: mg/L }
+        n:           { reg: 5, type: u16, scale: 1,    unit: mg/L }
+        p:           { reg: 6, type: u16, scale: 1,    unit: mg/L }
+        k:           { reg: 7, type: u16, scale: 1,    unit: mg/L }
+        voltage:     { reg: 8, type: u16, scale: 0.01, unit: V }
+        rssi:        { reg: 9, type: i16, scale: 1,    unit: dBm }
+# Water quality sensors are mentioned in the manual without a protocol: not included.
