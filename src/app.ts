@@ -39,10 +39,11 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands) {
   app.post<{ Body: { username?: string; password?: string } }>("/api/login", async (req, reply) => {
     const username = String(req.body?.username ?? "").slice(0, 64), password = String(req.body?.password ?? "").slice(0, 200);
     const key = `${username.toLowerCase()}|${req.ip}`;
-    if (throttled(key)) return reply.code(429).send({ error: "too many attempts, wait a few minutes" });
+    const until = Math.max(throttled(db, "ui", key), throttled(db, "ip", req.ip));
+    if (until) return reply.code(429).header("retry-after", String(Math.ceil((until - Date.now()) / 1000))).send({ error: "too many attempts, wait a few minutes" });
     const row = db.prepare("SELECT * FROM users WHERE username=? AND active=1").get(username) as any;
-    if (!row || !verifyPassword(password, row.pass_hash)) { noteFail(key); audit(db, username || "?", "unknown", "login.fail", { ip: req.ip }); return reply.code(401).send({ error: "wrong user or password" }); }
-    clearFails(key);
+    if (!row || !verifyPassword(password, row.pass_hash)) { noteFail(db, "ui", key); noteFail(db, "ip", req.ip); audit(db, username || "?", "unknown", "login.fail", { ip: req.ip }); return reply.code(401).send({ error: "wrong user or password" }); }
+    clearFails(db, "ui", key);
     const token = createSession(db, row.id);
     audit(db, row.username, row.role, "login", { ip: req.ip });
     reply.setCookie(COOKIE, token, { httpOnly: true, sameSite: "strict", path: "/", maxAge: config.sessionHours * 3600, secure: secureFor(req.protocol) });

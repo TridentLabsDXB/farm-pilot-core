@@ -41,11 +41,26 @@ export function userFromToken(db: Db, token: string | undefined): AuthUser | nul
 export const destroySession = (db: Db, token: string) => db.prepare("DELETE FROM sessions WHERE token_hash=?").run(sha(token));
 export const purgeSessions = (db: Db) => db.prepare("DELETE FROM sessions WHERE expires_at<?").run(Date.now());
 
-// Failed-login throttle (in memory): 5 failures per username+ip in 5 minutes locks that pair for 5 minutes.
-const fails = new Map<string, { n: number; until: number; first: number }>();
-export function throttled(key: string, now = Date.now()) { const f = fails.get(key); return !!f && f.until > now; }
-export function noteFail(key: string, now = Date.now()) {
-  const f = fails.get(key); if (!f || now - f.first > 300_000) { fails.set(key, { n: 1, until: 0, first: now }); return; }
-  f.n++; if (f.n >= 5) f.until = now + 300_000;
+// Failed-login throttle, DB-backed so a restart does not reset it (Milestone 2).
+// Two scopes: "ui" = username+ip, 5 failures in 5 min lock the pair for 5 min; "ip" = whole address, 20 failures in 5 min lock the IP for 10 min.
+// A lockout writes one audit row (login.lockout). A successful login clears only the username+ip counter, never the IP-wide one.
+const WINDOW = 300_000;
+const RULES = { ui: { max: 5, lock: 300_000 }, ip: { max: 20, lock: 600_000 } } as const;
+export type Scope = keyof typeof RULES;
+export function throttled(db: Db, scope: Scope, key: string, now = Date.now()): number {
+  const r = db.prepare("SELECT locked_until u FROM login_fail WHERE scope=? AND key=?").get(scope, key) as { u: number } | undefined;
+  return r && r.u > now ? r.u : 0;
 }
-export const clearFails = (key: string) => fails.delete(key);
+export function noteFail(db: Db, scope: Scope, key: string, now = Date.now()): boolean {
+  const rule = RULES[scope];
+  const r = db.prepare("SELECT n,first_ts f,locked_until u FROM login_fail WHERE scope=? AND key=?").get(scope, key) as { n: number; f: number; u: number } | undefined;
+  let n = 1, f = now, u = 0;
+  if (r && now - r.f <= WINDOW) { n = r.n + 1; f = r.f; u = r.u; }
+  let locked = false;
+  if (n >= rule.max && u <= now) { u = now + rule.lock; locked = true; }
+  db.prepare("INSERT INTO login_fail(scope,key,n,first_ts,locked_until) VALUES(?,?,?,?,?) ON CONFLICT(scope,key) DO UPDATE SET n=excluded.n,first_ts=excluded.first_ts,locked_until=excluded.locked_until").run(scope, key, n, f, u);
+  if (locked) audit(db, "system", "system", "login.lockout", { scope, key, until: u });
+  return locked;
+}
+export const clearFails = (db: Db, scope: Scope, key: string) => db.prepare("DELETE FROM login_fail WHERE scope=? AND key=?").run(scope, key);
+export const purgeFails = (db: Db, now = Date.now()) => db.prepare("DELETE FROM login_fail WHERE locked_until<? AND first_ts<?").run(now, now - WINDOW);

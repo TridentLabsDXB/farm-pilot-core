@@ -4,7 +4,7 @@ import { openDb, getSetting } from "./db.js";
 import { AedesBroker } from "./broker.js";
 import { Ingest } from "./ingest.js";
 import { Commands, ackTopic, PUMPS } from "./commands.js";
-import { ensureAdmin, purgeSessions } from "./auth.js";
+import { ensureAdmin, purgeFails, purgeSessions } from "./auth.js";
 import { runRetention, runRollup } from "./retention.js";
 import { buildApp } from "./app.js";
 
@@ -35,7 +35,7 @@ await app.listen({ host: config.host, port: config.port });
 
 const timers = [
   setInterval(() => commands.sweep(), 1000),
-  setInterval(() => { try { runRollup(db); purgeSessions(db); } catch (e) { console.error("rollup", e); } }, 10 * 60_000),
+  setInterval(() => { try { runRollup(db); purgeSessions(db); purgeFails(db); } catch (e) { console.error("rollup", e); } }, 10 * 60_000),
   setInterval(() => { runRetention(db, config.retentionDays).then((n) => n && console.log(`retention removed ${n} raw rows`)).catch((e) => console.error("retention", e)); }, 6 * 3600_000),
 ];
 setTimeout(() => runRetention(db, config.retentionDays).catch((e) => console.error("retention", e)), 30_000);

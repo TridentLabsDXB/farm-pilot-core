@@ -46,6 +46,8 @@ CREATE INDEX IF NOT EXISTS idx_commands_created ON commands(created_at);
 -- append-only: who, what, when. Triggers refuse UPDATE and DELETE.
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, username TEXT NOT NULL, role TEXT NOT NULL, action TEXT NOT NULL, detail TEXT);
+CREATE TABLE IF NOT EXISTS login_fail (
+  scope TEXT NOT NULL, key TEXT NOT NULL, n INTEGER NOT NULL, first_ts INTEGER NOT NULL, locked_until INTEGER NOT NULL, PRIMARY KEY (scope, key));
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit_log BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
 `;
