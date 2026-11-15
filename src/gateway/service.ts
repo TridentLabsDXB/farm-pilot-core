@@ -14,7 +14,7 @@ const reasonOf = (e: unknown) => (e instanceof ModbusException ? "write rejected
 export class GatewayService extends EventEmitter {
   online = false; failCycles = 0; lastOk: number | null = null; lastError: string | null = null; info: { address?: number; version?: number } = {};
   paused = false; syncing = false; lastConfig: Record<string, Group[]> = {};
-  private cycle: Promise<void> | null = null; private timer?: NodeJS.Timeout; private n = 0; private stopped = false; private started = false; private obs = new Map<string, number[]>();
+  private cycle: Promise<void> | null = null; private timer?: NodeJS.Timeout; private n = 0; private stopped = false; private started = false; private needFull = true; private obs = new Map<string, number[]>();
   detector: StalenessDetector;
   constructor(private db: Db, private reg: Registry, private ingest: Ingest, public drv: GatewayDriver | null) {
     super(); this.detector = new FingerprintDetector(reg.settings().offlineMultiplier); this.persist();
@@ -43,7 +43,7 @@ export class GatewayService extends EventEmitter {
 
   private ok() { this.failCycles = 0; this.lastError = null; this.lastOk = Date.now(); this.online = true; this.persist(); }
   private fail(e: unknown) {
-    this.lastError = String((e as Error)?.message ?? e);
+    this.lastError = String((e as Error)?.message ?? e); this.needFull = true;      // re-read system + config as soon as the gateway answers again
     if (e instanceof ModbusException) { this.persist(); return; }                      // the gateway answered, so it is online; the request itself was wrong
     this.failCycles++; if (this.failCycles >= this.reg.settings().offlineCycles && this.online) { this.online = false; audit(this.db, "system", "system", "gateway.offline", { error: this.lastError }); }
     if (this.failCycles >= this.reg.settings().offlineCycles) this.online = false; this.persist();
@@ -55,8 +55,8 @@ export class GatewayService extends EventEmitter {
   }
 
   private async pollOnce(now = Date.now()) {
-    const drv = this.drv!; const first = this.n++ % 10 === 0;
-    if (first) { const s = await drv.readSystem(); this.info = { address: s.address, version: s.version }; for (const t of Object.values(drv.map.types)) if (t.enabled) { this.lastConfig[t.key] = await drv.readConfig(t.key); this.reconcile(t.key); } }
+    const drv = this.drv!; const first = this.needFull || this.n++ % 10 === 0;
+    if (first) { const s = await drv.readSystem(); this.info = { address: s.address, version: s.version }; for (const t of Object.values(drv.map.types)) if (t.enabled) { this.lastConfig[t.key] = await drv.readConfig(t.key); this.reconcile(t.key); } this.needFull = false; }
     const cals = this.reg.activeCals(); const all = this.reg.list();
     for (const t of Object.values(drv.map.types)) {
       if (!t.enabled) continue; const sensors = all.filter((s) => s.type === t.key && s.sent_slot !== null); if (!sensors.length) continue;

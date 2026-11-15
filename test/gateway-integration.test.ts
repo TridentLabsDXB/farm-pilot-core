@@ -9,11 +9,11 @@ import { Registry, HttpError } from "../src/gateway/registry.js"; import { Gatew
 const map = loadRegMap("config/gateway-thingsend.yaml"); const A = { username: "admin", role: "admin" };
 const closers: (() => void)[] = []; after(() => closers.forEach((c) => c()));
 const POOL = ["4A01B3F2", "4A01B3F3", "4A01B3F4", "4A01B3F5", "4A01B3F6", "4A01B3F7", "4A01B3F8", "4A01B3F9"];
-async function rig() {
+async function rig(initialPoll = true) {
   const db = openDb(":memory:"); const sim = new GatewaySim(map); const srv = serveSim(sim, 0, "mbap"); await new Promise((r) => srv.once("listening", r));
   const tr = createTransport({ type: "tcp", host: "127.0.0.1", port: (srv.address() as AddressInfo).port }); closers.push(() => { void tr.close(); srv.close(); });
   const drv = new GatewayDriver(new ModbusMaster(tr, { unit: 1, timeoutMs: 150, retries: 0 }), map); const reg = new Registry(db, map); const svc = new GatewayService(db, reg, new Ingest(db), drv);
-  await svc.pollNow(); assert.equal(svc.online, true); return { db, sim, reg, svc };
+  if (initialPoll) { await svc.pollNow(); assert.equal(svc.online, true); } return { db, sim, reg, svc };
 }
 const hist = (db: any, serial: string, metric: string) => db.prepare("SELECT h.value v FROM history_raw h JOIN series s ON s.id=h.series_id WHERE s.sensor_key=? AND s.metric=? ORDER BY h.ts").all(serial, metric).map((r: any) => r.v);
 
@@ -105,4 +105,11 @@ test("backup export/import round trip keeps sensors, intervals, calibrations, st
   const b = JSON.parse(JSON.stringify(reg.exportAll())); reg.restore(A, b);
   assert.equal(reg.list().length, 2); assert.equal(reg.get(POOL[0])!.reporting_interval, 60); assert.equal(reg.calRow(POOL[0], "humidity").gain, 1.02); assert.equal(reg.points().length, 2);
   assert.ok(reg.list().every((s) => s.sent_slot === null)); assert.throws(() => reg.restore(A, { format: "x" }), HttpError); assert.throws(() => reg.restore(A, { ...b, sensors: [b.sensors[0], b.sensors[0]] }), /duplicate/); void db;
+});
+
+test("gateway down at boot: system info and config are read on the first successful cycle, not 10 cycles later", async () => {
+  const { sim, reg, svc } = await rig(false); reg.add(A, "th", [POOL[0]]); sim.preconfigure("th", 0, POOL[0], 300);   // already configured in the gateway (e.g. after a restore)
+  sim.silent = true; await svc.pollNow(); assert.equal(svc.online, false); assert.equal(svc.info.address, undefined);
+  sim.silent = false; await svc.pollNow(); assert.equal(svc.online, true); assert.equal(svc.info.address, 1);
+  assert.equal(reg.get(POOL[0])!.sent_slot, 0);                                  // reconciled from the read-back: IN GATEWAY without a Send
 });
