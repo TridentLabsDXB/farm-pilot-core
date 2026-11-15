@@ -28,12 +28,14 @@ export class GatewayDriver {
   }
   /** Read channel data (FC03) only up to the highest configured slot (1-based), not all groups. Channel i of the result is slot i+1. */
   async readData(typeKey: string, highestSlot: number, prio: Priority = "poll"): Promise<Channel[]> {
-    const t = this.type(typeKey), d = t.data; const n = Math.min(t.groups, highestSlot); if (n <= 0) return [];
+    const t = this.type(typeKey), d = t.data; if (highestSlot > t.groups) throw new Error("slot out of range (1.." + t.groups + ")"); const n = highestSlot; if (n <= 0) return [];
     const regs = await this.master.read(d.read_fc as 3 | 4, d.base, n * d.regs_per_channel, prio);
     const out: Channel[] = [];
     for (let i = 0; i < n; i++) { const slot = i + 1; const r = regs.slice(i * d.regs_per_channel, (i + 1) * d.regs_per_channel); out.push({ slot, regs: r, values: decodeChannel(r, t), allZero: r.every((x) => x === 0) }); }
     return out;
   }
+  /** Address of the first data register of a slot's channel: data.base + (slot - 1) * regs_per_channel. Refuses slots outside 1..groups. */
+  dataAddr(typeKey: string, slot: number) { const t = this.type(typeKey); if (!Number.isInteger(slot) || slot < 1 || slot > t.groups) throw new Error("slot out of range (1.." + t.groups + ")"); return t.data.base + (slot - 1) * t.data.regs_per_channel; }
   groupRegs(typeKey: string, g: { serial: string; interval: number; control?: number }): number[] {
     const t = this.type(typeKey), c = t.config; const r = new Array(c.regs_per_group).fill(0);
     const [a, b] = serialToRegs(g.serial, c.serial.word_order); r[c.serial.reg] = a; r[c.serial.reg + 1] = b; r[c.interval.reg] = g.interval; r[c.control.reg] = g.control ?? c.control.value_on_add; return r;
@@ -44,7 +46,7 @@ export class GatewayDriver {
     if (g.interval < t.config.interval.min || g.interval > t.config.interval.max) throw new Error(`interval ${g.interval} outside ${t.config.interval.min}..${t.config.interval.max}`);
     return this.master.writeN(this.groupAddr(typeKey, slot), this.groupRegs(typeKey, g), "write");
   }
-  clearGroup(typeKey: string, slot: number) { const t = this.type(typeKey); return this.master.writeN(this.groupAddr(typeKey, slot), new Array(t.config.regs_per_group).fill(0), "write"); }
+  async clearGroup(typeKey: string, slot: number) { const t = this.type(typeKey); return this.master.writeN(this.groupAddr(typeKey, slot), new Array(t.config.regs_per_group).fill(0), "write"); }
   /** FC06 write 0 to the delete-all register: removes EVERY configured sensor on the gateway. Callers must have an explicit Admin confirmation. */
   deleteAll() { return this.master.write1(this.map.system.delete_all, this.map.system.delete_all_value, "write"); }
   /** Explicit Admin tool only. Refuses 0, 255 (broadcast), 123 and 160. */
