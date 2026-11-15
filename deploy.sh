@@ -10,7 +10,9 @@ export PATH="$PWD/node/bin:$PATH"
 [ -x node/bin/node ] || { echo "Node runtime missing at $PWD/node (see README, 'Node on the bench')." >&2; exit 1; }
 
 if [ "${1:-}" != "--no-pull" ]; then echo "==> git pull --ff-only"; git pull --ff-only; fi
-echo "==> npm ci"; npm ci --no-audit --no-fund; npm --prefix web ci --no-audit --no-fund
+# --ignore-scripts: better-sqlite3 ships a prebuilt binary (prebuilds/linux-x64.node) but npm would still run an implicit "node-gyp rebuild",
+# which fails on this box (no make/g++) after npm ci has already emptied node_modules. Found 2026-11-16 during Milestone 2 deploy.
+echo "==> npm ci"; npm ci --ignore-scripts --no-audit --no-fund; npm --prefix web ci --ignore-scripts --no-audit --no-fund
 echo "==> build"; npm run build
 chown -R root:root src dist web/dist deploy 2>/dev/null || true; chmod -R a+rX . 
 if ! cmp -s deploy/farmpilot-core.service /etc/systemd/system/farmpilot-core.service; then
