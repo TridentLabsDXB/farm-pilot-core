@@ -18,4 +18,9 @@ export const config = {
   commandTimeoutSec: int("COMMAND_TIMEOUT_SEC", 10),   // default only; Admin can change it in Settings
   dedupeWindowMs: int("COMMAND_DEDUPE_MS", 3000),
   sessionHours: int("SESSION_HOURS", 12),
+  // Milestone 2 gateway (XZ-DS-MUS2). GW_TRANSPORT unset or "off" = no gateway polling (the runtime behaves as in Milestone 1).
+  gwTransport: (env.GW_TRANSPORT || "off") as "off" | "tcp" | "rtu-tcp" | "rtu-serial",
+  gwHost: env.GW_HOST || "127.0.0.1", gwPort: int("GW_PORT", 5020), gwSerialPath: env.GW_SERIAL_PATH || "/dev/ttyUSB0", gwBaud: int("GW_BAUD", 9600),
+  gwParity: (env.GW_PARITY || "none") as "none" | "even" | "odd", gwAddress: int("GW_ADDRESS", 0), gwTimeoutMs: int("GW_TIMEOUT_MS", 1500), gwRetries: int("GW_RETRIES", 2),
+  gwRegmap: env.GW_REGMAP || "config/gateway-thingsend.yaml",
 };

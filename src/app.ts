@@ -13,11 +13,14 @@ import { clearFails, createSession, destroySession, hashPassword, noteFail, thro
 import type { Commands, CommandRow } from "./commands.js";
 import { PUMPS } from "./commands.js";
 import type { Ingest, LiveTopic } from "./ingest.js";
+import type { Registry } from "./gateway/registry.js";
+import type { GatewayService } from "./gateway/service.js";
+import { registerGatewayRoutes } from "./gateway/routes.js";
 
 const COOKIE = "core_session";
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
-export async function buildApp(db: Db, ingest: Ingest, commands: Commands) {
+export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null) {
   const app = Fastify({ logger: { level: "info" }, trustProxy: config.trustProxy, bodyLimit: 64 * 1024 });
   await app.register(cookie);
   await app.register(websocket);
@@ -83,6 +86,9 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands) {
     setSetting(db, "command_timeout_sec", String(v)); audit(db, req.user!.username, req.user!.role, "settings.update", { command_timeout_sec: v });
     return { ok: true };
   });
+
+  if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" })); gw.on("update", () => send({ type: "scada" })); }
+  else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
 
   app.get("/ws", { websocket: true }, (socket, req) => {
     if (!userFromToken(db, req.cookies[COOKIE])) { socket.close(4401, "login required"); return; }

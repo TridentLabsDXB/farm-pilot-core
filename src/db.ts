@@ -13,6 +13,7 @@ export function openDb(path: string): Database.Database {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA);
+  db.exec(SCHEMA_M2);
   return db;
 }
 
@@ -64,3 +65,29 @@ export function setSetting(db: Db, key: string, value: string) {
 export function audit(db: Db, username: string, role: string, action: string, detail: unknown) {
   db.prepare("INSERT INTO audit_log(ts,username,role,action,detail) VALUES(?,?,?,?,?)").run(Date.now(), username, role, action, JSON.stringify(detail));
 }
+
+// Milestone 2 (C1 gateway). Readings still go to series/latest/history_raw/rollup_hourly, keyed by serial + metric:
+// topic "gateway/<type>", sensor_key = serial, metric "temperature" (CALIBRATED) and "temperature_raw" (raw). Rollups, alarms and the SCADA View use the calibrated series.
+export const SCHEMA_M2 = `
+CREATE TABLE IF NOT EXISTS zones (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  type TEXT NOT NULL CHECK (type IN ('climate','soil','water_storage','irrigation','custom')), sort INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS sensors (
+  serial TEXT PRIMARY KEY, type TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL,
+  slot INTEGER, reporting_interval INTEGER NOT NULL, created_at INTEGER NOT NULL, replaced_by TEXT,
+  thresholds TEXT,                                   -- JSON alarm thresholds, moved by Replace sensor
+  sent_slot INTEGER, sent_interval INTEGER,          -- what the gateway is known to hold; differs from slot/reporting_interval = NOT SENT / CHANGED
+  interval_changed_at INTEGER, interval_confirmed INTEGER NOT NULL DEFAULT 1,   -- "applying" until the observed update rate matches
+  fp TEXT, last_change INTEGER);                     -- staleness: fingerprint of the last channel frame and when CORE last saw it change
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sensor_slot ON sensors(type, slot) WHERE slot IS NOT NULL AND replaced_by IS NULL;
+-- sensors deleted in CORE whose group is still in the gateway: the next Send clears them. Their slot is NOT reused before that.
+CREATE TABLE IF NOT EXISTS pending_removals (type TEXT NOT NULL, serial TEXT NOT NULL, slot INTEGER, PRIMARY KEY (type, serial));
+CREATE TABLE IF NOT EXISTS points (id INTEGER PRIMARY KEY, zone_id INTEGER NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
+  serial TEXT NOT NULL, metric TEXT NOT NULL, role TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '', UNIQUE (zone_id, serial, metric));
+CREATE TABLE IF NOT EXISTS calibrations (
+  id INTEGER PRIMARY KEY, serial TEXT NOT NULL, metric TEXT NOT NULL, offset REAL NOT NULL, gain REAL NOT NULL DEFAULT 1,
+  method TEXT NOT NULL CHECK (method IN ('offset','two_point','manual','reset')), notes TEXT, calibrated_at INTEGER NOT NULL, calibrated_by TEXT NOT NULL,
+  due_at INTEGER, active INTEGER NOT NULL DEFAULT 1, check_sensor INTEGER NOT NULL DEFAULT 0);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cal_active ON calibrations(serial, metric) WHERE active=1;
+CREATE TABLE IF NOT EXISTS gateway_state (id INTEGER PRIMARY KEY CHECK (id=1), online INTEGER NOT NULL DEFAULT 0, last_ok INTEGER, version INTEGER, address INTEGER, map_version INTEGER, last_error TEXT, updated_at INTEGER);
+CREATE TABLE IF NOT EXISTS sync_runs (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, username TEXT NOT NULL, type TEXT NOT NULL, ok INTEGER NOT NULL, result TEXT NOT NULL);
+`;

@@ -7,6 +7,12 @@ import { Commands, ackTopic, PUMPS } from "./commands.js";
 import { ensureAdmin, purgeFails, purgeSessions } from "./auth.js";
 import { runRetention, runRollup } from "./retention.js";
 import { buildApp } from "./app.js";
+import { loadRegMap } from "./drivers/modbus/regmap.js";
+import { createTransport } from "./drivers/modbus/transport.js";
+import { ModbusMaster } from "./drivers/modbus/master.js";
+import { GatewayDriver } from "./drivers/modbus/driver.js";
+import { Registry } from "./gateway/registry.js";
+import { GatewayService } from "./gateway/service.js";
 
 const db = openDb(config.dbPath);
 ensureAdmin(db);
@@ -29,7 +35,20 @@ client.on("message", (topic, payload) => {
   } catch (e) { console.error("message error", topic, e); }
 });
 
-const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands);
+// Gateway: an invalid register map refuses to start polling (clear error) but never takes the rest of the runtime down.
+let reg: Registry | null = null, gw: GatewayService | null = null, gwError: string | null = null;
+try {
+  const map = loadRegMap(config.gwRegmap);
+  reg = new Registry(db, map);
+  let drv: GatewayDriver | null = null;
+  if (config.gwTransport !== "off") {
+    const tr = createTransport({ type: config.gwTransport, host: config.gwHost, port: config.gwPort, path: config.gwSerialPath, baud: config.gwBaud, parity: config.gwParity });
+    drv = new GatewayDriver(new ModbusMaster(tr, { unit: config.gwAddress || map.default_gateway_address, timeoutMs: config.gwTimeoutMs, retries: config.gwRetries }), map);
+  }
+  gw = new GatewayService(db, reg, ingest, drv);
+  gw.start();
+} catch (e: any) { gwError = String(e?.message ?? e); reg = null; gw = null; console.error("GATEWAY DISABLED, register map problem:", gwError); }
+const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError);
 pushTelemetry = pt; pushCommand = pc;
 await app.listen({ host: config.host, port: config.port });
 
@@ -43,7 +62,7 @@ setTimeout(() => runRetention(db, config.retentionDays).catch((e) => console.err
 let stopping = false;
 async function shutdown() {
   if (stopping) return; stopping = true; timers.forEach(clearInterval);
-  await app.close(); client.end(true); await broker.stop(); db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); process.exit(0);
+  await gw?.stop(); await app.close(); client.end(true); await broker.stop(); db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); process.exit(0);
 }
 process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
 void getSetting;

@@ -40,6 +40,11 @@ export class Ingest {
     return { topic, ts: now, sensors };
   }
 
+  /** Record several metrics of ONE sensor at once (used by the gateway poller). */
+  record(topic: string, key: string, values: Record<string, number>, now = Date.now()) {
+    this.db.transaction(() => { for (const [m, v] of Object.entries(values)) if (Number.isFinite(v)) { const id = this.getSeries(topic, key, m); this.upLatest.run(id, v, now); this.insRaw.run(id, now, v); } })();
+  }
+
   snapshot(): LiveTopic[] {
     const rows = this.db.prepare("SELECT s.topic,s.sensor_key,s.metric,l.value,l.ts FROM latest l JOIN series s ON s.id=l.series_id").all() as any[];
     const by = new Map<string, LiveTopic>();
