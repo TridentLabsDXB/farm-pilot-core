@@ -15,13 +15,15 @@ export default function GatewayPage({ reload }: { reload: () => void }) {
   const l = g.link;
   return (<>
     <section className="fp-card"><div className="fp-row fp-spread"><h3>Gateway</h3>{!g.enabled ? <Chip tone="off">NO GATEWAY</Chip> : g.online ? <Chip tone="ok">ONLINE</Chip> : <Chip tone="alarm">OFFLINE</Chip>}</div>
-      <ul className="fp-list"><li><span>Model</span><span>{g.model} (manual {g.manual})</span></li><li><span>Register map version</span><span>{g.mapVersion}</span></li><li><span>Version register</span><span>{g.info.version ?? "--"}</span></li><li><span>Last successful poll</span><span>{dt(g.lastOk)}</span></li>{g.lastError && <li><span>Last error</span><span>{g.lastError}</span></li>}</ul></section>
+      <ul className="fp-list"><li><span>Model</span><span>{g.model} (manual {g.manual})</span></li><li><span>Register map version</span><span>{g.mapVersion}</span></li><li><span>Version register</span><span>{g.info.version == null ? "--" : "0x" + g.info.version.toString(16).toUpperCase().padStart(4, "0")}</span></li><li><span>Last successful poll</span><span>{dt(g.lastOk)}</span></li>{g.lastError && <li><span>Last error</span><span>{g.lastError}</span></li>}</ul></section>
     <section className="fp-card"><h3>Link</h3>
       {!l ? <p className="fp-msg fp-muted">No gateway link is configured.</p> : <ul className="fp-list">
-        <li><span>Connection</span><span>{linkText(l)}</span></li>
-        <li><span>{l.transport === "rtu-serial" ? "Port" : "Host / port"}</span><span>{l.transport === "rtu-serial" ? l.serialPath : `${l.host} : ${l.port}`}</span></li>
-        <li><span>Baud / format</span><span>{l.transport === "rtu-serial" ? `${l.baud} baud, 8${l.parity === "none" ? "N" : l.parity === "even" ? "E" : "O"}1` : "not used (network link)"}</span></li>
-        <li><span>Modbus address</span><span>{l.address}</span></li><li><span>Timeout / retries</span><span>{l.timeoutMs} ms / {l.retries}</span></li></ul>}
+        <li><span>Transport</span><span>{l.transport === "rtu-serial" ? "RTU over serial (RS485)" : l.transport === "tcp" ? "Modbus TCP (bench simulator)" : "RTU over TCP"}</span></li>
+        {l.transport === "rtu-serial" ? <>
+          <li><span>Serial port</span><span>{l.serialPath}</span></li><li><span>Baud rate</span><span>{l.baud}</span></li>
+          <li><span>Data / parity / stop bits</span><span>{l.dataBits}{l.parity === "none" ? "N" : l.parity === "even" ? "E" : "O"}{l.stopBits}</span></li></> : <>
+          <li><span>Host</span><span>{l.host}</span></li><li><span>TCP port</span><span>{l.port}</span></li></>}
+        <li><span>Modbus address</span><span>{l.address}</span></li><li><span>Timeout</span><span>{l.timeoutMs} ms</span></li><li><span>Retries</span><span>{l.retries}</span></li></ul>}
       <span className="fp-hint">Read-only for now. An Admin screen to change these is planned.</span></section>
     <section className="fp-card"><h3>Timing, battery and signal</h3>
       <div className="fp-form"><span className="fp-cap wide">Timing</span>{fld("pollSec", "Modbus poll (s)", "Shortened to half the shortest sensor interval, minimum 10 s.")}{fld("offlineMultiplier", "No update after (intervals)", "Missed intervals before NO UPDATE.")}

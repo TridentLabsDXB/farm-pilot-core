@@ -62,7 +62,7 @@ export default function App() {
         <button className="fp-btn small hide-phone" onClick={toggleTheme} aria-label="Toggle dark theme" aria-pressed={theme === "dark"}>{theme === "dark" ? "LIGHT" : "DARK"}</button>
         <button className="fp-btn small" onClick={() => api("/logout", { method: "POST" }).finally(() => setMe(null))}>Logout</button>
       </header>
-      {cur === "settings" ? <Settings tab={rest[0] ?? "sensors"} serial={rest[1]} scada={scada} reload={() => { load(); loadScada(); }} />
+      {cur === "settings" ? <Settings tab={rest[0] ?? "sensors"} serial={rest[1]} focus={rest[2]} scada={scada} reload={() => { load(); loadScada(); }} />
         : cur === "alarms" ? <Alarms scada={scada} /> : <ScadaView state={state} scada={scada} reload={() => { load(); loadScada(); }} />}
       <nav className="fp-bottom" aria-label="Main">{nav()}</nav>
     </div>

@@ -4,7 +4,7 @@ import { go } from "./App";
 import Scan, { scanSupported } from "./Scan";
 import { Battery, Chip, Modal, Signal, SYNC, StatusChip, ago, dt, dur, errText } from "./ui";
 
-export const linkText = (l: GwInfo["link"]) => (!l ? "no link configured" : l.transport === "rtu-serial" ? `RTU ${l.serialPath} ${l.baud} 8${l.parity === "none" ? "N" : l.parity === "even" ? "E" : "O"}1` : `${l.transport === "tcp" ? "Modbus TCP" : "RTU over TCP"} ${l.host}:${l.port}`);
+export const linkText = (l: GwInfo["link"]) => (!l ? "no link configured" : l.transport === "rtu-serial" ? `${l.serialPath} · ${l.baud} 8${l.parity === "none" ? "N" : l.parity === "even" ? "E" : "O"}1` : `${l.transport === "tcp" ? "Modbus TCP" : "RTU over TCP"} ${l.host}:${l.port}`);
 export interface GwInfo { link: null | { transport: string; host: string; port: number; serialPath: string; baud: number; parity: string; dataBits: number; stopBits: number; address: number; timeoutMs: number; retries: number }; enabled: boolean; online: boolean; lastOk: number | null; lastError: string | null; model: string; mapVersion: number; info: { address?: number; version?: number }; types: TypeInfo[]; unsent: number;
   pending: { type: string; serial: string; slot: number | null }[]; lastSync: { type: string; ok: boolean; at: number; items: { serial: string; slot: number; action: string; status: string; reason?: string }[] } | null;
   unassigned: { type: string; slot: number; serial: string; interval: number }[]; syncing: boolean; settings: { pollSec: number } }
@@ -45,9 +45,10 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
     </section>
     <div className="fp-two"><section className="fp-card">
       <div className="fp-row fp-spread"><h3>Sensors</h3><div className="fp-row"><button className="fp-btn" onClick={() => setAdding(true)}>Add sensors</button>{scanSupported() && <button className="fp-btn" onClick={() => setAdding(true)}>Scan QR</button>}</div></div>
+      <span className="fp-hint">Click a row to open the sensor: label, zone, calibration, replace and remove are all on its page.</span>
       <label className="fp-row fp-cap"><input type="checkbox" checked={advanced} onChange={(e) => setAdvanced(e.target.checked)} /> Advanced / commissioning: allow the 30 s interval (short intervals reduce battery life)</label>
       <div className="fp-gt" role="table" aria-label="Sensors">
-        <div className="fp-gr head" role="row"><span>Slot</span><span>Serial</span><span>Label / zone</span><span>Interval</span><span>Battery / signal</span><span>State</span></div>
+        <div className="fp-gr head" role="row"><span>Slot</span><span>Serial</span><span>Label / zone</span><span>Interval</span><span>Battery / signal</span><span>State</span><span /></div>
         {sensors.map((s) => (
           <div key={s.serial} role="row" className="fp-gr click" data-warn={s.syncState === "in_gateway" ? 0 : 1} onClick={() => go(`/settings/sensors/${s.serial}`)}>
             <span>{s.slot ?? "--"}</span><span>{s.serial}</span>
@@ -55,13 +56,15 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
             <span onClick={(e) => e.stopPropagation()}>{interval(s)}</span>
             <span className="stack"><Battery v={s.voltage} low={s.lowVoltage} /><Signal rssi={s.rssi} band={s.rssiBand} /></span>
             <span className="stack"><Chip tone={SYNC[s.syncState][0]}>{SYNC[s.syncState][1]}</Chip><StatusChip status={s.status} />{s.calDue && <Chip tone="warn">CAL DUE</Chip>}</span>
+            <button className="fp-btn small" aria-label={`Calibrate ${s.label}`} onClick={(e) => { e.stopPropagation(); go(`/settings/sensors/${s.serial}/calibrate`); }}>Calibrate</button>
           </div>))}
       </div>
       <div className="fp-cards">{sensors.map((s) => (
         <div key={s.serial} className="fp-srow" data-warn={s.syncState === "in_gateway" ? 0 : 1} onClick={() => go(`/settings/sensors/${s.serial}`)}>
           <span className="l">{s.labelSet ? s.label : "No label"}</span><Chip tone={SYNC[s.syncState][0]}>{SYNC[s.syncState][1]}</Chip>
           <span className="m"><span>slot {s.slot ?? "--"}</span><span>{s.serial}</span><span>{list.zones.find((z) => z.id === s.zoneId)?.name ?? "no zone"}</span></span>
-          <span className="m" onClick={(e) => e.stopPropagation()}>{interval(s)}</span><span className="m"><StatusChip status={s.status} /><Battery v={s.voltage} low={s.lowVoltage} /><Signal rssi={s.rssi} band={s.rssiBand} /></span></div>))}</div>
+          <span className="m" onClick={(e) => e.stopPropagation()}>{interval(s)}</span><span className="m"><StatusChip status={s.status} /><Battery v={s.voltage} low={s.lowVoltage} /><Signal rssi={s.rssi} band={s.rssiBand} /></span>
+          <span className="m" onClick={(e) => e.stopPropagation()}><button className="fp-btn small" onClick={() => go(`/settings/sensors/${s.serial}/calibrate`)}>Calibrate</button><button className="fp-btn small" onClick={() => go(`/settings/sensors/${s.serial}`)}>Details</button></span></div>))}</div>
       {!sensors.length && <p className="fp-msg fp-muted">No sensors yet. Press ADD SENSORS and type or paste the serials.</p>}
     </section>
     <div className="fp-sidecards">

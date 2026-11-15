@@ -9,9 +9,9 @@ import { Modal, errText } from "./ui";
 
 const TABS: [string, string][] = [["sensors", "SENSORS"], ["structure", "FARM STRUCTURE"], ["gateway", "GATEWAY"], ["users", "USERS"], ["backup", "BACKUP"]];
 
-export default function Settings({ tab, serial, scada, reload }: { tab: string; serial?: string; scada: Scada | null; reload: () => void }) {
+export default function Settings({ tab, serial, focus, scada, reload }: { tab: string; serial?: string; focus?: string; scada: Scada | null; reload: () => void }) {
   const t = TABS.some(([k]) => k === tab) ? tab : "sensors";
-  const body = t === "sensors" ? (serial ? <SensorDetail serial={serial} scada={scada} reload={reload} /> : <SensorsPage scada={scada} reload={reload} />)
+  const body = t === "sensors" ? (serial ? <SensorDetail serial={serial} focus={focus} scada={scada} reload={reload} /> : <SensorsPage scada={scada} reload={reload} />)
     : t === "structure" ? <StructurePage reload={reload} /> : t === "gateway" ? <GatewayPage reload={reload} /> : t === "users" ? <UsersPage /> : <BackupPage reload={reload} />;
   return (
     <main className="fp-page"><div className="fp-settings">

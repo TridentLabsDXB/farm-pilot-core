@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Scada, type SensorView } from "./api";
 import { go } from "./App";
 import { Battery, Chip, Modal, Signal, StatusChip, SYNC, ago, dateOnly, dayMon, dt, dur, errText, fmt, hhmm } from "./ui";
@@ -28,18 +28,21 @@ function Chart({ t, metric, range }: { t: Trend; metric: Metric; range: string }
   );
 }
 
-export default function SensorDetail({ serial, scada, reload }: { serial: string; scada: Scada | null; reload: () => void }) {
+export default function SensorDetail({ serial, focus, scada, reload }: { serial: string; focus?: string; scada: Scada | null; reload: () => void }) {
+  const calRef = useRef<HTMLDivElement>(null);
   const [d, setD] = useState<Detail | null>(null); const [metric, setMetric] = useState<Metric>("temperature"); const [range, setRange] = useState("24h"); const [trend, setTrend] = useState<Trend | null>(null);
   const [msg, setMsg] = useState<{ t: "ok" | "err"; s: string } | null>(null); const [zones, setZones] = useState<{ id: number; name: string }[]>([]);
   const load = useCallback(() => { api<Detail>(`/sensors/${serial}`).then(setD).catch((e) => setMsg({ t: "err", s: errText(e) })); }, [serial]);
   useEffect(() => { load(); api<any>("/structure").then((s) => setZones(s.zones)).catch(() => {}); }, [load, scada?.now]);
   useEffect(() => { api<Trend>(`/sensors/${serial}/trend?metric=${metric}&range=${range}`).then(setTrend).catch(() => setTrend(null)); }, [serial, metric, range, scada?.now]);
+  // Arriving from the CALIBRATE button on the sensor list scrolls straight to the calibration wizard.
+  useEffect(() => { if (focus === "calibrate" && d?.sensor) calRef.current?.scrollIntoView({ block: "start" }); }, [focus, !!d?.sensor]);
   if (!d) return <section className="fp-card"><button className="fp-btn small" onClick={() => go("/settings/sensors")}>Back to sensors</button><p className="fp-msg">{msg?.s ?? "Loading..."}</p></section>;
   const s = d.sensor; const act = d.active[metric]; const raw = s?.raw?.[metric]; const cal = s?.[metric];
   return (<>
     <section className="fp-card">
       <div className="fp-row fp-spread"><button className="fp-btn small" onClick={() => go("/settings/sensors")}>← Sensors</button>{s && <span className="fp-row"><StatusChip status={s.status} /><Chip tone={SYNC[s.syncState][0]}>{SYNC[s.syncState][1]}</Chip></span>}</div>
-      <div className="fp-row fp-spread"><div><h3>{d.row.label || serial}</h3><span className="fp-cap">{serial} · {d.type.label} · slot {d.row.slot ?? "--"}{d.row.replacedBy ? ` · replaced by ${d.row.replacedBy}` : ""}</span></div>
+      <div className="fp-row fp-spread"><div><h3>{d.row.label || "No label"}</h3><span className="fp-cap">{serial} · {d.type.label} · slot {d.row.slot ?? "--"}{d.row.replacedBy ? ` · replaced by ${d.row.replacedBy}` : ""}</span></div>
         {s && <Identity serial={serial} label={d.row.label} zoneId={s.zoneId} zones={zones} onDone={() => { load(); reload(); }} onErr={(e) => setMsg({ t: "err", s: e })} />}</div>
       {msg && <p className={`fp-msg ${msg.t}`} role="status">{msg.s}</p>}
       {!s && <p className="fp-msg fp-muted">This sensor was replaced. Its history stays available; it is no longer polled.</p>}
@@ -56,7 +59,7 @@ export default function SensorDetail({ serial, scada, reload }: { serial: string
         <div className="fp-tile"><span className="fp-cap">Signal</span><Signal rssi={s.rssi} band={s.rssiBand} /></div>
         <div className="fp-tile"><span className="fp-cap">Reporting interval</span><span className="fp-num" style={{ fontWeight: 700 }}>{dur(s.intervalSec)} {s.applying && <Chip tone="info">APPLYING</Chip>}</span><span className="fp-cap" style={{ textTransform: "none" }}>offline after {dur(s.offlineAfterSec)}</span></div></div>
     </div>
-    <CalCard d={d} metric={metric} raw={raw} serial={serial} onDone={(m) => { setMsg({ t: "ok", s: m }); load(); reload(); }} onErr={(e) => setMsg({ t: "err", s: e })} />
+    <div ref={calRef} style={{ scrollMarginTop: 88 }}><CalCard d={d} metric={metric} raw={raw} serial={serial} onDone={(m) => { setMsg({ t: "ok", s: m }); load(); reload(); }} onErr={(e) => setMsg({ t: "err", s: e })} /></div>
     </div>}
     {s && <Danger serial={serial} />}
   </>);
