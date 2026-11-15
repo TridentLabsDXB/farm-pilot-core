@@ -4,9 +4,10 @@ import { go } from "./App";
 import Scan, { scanSupported } from "./Scan";
 import { Battery, Chip, CommissioningBanner, Modal, Signal, SYNC, StatusChip, ago, dt, dur, errText } from "./ui";
 
+const ACTION: Record<string, string> = { add: "ADDED", interval: "INTERVAL CHANGED", move: "MOVED", replace: "REPLACED", remove: "REMOVED", clear: "CLEARED" };
 export const linkText = (l: GwInfo["link"]) => (!l ? "no link configured" : l.transport === "rtu-serial" ? `${l.serialPath} · ${l.baud} 8${l.parity === "none" ? "N" : l.parity === "even" ? "E" : "O"}1` : `${l.transport === "tcp" ? "Modbus TCP" : "RTU over TCP"} ${l.host}:${l.port}`);
 export interface GwInfo { link: null | { transport: string; host: string; port: number; serialPath: string; baud: number; parity: string; dataBits: number; stopBits: number; address: number; timeoutMs: number; retries: number }; enabled: boolean; online: boolean; lastOk: number | null; lastError: string | null; model: string; mapVersion: number; info: { address?: number; version?: number }; types: TypeInfo[]; unsent: number;
-  pending: { type: string; serial: string; slot: number | null }[]; lastSync: { type: string; ok: boolean; at: number; items: { serial: string; slot: number; action: string; status: string; reason?: string }[] } | null;
+  pending: { type: string; serial: string; slot: number | null }[]; lastSync: { type: string; ok: boolean; at: number; items: { serial: string; slot: number; action: string; status: string; reason?: string; interval?: number }[] } | null;
   unassigned: { type: string; slot: number; serial: string; interval: number }[]; syncing: boolean; settings: { pollSec: number } }
 interface SList { types: TypeInfo[]; sensors: AdminSensor[]; zones: { id: number; name: string }[]; pattern: string; }
 
@@ -74,24 +75,24 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
           {gw.pending.map((p) => <li key={p.serial}><span>REMOVE {p.serial}</span><span className="fp-muted">slot {p.slot}</span></li>)}</ul>}
         <span className="fp-cap" style={{ textTransform: "none" }}>Polling pauses for about 10 s. Every write is read back.</span></section>
       <section className="fp-card"><h3>Result of last send</h3>
-        {!gw.lastSync ? <span className="fp-msg fp-muted">No send yet.</span> : <ul className="fp-list">{gw.lastSync.items.map((i, k) => <li key={k}><span>{i.serial}</span><Chip tone={i.status === "confirmed" ? "ok" : "alarm"}>{i.status === "confirmed" ? "CONFIRMED" : `FAILED${i.reason ? ": " + i.reason.toUpperCase() : ""}`}</Chip></li>)}{!gw.lastSync.items.length && <li className="fp-muted">Nothing needed writing; gateway already matched.</li>}</ul>}
+        {!gw.lastSync ? <span className="fp-msg fp-muted">No send yet.</span> : <ul className="fp-list">{gw.lastSync.items.map((i, k) => { const known = sensors.find((s) => s.serial === i.serial); return <li key={k}><span className="fp-row" style={{ gap: 8 }}><Chip tone="info">{ACTION[i.action] ?? i.action.toUpperCase()}</Chip><span>{known?.labelSet ? `${known.label} · ` : ""}{i.serial}{i.interval && (i.action === "interval" || i.action === "add") ? ` · ${dur(i.interval)}` : ""}</span></span><Chip tone={i.status === "confirmed" ? "ok" : "alarm"}>{i.status === "confirmed" ? "CONFIRMED" : `FAILED${i.reason ? ": " + i.reason.toUpperCase() : ""}`}</Chip></li>; })}{!gw.lastSync.items.length && <li className="fp-muted">Nothing needed writing; gateway already matched.</li>}</ul>}
         {gw.lastSync && <span className="fp-cap">{ago(gw.lastSync.at)}</span>}</section>
       {gw.unassigned.length > 0 && <section className="fp-card"><h3>New sensor found</h3><span className="fp-msg">Configured in the gateway but not in CORE. Never added automatically.</span>
         <ul className="fp-list">{gw.unassigned.map((u) => <li key={u.serial}><span>{u.serial} · slot {u.slot} · {dur(u.interval)}</span><span className="fp-row">
           <button className="fp-btn small" onClick={() => api("/gateway/unassigned/add", { method: "POST", json: { serial: u.serial } }).then(() => { load(); reload(); }).catch(fail)}>Add</button>
           <button className="fp-btn small" onClick={() => api("/gateway/unassigned/ignore", { method: "POST", json: { serial: u.serial } }).then(load).catch(fail)}>Ignore</button></span></li>)}</ul></section>}
     </div></div>
-    {adding && <AddModal types={list.types} pattern={list.pattern} onClose={() => setAdding(false)} onDone={(n) => { setAdding(false); ok(`${n} sensor(s) added. Press SEND TO GATEWAY to push them.`); load(); reload(); }} />}
+    {adding && <AddModal types={list.types} pattern={list.pattern} existing={sensors.map((s) => s.serial)} onClose={() => setAdding(false)} onDone={(n) => { setAdding(false); ok(`${n} sensor(s) added. Press SEND TO GATEWAY to push them.`); load(); reload(); }} />}
     {confirm && <Modal title="Confirm changes" onClose={() => setConfirm(null)}><p className="fp-msg">These sensors will be removed from or moved in the gateway:</p>
       <ul className="fp-list">{confirm.confirm.map((c: any, i: number) => <li key={i}><span>{c.kind.toUpperCase()} {c.serial}</span><span className="fp-muted">slot {c.slot}</span></li>)}</ul>
       <div className="fp-row"><button className="fp-btn primary" onClick={() => send(true)}>Confirm and send</button><button className="fp-btn" onClick={() => setConfirm(null)}>Cancel</button></div></Modal>}
   </>);
 }
 
-function AddModal({ types, pattern, onClose, onDone }: { types: TypeInfo[]; pattern: string; onClose: () => void; onDone: (n: number) => void }) {
+function AddModal({ types, pattern, existing, onClose, onDone }: { types: TypeInfo[]; pattern: string; existing: string[]; onClose: () => void; onDone: (n: number) => void }) {
   const [type, setType] = useState(types[0]?.key ?? "th"); const [text, setText] = useState(""); const [err, setErr] = useState(""); const [scan, setScan] = useState(false);
   const t = types.find((x) => x.key === type)!; const serials = text.split(/[\s,;]+/).filter(Boolean); const re = new RegExp(pattern);
-  const badOnes = serials.filter((s) => !re.test(s)); const dup = serials.length !== new Set(serials.map((s) => s.toUpperCase())).size;
+  const badOnes = serials.filter((s) => !re.test(s)); const dup = serials.length !== new Set(serials.map((s) => s.toUpperCase())).size; const already = [...new Set(serials.map((s) => s.toUpperCase()).filter((s) => existing.includes(s)))];
   const onCode = useCallback((c: string) => setText((x) => (x.toUpperCase().includes(c.trim().toUpperCase()) ? x : (x ? x + "\n" : "") + c.trim())), []);
   return (
     <Modal title="Add sensors" onClose={onClose}>
@@ -99,9 +100,9 @@ function AddModal({ types, pattern, onClose, onDone }: { types: TypeInfo[]; patt
       <label className="fp-field"><span className="fp-cap">Serials, one per line (paste a list or type)</span><textarea className="fp-input" value={text} onChange={(e) => setText(e.target.value)} placeholder="4A01B3F2" spellCheck={false} /></label>
       {scanSupported() ? (scan ? <Scan onCode={onCode} onClose={() => setScan(false)} /> : <button className="fp-btn" onClick={() => setScan(true)}>Scan QR / barcode</button>) : <span className="fp-cap" style={{ textTransform: "none" }}>Camera scan is not available in this browser: type or paste the serials.</span>}
       <span className="fp-num">{t.label}: {t.used} of {t.groups} slots used, adding {serials.length}</span>
-      {badOnes.length > 0 && <p className="fp-msg err">Not a valid serial (8 hex digits): {badOnes.slice(0, 3).join(", ")}{badOnes.length > 3 ? "..." : ""}</p>}{dup && <p className="fp-msg err">The list contains duplicates.</p>}
+      {badOnes.length > 0 && <p className="fp-msg err">Not a valid serial (8 hex digits): {badOnes.slice(0, 3).join(", ")}{badOnes.length > 3 ? "..." : ""}</p>}{dup && <p className="fp-msg err">The list contains duplicates.</p>}{already.length > 0 && <p className="fp-msg err">Already in CORE: {already.slice(0, 3).join(", ")}{already.length > 3 ? "..." : ""}</p>}
       {t.used + serials.length > t.groups && <p className="fp-msg err">This would exceed {t.groups} slots.</p>}{err && <p className="fp-msg err" role="alert">{err}</p>}
-      <div className="fp-row"><button className="fp-btn primary" disabled={!serials.length || badOnes.length > 0 || dup || t.used + serials.length > t.groups} onClick={() => api("/sensors", { method: "POST", json: { type, serials } }).then(() => onDone(serials.length)).catch((e) => setErr(errText(e)))}>Add {serials.length || ""} sensor{serials.length === 1 ? "" : "s"}</button><button className="fp-btn" onClick={onClose}>Cancel</button></div>
+      <div className="fp-row"><button className="fp-btn primary" disabled={!serials.length || badOnes.length > 0 || dup || already.length > 0 || t.used + serials.length > t.groups} onClick={() => api("/sensors", { method: "POST", json: { type, serials } }).then(() => onDone(serials.length)).catch((e) => setErr(errText(e)))}>Add {serials.length || ""} sensor{serials.length === 1 ? "" : "s"}</button><button className="fp-btn" onClick={onClose}>Cancel</button></div>
     </Modal>
   );
 }

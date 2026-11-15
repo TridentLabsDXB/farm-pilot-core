@@ -58,3 +58,23 @@ test("Delete all while the gateway is offline: refused with 409, nothing written
   sim.silent = false; assert.equal(sim.state().configured.th, 1);
   assert.equal((db.prepare("SELECT COUNT(*) c FROM audit_log WHERE action LIKE 'gateway.delete_all%' AND action NOT LIKE '%refused'").get() as any).c, 0);
 });
+
+test("Add Sensors validation (API): format, case, duplicates, existing, type, capacity, separators; a bad list adds NOTHING", async () => {
+  const { call, db } = await rig(); const count = () => (db.prepare("SELECT COUNT(*) c FROM sensors").get() as any).c; const add = (serials: unknown, type = "th") => call("POST", "/api/sensors", { type, serials });
+  // accepted: lower case and padding are normalised to the printed upper-case form; separators: newline, CRLF, comma, semicolon, space
+  let r = await add(" 4a01b3f2 \r\n4A01B3F3,4A01B3F4;4A01B3F5  4A01B3F6\n"); assert.equal(r.status, 200); assert.deepEqual(r.body.added, ["4A01B3F2", "4A01B3F3", "4A01B3F4", "4A01B3F5", "4A01B3F6"]);
+  assert.equal(count(), 5); assert.deepEqual(db.prepare("SELECT serial FROM sensors ORDER BY slot").all().map((x: any) => x.serial), ["4A01B3F2", "4A01B3F3", "4A01B3F4", "4A01B3F5", "4A01B3F6"]);
+  // rejected formats, each named in the message
+  for (const bad of ["4A01B3F", "4A01B3F22", "4A01B3G2", "0x4A01B3F2", "4A01-B3F2", "ÄÄÄÄÄÄÄÄ"]) { r = await add([bad]); assert.equal(r.status, 400, bad); assert.match(r.body.error, /invalid serial/); }
+  assert.equal((await add("")).status, 400); assert.equal((await add([])).status, 400); assert.equal((await add("  \n , ; ")).status, 400);
+  // atomic: one bad entry in a list means none are added
+  r = await add(["4A01B3F7", "NOPE"]); assert.equal(r.status, 400); assert.equal(count(), 5);
+  r = await add(["4A01B3F7", "4a01b3f7"]); assert.equal(r.status, 400); assert.match(r.body.error, /duplicate/); assert.equal(count(), 5);          // duplicate inside the list, case-insensitive
+  r = await add(["4A01B3F7", "4a01b3f2"]); assert.equal(r.status, 400); assert.match(r.body.error, /already exists/); assert.equal(count(), 5);      // already in CORE
+  // type
+  assert.equal((await add(["4A01B3F7"], "nope")).status, 400); r = await add(["4A01B3F7"], "soil"); assert.equal(r.status, 400); assert.match(r.body.error, /not enabled/); assert.equal(count(), 5);
+  // capacity: 30 slots
+  const more = (n: number, from: number) => Array.from({ length: n }, (_, i) => (0x5000 + from + i).toString(16).toUpperCase().padStart(8, "0"));
+  r = await add(more(26, 0)); assert.equal(r.status, 400); assert.match(r.body.error, /full: 5 of 30 slots used, cannot add 26/); assert.equal(count(), 5);
+  r = await add(more(25, 0)); assert.equal(r.status, 200); assert.equal(count(), 30); r = await add(more(1, 100)); assert.equal(r.status, 400); assert.match(r.body.error, /full: 30 of 30/); assert.equal(count(), 30);
+});

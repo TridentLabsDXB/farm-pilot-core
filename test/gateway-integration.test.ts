@@ -131,3 +131,21 @@ test("migration: a 0-based database from the first M2 build becomes 1-based exac
   const d3 = openDb(path); assert.deepEqual(d3.prepare("SELECT slot FROM sensors ORDER BY serial").all().map((r: any) => r.slot), [1, 2, 3]); d3.close();   // second open: no second shift
   for (const x of ["", "-wal", "-shm"]) rmSync(path + x, { force: true });
 });
+
+test("slot allocation: a new sensor takes the LOWEST free slot; a gap left by a removed sensor never shifts anyone else", async () => {
+  const { sim, reg, svc } = await rig(); const slots = () => Object.fromEntries(reg.list().map((s) => [s.serial, s.slot])); const wire = () => Object.fromEntries(sim.state().sensors.filter((s) => s.slot !== null).map((s) => [s.serial, s.slot]));
+  const [A1, B2, C3, D4, E5, F6] = POOL;
+  reg.add(A, "th", [A1, B2, C3]); assert.deepEqual(slots(), { [A1]: 1, [B2]: 2, [C3]: 3 });                                 // lowest first, in order
+  await svc.sync(A, ["th"], false); assert.deepEqual(wire(), { [A1]: 1, [B2]: 2, [C3]: 3 });
+  reg.remove(A, B2);                                                                                                         // gap at slot 2 (its group is still in the gateway until the next Send)
+  assert.deepEqual(slots(), { [A1]: 1, [C3]: 3 });                                                                           // nobody moved
+  reg.add(A, "th", [D4]); assert.equal(reg.get(D4)!.slot, 4, "slot 2 is still held by the removed sensor's group until a Send confirms the removal");
+  const plan = await svc.preview("th"); assert.deepEqual(plan.writes.map((w) => [w.slot, w.serial]), [[4, D4]]); assert.deepEqual(plan.clears.map((c) => [c.slot, c.serial]), [[2, B2]]);   // only D is written, only B is cleared: A and C are not touched
+  await svc.sync(A, ["th"], true); assert.deepEqual(wire(), { [A1]: 1, [C3]: 3, [D4]: 4 }); assert.deepEqual(slots(), { [A1]: 1, [C3]: 3, [D4]: 4 });
+  reg.add(A, "th", [E5, F6]); assert.deepEqual([reg.get(E5)!.slot, reg.get(F6)!.slot], [2, 5], "after the removal is confirmed the gap is the lowest free slot, then the next one");
+  assert.deepEqual(slots(), { [A1]: 1, [C3]: 3, [D4]: 4, [E5]: 2, [F6]: 5 });                                              // existing sensors never changed slot
+  const p2 = await svc.preview("th"); assert.deepEqual(p2.writes.map((w) => w.slot).sort(), [2, 5]); assert.equal(p2.clears.length, 0); assert.equal(p2.reassigned.length, 0);
+  // a sensor that was never sent frees its slot at once (nothing is in the gateway to clear)
+  reg.remove(A, F6); reg.add(A, "th", [POOL[6]]); assert.equal(reg.get(POOL[6])!.slot, 5);
+  assert.equal(reg.list().filter((s) => s.slot === 1).length, 1);                                                          // never two sensors in one slot
+});

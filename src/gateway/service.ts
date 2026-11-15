@@ -7,7 +7,7 @@ import type { Ingest } from "../ingest.js";
 import { applyCal, FingerprintDetector, planSync, pollPeriodMs, type StalenessDetector, type SyncPlan } from "./logic.js";
 import { HttpError, topicFor, type Actor, type Registry, type SensorRow } from "./registry.js";
 
-export interface SyncItem { serial: string; slot: number; action: "add" | "interval" | "move" | "replace" | "remove" | "clear"; status: "confirmed" | "failed"; reason?: string; }
+export interface SyncItem { serial: string; slot: number; action: "add" | "interval" | "move" | "replace" | "remove" | "clear"; status: "confirmed" | "failed"; reason?: string; interval?: number; }
 export interface SyncResult { type: string; ok: boolean; items: SyncItem[]; at: number; }
 const reasonOf = (e: unknown) => (e instanceof ModbusException ? "write rejected" : /timeout/i.test(String((e as Error)?.message)) ? "timeout" : "timeout");
 
@@ -117,7 +117,7 @@ export class GatewayService extends EventEmitter {
           if (attempt === 0 && plan.confirm.length && !confirm) throw new HttpError(409, "confirmation required: sensors would be removed or moved", { plan });
           for (const r of plan.reassigned) this.db.prepare("UPDATE sensors SET slot=? WHERE serial=?").run(r.to, r.serial);
           failures = plan.failures; const attempted: SyncItem[] = [];
-          for (const w of plan.writes) { const it: SyncItem = { serial: w.serial, slot: w.slot, action: w.reason, status: "confirmed" }; attempted.push(it);
+          for (const w of plan.writes) { const it: SyncItem = { serial: w.serial, slot: w.slot, action: w.reason, status: "confirmed", interval: w.interval }; attempted.push(it);
             try { await this.drv!.writeGroup(type, w.slot, { serial: w.serial, interval: w.interval }); } catch (e) { it.status = "failed"; it.reason = reasonOf(e); } }
           for (const c of plan.clears) { const it: SyncItem = { serial: c.serial, slot: c.slot, action: c.reason === "removed" ? "remove" : "clear", status: "confirmed" }; attempted.push(it);
             try { await this.drv!.clearGroup(type, c.slot); } catch (e) { it.status = "failed"; it.reason = reasonOf(e); } }

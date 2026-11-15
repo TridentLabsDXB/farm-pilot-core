@@ -123,13 +123,21 @@ function CalCard({ d, metric, raw, serial, onDone, onErr }: { d: Detail; metric:
 }
 
 function Danger({ serial }: { serial: string }) {
-  const [mode, setMode] = useState<"" | "replace" | "remove">(""); const [ns, setNs] = useState(""); const [err, setErr] = useState("");
+  const [mode, setMode] = useState<"" | "replace" | "remove">(""); const [ns, setNs] = useState(""); const [err, setErr] = useState(""); const [pts, setPts] = useState<{ n: number; zone: string } | null>(null);
+  // What a removal would take with it: this sensor's points in the farm structure (counted from the server when the dialog opens).
+  useEffect(() => { if (mode !== "remove") return; api<any>("/structure").then((s) => { const mine = s.points.filter((p: any) => p.serial === serial); setPts({ n: mine.length, zone: mine.length ? s.zones.find((z: any) => z.id === mine[0].zone_id)?.name ?? "its zone" : "" }); }).catch(() => setPts(null)); }, [mode, serial]);
   return (<section className="fp-card"><h3>Replace or remove</h3>
     <p className="fp-msg">Replace moves label, zone and thresholds to the new serial. Calibration does NOT transfer: the new sensor starts uncalibrated. History stays on the old serial.</p>
     <div className="fp-row"><button className="fp-btn" onClick={() => setMode("replace")}>Replace sensor</button><button className="fp-btn danger" onClick={() => setMode("remove")}>Remove sensor</button></div>
     {mode && <Modal title={mode === "replace" ? "Replace sensor" : "Remove sensor"} onClose={() => setMode("")}>
-      {mode === "replace" ? <label className="fp-field"><span className="fp-cap">Serial of the new sensor</span><input className="fp-input" value={ns} onChange={(e) => setNs(e.target.value)} placeholder="4A01B3FA" /></label> : <p className="fp-msg">{serial} leaves the registry. Its group is cleared in the gateway on the next SEND TO GATEWAY.</p>}
+      {mode === "replace" ? <label className="fp-field"><span className="fp-cap">Serial of the new sensor</span><input className="fp-input" value={ns} onChange={(e) => setNs(e.target.value)} placeholder="4A01B3FA" /></label> : <>
+        <p className="fp-msg"><b>{serial}</b> leaves CORE. Its group is cleared in the gateway on the next SEND TO GATEWAY.</p>
+        <ul className="fp-list" style={{ listStyle: "disc", paddingLeft: 20, display: "block" }}>
+          <li style={{ display: "list-item", fontFamily: "var(--fp-head)", fontSize: 15 }}><b>Points:</b> {pts === null ? "checking..." : pts.n ? `its ${pts.n} point${pts.n === 1 ? "" : "s"} in ${pts.zone} are removed. The zone itself stays.` : "it has no points in the farm structure."}</li>
+          <li style={{ display: "list-item", fontFamily: "var(--fp-head)", fontSize: 15 }}><b>History:</b> its readings stay in the database (raw for 30 days, hourly summaries kept) but can no longer be opened in the UI. If the same serial is added again, the old history continues.</li>
+          <li style={{ display: "list-item", fontFamily: "var(--fp-head)", fontSize: 15 }}><b>Calibration:</b> kept as history under this serial; it does not transfer to another sensor.</li>
+          <li style={{ display: "list-item", fontFamily: "var(--fp-head)", fontSize: 15 }}><b>Alarms:</b> any open alarm for it is closed as "sensor removed".</li></ul></>}
       {err && <p className="fp-msg err">{err}</p>}
-      <div className="fp-row"><button className="fp-btn primary" onClick={() => (mode === "replace" ? api<{ newSerial: string }>(`/sensors/${serial}/replace`, { method: "POST", json: { newSerial: ns } }).then((r) => go(`/settings/sensors/${r.newSerial}`)) : api(`/sensors/${serial}`, { method: "DELETE" }).then(() => go("/settings/sensors"))).catch((e) => setErr(errText(e)))}>Confirm</button><button className="fp-btn" onClick={() => setMode("")}>Cancel</button></div></Modal>}
+      <div className="fp-row"><button className={mode === "remove" ? "fp-btn danger" : "fp-btn primary"} style={mode === "remove" ? { background: "var(--fp-alarm)", color: "#fff", borderColor: "var(--fp-alarm)", minHeight: 56 } : undefined} onClick={() => (mode === "replace" ? api<{ newSerial: string }>(`/sensors/${serial}/replace`, { method: "POST", json: { newSerial: ns } }).then((r) => go(`/settings/sensors/${r.newSerial}`)) : api(`/sensors/${serial}`, { method: "DELETE" }).then(() => go("/settings/sensors"))).catch((e) => setErr(errText(e)))}>{mode === "remove" ? "Confirm removal" : "Confirm"}</button><button className="fp-btn" onClick={() => setMode("")}>Cancel</button></div></Modal>}
   </section>);
 }
