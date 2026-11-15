@@ -53,7 +53,7 @@ export class Registry {
     const taken = this.takenSlots(type, gatewaySeen); const now = Date.now();
     this.db.transaction(() => {
       for (const s of uniq) {
-        let slot: number | null = null; for (let i = 0; i < t.groups; i++) if (!taken.has(i)) { slot = i; break; }
+        let slot: number | null = null; for (let i = 1; i <= t.groups; i++) if (!taken.has(i)) { slot = i; break; }
         if (slot === null) throw bad(`${t.label} has no free slot (slots held by other sensors or the gateway)`);
         taken.add(slot);
         this.db.prepare("INSERT INTO sensors(serial,type,label,slot,reporting_interval,created_at) VALUES(?,?,?,?,?,?)").run(s, type, labels[s] ?? "", slot, t.default_interval, now);
@@ -158,18 +158,19 @@ export class Registry {
 
   // ---- backup / restore ----
   exportAll() {
-    const d = this.db; return { format: "farmpilot-core-backup", version: 1, map_version: this.map.map_version, exported_at: Date.now(),
+    const d = this.db; return { format: "farmpilot-core-backup", version: 2, map_version: this.map.map_version, exported_at: Date.now(),
       sensors: d.prepare("SELECT serial,type,label,zone_id,slot,reporting_interval,created_at,replaced_by,thresholds FROM sensors").all(), calibrations: d.prepare("SELECT * FROM calibrations").all(),
       zones: d.prepare("SELECT * FROM zones").all(), points: d.prepare("SELECT * FROM points").all(), settings: (d.prepare("SELECT key,value FROM settings WHERE key LIKE 'gw.%' OR key LIKE 'cal.%'").all()) };
   }
   restore(a: Actor, b: any) {
-    if (!b || b.format !== "farmpilot-core-backup" || b.version !== 1) throw bad("not a Farm-Pilot CORE backup file");
+    if (!b || b.format !== "farmpilot-core-backup" || ![1, 2].includes(b.version)) throw bad("not a Farm-Pilot CORE backup file");
+    if (b.version === 1 && Array.isArray(b.sensors)) b = { ...b, version: 2, sensors: b.sensors.map((s: any) => ({ ...s, slot: Number.isInteger(s.slot) ? s.slot + 1 : s.slot })) };   // version 1 files numbered slots from 0
     for (const k of ["sensors", "calibrations", "zones", "points", "settings"]) if (!Array.isArray(b[k])) throw bad(`backup is missing "${k}"`);
     const seen = new Set<string>(), slots = new Set<string>();
     for (const s of b.sensors) {
       if (typeof s.serial !== "string" || !this.map.serial_pattern.test(s.serial) || seen.has(s.serial)) throw bad(`backup has an invalid or duplicate serial: ${String(s.serial)}`); seen.add(s.serial);
       const t = this.map.types[s.type]; if (!t) throw bad(`backup has an unknown sensor type: ${s.type}`);
-      if (s.slot !== null && !s.replaced_by) { if (!Number.isInteger(s.slot) || s.slot < 0 || s.slot >= t.groups) throw bad(`slot out of range for ${s.serial}`); const k = `${s.type}:${s.slot}`; if (slots.has(k)) throw bad(`two sensors share slot ${k}`); slots.add(k); }
+      if (s.slot !== null && !s.replaced_by) { if (!Number.isInteger(s.slot) || s.slot < 1 || s.slot > t.groups) throw bad(`slot out of range for ${s.serial}`); const k = `${s.type}:${s.slot}`; if (slots.has(k)) throw bad(`two sensors share slot ${k}`); slots.add(k); }
       if (!Number.isInteger(s.reporting_interval) || s.reporting_interval < t.config.interval.min || s.reporting_interval > t.config.interval.max) throw bad(`interval out of range for ${s.serial}`);
     }
     for (const s of b.settings) if (typeof s.key !== "string" || !/^(gw|cal)\./.test(s.key) || typeof s.value !== "string") throw bad("backup has an invalid setting");

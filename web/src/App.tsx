@@ -4,7 +4,7 @@ import Login from "./Login";
 import ScadaView from "./ScadaView";
 import Alarms from "./Alarms";
 import Settings from "./Settings";
-import { Chip, useNow } from "./ui";
+import { Chip, hhmm, useNow } from "./ui";
 
 // Tiny hash router: #/scada, #/alarms, #/settings/<tab>[/<serial>]. No dependency, back button works.
 function useHash() { const [h, setH] = useState(location.hash.slice(1) || "/scada"); useEffect(() => { const f = () => setH(location.hash.slice(1) || "/scada"); window.addEventListener("hashchange", f); return () => window.removeEventListener("hashchange", f); }, []); return h; }
@@ -57,7 +57,7 @@ export default function App() {
         <div className="fp-brand"><b>FARM-PILOT CORE</b><span>{(state?.farm ?? "").replace(/-/g, " ")}</span></div>
         <nav className="fp-nav" aria-label="Main">{nav()}</nav>
         {gwChip}
-        <span className="fp-meta hide-phone" title="Box time">{new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+        <span className="fp-meta hide-phone" title="Box time">{hhmm(now)}</span>
         <Chip tone="info">{admin ? "ADMIN" : "OPERATOR"}</Chip>
         <button className="fp-btn small hide-phone" onClick={toggleTheme} aria-label="Toggle dark theme" aria-pressed={theme === "dark"}>{theme === "dark" ? "LIGHT" : "DARK"}</button>
         <button className="fp-btn small" onClick={() => api("/logout", { method: "POST" }).finally(() => setMe(null))}>Logout</button>

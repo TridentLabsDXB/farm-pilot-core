@@ -4,7 +4,8 @@ import { go } from "./App";
 import Scan, { scanSupported } from "./Scan";
 import { Battery, Chip, Modal, Signal, SYNC, StatusChip, ago, dt, dur, errText } from "./ui";
 
-interface GwInfo { enabled: boolean; online: boolean; lastOk: number | null; lastError: string | null; model: string; mapVersion: number; info: { address?: number; version?: number }; types: TypeInfo[]; unsent: number;
+export const linkText = (l: GwInfo["link"]) => (!l ? "no link configured" : l.transport === "rtu-serial" ? `RTU ${l.serialPath} ${l.baud} 8${l.parity === "none" ? "N" : l.parity === "even" ? "E" : "O"}1` : `${l.transport === "tcp" ? "Modbus TCP" : "RTU over TCP"} ${l.host}:${l.port}`);
+export interface GwInfo { link: null | { transport: string; host: string; port: number; serialPath: string; baud: number; parity: string; dataBits: number; stopBits: number; address: number; timeoutMs: number; retries: number }; enabled: boolean; online: boolean; lastOk: number | null; lastError: string | null; model: string; mapVersion: number; info: { address?: number; version?: number }; types: TypeInfo[]; unsent: number;
   pending: { type: string; serial: string; slot: number | null }[]; lastSync: { type: string; ok: boolean; at: number; items: { serial: string; slot: number; action: string; status: string; reason?: string }[] } | null;
   unassigned: { type: string; slot: number; serial: string; interval: number }[]; syncing: boolean; settings: { pollSec: number } }
 interface SList { types: TypeInfo[]; sensors: SensorView[]; zones: { id: number; name: string }[]; pattern: string; }
@@ -34,7 +35,7 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
     <span className="fp-row" style={{ gap: 6 }}><select className="fp-input" aria-label={`Interval for ${s.label}`} value={s.intervalSec} onChange={(e) => setInterval_(s, e.target.value)}>{presets(s).map((p) => <option key={p} value={p}>{dur(p)}</option>)}<option value="custom">Custom...</option></select>{s.applying && <Chip tone="info">APPLYING</Chip>}</span>);
   return (<>
     <section className="fp-card">
-      <div className="fp-row fp-spread"><div><h3>Gateway</h3><span className="fp-cap">{gw.model} · Modbus RTU 9600 8N1 · address {gw.info.address ?? "--"} · map v{gw.mapVersion} · poll {gw.settings.pollSec} s</span></div>
+      <div className="fp-row fp-spread"><div><h3>Gateway</h3><span className="fp-cap">{gw.model} · {linkText(gw.link)} · address {gw.info.address ?? "--"} · map v{gw.mapVersion} · poll {gw.settings.pollSec} s</span></div>
         {!gw.enabled ? <Chip tone="off">NO GATEWAY</Chip> : gw.online ? <Chip tone="ok">GATEWAY ONLINE</Chip> : <Chip tone="alarm">GATEWAY OFFLINE</Chip>}</div>
       {th && <div className="fp-field"><span className="fp-cap">T/H sensors: {th.used} of {th.groups} slots in gateway</span><div className="fp-progress" role="progressbar" aria-valuenow={th.used} aria-valuemax={th.groups}><b style={{ width: `${(th.used / th.groups) * 100}%` }} /></div></div>}
       <div className="fp-row fp-spread"><span className="fp-num">{gw.unsent + 0} change{gw.unsent === 1 ? "" : "s"} not sent{gw.lastSync ? ` · last sync ${dt(gw.lastSync.at)} ${gw.lastSync.ok ? "OK" : "FAILED"}` : ""}</span>
@@ -45,35 +46,41 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
     <div className="fp-two"><section className="fp-card">
       <div className="fp-row fp-spread"><h3>Sensors</h3><div className="fp-row"><button className="fp-btn" onClick={() => setAdding(true)}>Add sensors</button>{scanSupported() && <button className="fp-btn" onClick={() => setAdding(true)}>Scan QR</button>}</div></div>
       <label className="fp-row fp-cap"><input type="checkbox" checked={advanced} onChange={(e) => setAdvanced(e.target.checked)} /> Advanced / commissioning: allow the 30 s interval (short intervals reduce battery life)</label>
-      <table className="fp-table responsive"><thead><tr><th>Slot</th><th>Serial</th><th>Label</th><th>Zone</th><th>Interval</th><th>Voltage</th><th>RSSI</th><th>Status</th><th>State</th></tr></thead><tbody>{sensors.map((s) => (
-        <tr key={s.serial} className="click" data-warn={s.syncState === "in_gateway" ? 0 : 1} onClick={() => go(`/settings/sensors/${s.serial}`)}>
-          <td>{(s.slot ?? -1) + 1}</td><td>{s.serial}</td><td className="h">{s.label === s.serial ? "--" : s.label}</td><td>{list.zones.find((z) => z.id === s.zoneId)?.name ?? "--"}</td>
-          <td onClick={(e) => e.stopPropagation()}>{interval(s)}</td><td><Battery v={s.voltage} low={s.lowVoltage} /></td><td><Signal rssi={s.rssi} band={s.rssiBand} /></td><td><StatusChip status={s.status} />{s.calDue && <> <Chip tone="warn">CAL DUE</Chip></>}</td>
-          <td><Chip tone={SYNC[s.syncState][0]}>{SYNC[s.syncState][1]}</Chip></td></tr>))}</tbody></table>
+      <div className="fp-gt" role="table" aria-label="Sensors">
+        <div className="fp-gr head" role="row"><span>Slot</span><span>Serial</span><span>Label / zone</span><span>Interval</span><span>Battery / signal</span><span>State</span></div>
+        {sensors.map((s) => (
+          <div key={s.serial} role="row" className="fp-gr click" data-warn={s.syncState === "in_gateway" ? 0 : 1} onClick={() => go(`/settings/sensors/${s.serial}`)}>
+            <span>{s.slot ?? "--"}</span><span>{s.serial}</span>
+            <span className="stack"><span className="nm">{s.labelSet ? s.label : <span className="fp-muted" style={{ fontWeight: 500 }}>No label</span>}</span><span className="fp-muted">{list.zones.find((z) => z.id === s.zoneId)?.name ?? "No zone"}</span></span>
+            <span onClick={(e) => e.stopPropagation()}>{interval(s)}</span>
+            <span className="stack"><Battery v={s.voltage} low={s.lowVoltage} /><Signal rssi={s.rssi} band={s.rssiBand} /></span>
+            <span className="stack"><Chip tone={SYNC[s.syncState][0]}>{SYNC[s.syncState][1]}</Chip><StatusChip status={s.status} />{s.calDue && <Chip tone="warn">CAL DUE</Chip>}</span>
+          </div>))}
+      </div>
       <div className="fp-cards">{sensors.map((s) => (
         <div key={s.serial} className="fp-srow" data-warn={s.syncState === "in_gateway" ? 0 : 1} onClick={() => go(`/settings/sensors/${s.serial}`)}>
-          <span className="l">{s.label}</span><Chip tone={SYNC[s.syncState][0]}>{SYNC[s.syncState][1]}</Chip>
-          <span className="m"><span>slot {(s.slot ?? -1) + 1}</span><span>{s.serial}</span><span>{list.zones.find((z) => z.id === s.zoneId)?.name ?? "no zone"}</span></span>
+          <span className="l">{s.labelSet ? s.label : "No label"}</span><Chip tone={SYNC[s.syncState][0]}>{SYNC[s.syncState][1]}</Chip>
+          <span className="m"><span>slot {s.slot ?? "--"}</span><span>{s.serial}</span><span>{list.zones.find((z) => z.id === s.zoneId)?.name ?? "no zone"}</span></span>
           <span className="m" onClick={(e) => e.stopPropagation()}>{interval(s)}</span><span className="m"><StatusChip status={s.status} /><Battery v={s.voltage} low={s.lowVoltage} /><Signal rssi={s.rssi} band={s.rssiBand} /></span></div>))}</div>
       {!sensors.length && <p className="fp-msg fp-muted">No sensors yet. Press ADD SENSORS and type or paste the serials.</p>}
     </section>
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="fp-sidecards">
       <section className="fp-card"><h3>Will be sent</h3>
         {!changes.length && !gw.pending.length ? <span className="fp-msg fp-muted">Nothing to send.</span> : <ul className="fp-list">
-          {changes.map((s) => <li key={s.serial}><span>{s.syncState === "not_sent" ? "ADD" : "CHANGE"} {s.serial}</span><span className="fp-muted">{s.syncState === "not_sent" ? `slot ${(s.slot ?? 0) + 1}, ${dur(s.intervalSec)}` : `${dur(s.sentInterval ?? 0)} → ${dur(s.intervalSec)}`}</span></li>)}
-          {gw.pending.map((p) => <li key={p.serial}><span>REMOVE {p.serial}</span><span className="fp-muted">slot {(p.slot ?? 0) + 1}</span></li>)}</ul>}
+          {changes.map((s) => <li key={s.serial}><span>{s.syncState === "not_sent" ? "ADD" : "CHANGE"} {s.serial}</span><span className="fp-muted">{s.syncState === "not_sent" ? `slot ${s.slot}, ${dur(s.intervalSec)}` : `${dur(s.sentInterval ?? 0)} → ${dur(s.intervalSec)}`}</span></li>)}
+          {gw.pending.map((p) => <li key={p.serial}><span>REMOVE {p.serial}</span><span className="fp-muted">slot {p.slot}</span></li>)}</ul>}
         <span className="fp-cap" style={{ textTransform: "none" }}>Polling pauses for about 10 s. Every write is read back.</span></section>
       <section className="fp-card"><h3>Result of last send</h3>
         {!gw.lastSync ? <span className="fp-msg fp-muted">No send yet.</span> : <ul className="fp-list">{gw.lastSync.items.map((i, k) => <li key={k}><span>{i.serial}</span><Chip tone={i.status === "confirmed" ? "ok" : "alarm"}>{i.status === "confirmed" ? "CONFIRMED" : `FAILED${i.reason ? ": " + i.reason.toUpperCase() : ""}`}</Chip></li>)}{!gw.lastSync.items.length && <li className="fp-muted">Nothing needed writing; gateway already matched.</li>}</ul>}
         {gw.lastSync && <span className="fp-cap">{ago(gw.lastSync.at)}</span>}</section>
       {gw.unassigned.length > 0 && <section className="fp-card"><h3>New sensor found</h3><span className="fp-msg">Configured in the gateway but not in CORE. Never added automatically.</span>
-        <ul className="fp-list">{gw.unassigned.map((u) => <li key={u.serial}><span>{u.serial} · slot {u.slot + 1} · {dur(u.interval)}</span><span className="fp-row">
+        <ul className="fp-list">{gw.unassigned.map((u) => <li key={u.serial}><span>{u.serial} · slot {u.slot} · {dur(u.interval)}</span><span className="fp-row">
           <button className="fp-btn small" onClick={() => api("/gateway/unassigned/add", { method: "POST", json: { serial: u.serial } }).then(() => { load(); reload(); }).catch(fail)}>Add</button>
           <button className="fp-btn small" onClick={() => api("/gateway/unassigned/ignore", { method: "POST", json: { serial: u.serial } }).then(load).catch(fail)}>Ignore</button></span></li>)}</ul></section>}
     </div></div>
     {adding && <AddModal types={list.types} pattern={list.pattern} onClose={() => setAdding(false)} onDone={(n) => { setAdding(false); ok(`${n} sensor(s) added. Press SEND TO GATEWAY to push them.`); load(); reload(); }} />}
     {confirm && <Modal title="Confirm changes" onClose={() => setConfirm(null)}><p className="fp-msg">These sensors will be removed from or moved in the gateway:</p>
-      <ul className="fp-list">{confirm.confirm.map((c: any, i: number) => <li key={i}><span>{c.kind.toUpperCase()} {c.serial}</span><span className="fp-muted">slot {c.slot + 1}</span></li>)}</ul>
+      <ul className="fp-list">{confirm.confirm.map((c: any, i: number) => <li key={i}><span>{c.kind.toUpperCase()} {c.serial}</span><span className="fp-muted">slot {c.slot}</span></li>)}</ul>
       <div className="fp-row"><button className="fp-btn primary" onClick={() => send(true)}>Confirm and send</button><button className="fp-btn" onClick={() => setConfirm(null)}>Cancel</button></div></Modal>}
   </>);
 }

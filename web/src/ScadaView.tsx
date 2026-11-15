@@ -41,8 +41,8 @@ function PumpCard({ state, now, reload }: { state: State; now: number; reload: (
   return (
     <section className="fp-card" aria-label="Pump 1">
       <div className="fp-row fp-spread"><h3>Pump 1</h3><Chip tone={look === "run" ? "ok" : "off"}>{look === "run" ? "PUMP ON" : look === "stopped" ? "PUMP OFF" : "NO DATA"}</Chip></div>
-      <div className="fp-row"><button className="fp-btn primary" style={{ flex: 1 }} disabled={busy || pending} aria-label="Start pump 1" onClick={() => send("on")}>Start</button>
-        <button className="fp-btn primary danger" style={{ flex: 1, background: "transparent", color: "var(--fp-alarm)", borderColor: "var(--fp-alarm)" }} disabled={busy || pending} aria-label="Stop pump 1" onClick={() => send("off")}>Stop</button></div>
+      <div className="fp-row"><button className="fp-btn go" style={{ flex: 1 }} disabled={busy || pending} aria-label="Start pump 1" onClick={() => send("on")}>Start</button>
+        <button className="fp-btn stop" style={{ flex: 1 }} disabled={busy || pending} aria-label="Stop pump 1" onClick={() => send("off")}>Stop</button></div>
       <div className="fp-inset" aria-live="polite"><div className="fp-cap">Last command</div>
         {last ? <div className="fp-row" style={{ marginTop: 6 }}><Chip tone={tone}>{CMD_WORD[last.status]}</Chip><span className="fp-num" style={{ fontSize: 13 }}>{last.action.toUpperCase()} · {last.username} · {ago(last.created_at, now)}</span></div> : <div className="fp-num">--</div>}
         {last?.status === "timeout" && <p className="fp-msg">No acknowledgement from the controller{last.note ? ` (${last.note})` : ""}.</p>}

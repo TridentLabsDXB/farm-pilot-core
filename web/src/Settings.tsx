@@ -24,9 +24,9 @@ export default function Settings({ tab, serial, scada, reload }: { tab: string; 
 
 interface U { id: number; username: string; role: string; active: number; }
 function UsersPage() {
-  const [users, setUsers] = useState<U[]>([]); const [msg, setMsg] = useState(""); const [to, setTo] = useState("10");
+  const [users, setUsers] = useState<U[]>([]); const [msg, setMsg] = useState("");
   const [nu, setNu] = useState({ username: "", password: "", role: "operator" });
-  const load = () => api<U[]>("/users").then(setUsers); useEffect(() => { load(); api<{ commandTimeoutSec: number }>("/state").then((s) => setTo(String(s.commandTimeoutSec))); }, []);
+  const load = () => api<U[]>("/users").then(setUsers); useEffect(() => { load(); }, []);
   const run = async (f: () => Promise<unknown>, ok: string) => { setMsg(""); try { await f(); setMsg(ok); load(); } catch (e) { setMsg(errText(e)); } };
   return (<>
     <section className="fp-card"><h3>Users</h3>
@@ -40,8 +40,6 @@ function UsersPage() {
         <select className="fp-input" aria-label="Role" value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })}><option value="operator">Operator</option><option value="admin">Admin</option></select>
         <button className="fp-btn" type="submit">Add user</button></form>
     </section>
-    <section className="fp-card"><h3>Pump commands</h3><label className="fp-cap" htmlFor="to">Acknowledgement timeout (seconds, 3-120)</label>
-      <div className="fp-row"><input id="to" className="fp-input" value={to} onChange={(e) => setTo(e.target.value)} inputMode="numeric" /><button className="fp-btn" onClick={() => run(() => api("/settings", { method: "PUT", json: { commandTimeoutSec: Number(to) } }), "Saved.")}>Save</button></div></section>
     {msg && <p className="fp-msg" role="status">{msg}</p>}
   </>);
 }
@@ -53,7 +51,7 @@ function BackupPage({ reload }: { reload: () => void }) {
   return (<>
     <section className="fp-card"><h3>Backup</h3><p className="fp-msg">Exports sensors (with slots and intervals), calibrations, farm structure and settings. History is not included.</p><div className="fp-row"><button className="fp-btn primary" onClick={exp}>Download backup</button></div></section>
     <section className="fp-card"><h3>Restore</h3><p className="fp-msg">Replaces the sensor list, calibrations and structure on this box. After a restore every sensor shows NOT SENT: press SEND TO GATEWAY (Settings, Sensors) to push the groups and intervals to a new or factory-reset gateway.</p>
-      <input type="file" accept="application/json,.json" aria-label="Backup file" onChange={(e) => pick(e.target.files?.[0])} /></section>
+      <input type="file" className="fp-file" accept="application/json,.json" aria-label="Backup file" onChange={(e) => pick(e.target.files?.[0])} /></section>
     {msg && <p className="fp-msg" role="status">{msg}</p>}
     {pending && <Modal title="Restore backup?" onClose={() => setPending(null)}><p className="fp-msg">This replaces {pending.sensors?.length ?? "?"} sensors, {pending.zones?.length ?? "?"} zones and {pending.calibrations?.length ?? "?"} calibration rows on this box.</p>
       <div className="fp-row"><button className="fp-btn danger" onClick={async () => { try { await api("/backup/restore", { method: "POST", json: pending }); setMsg("Restored. Now press SEND TO GATEWAY."); setPending(null); reload(); } catch (e) { setMsg(errText(e)); setPending(null); } }}>Replace and restore</button><button className="fp-btn" onClick={() => setPending(null)}>Cancel</button></div></Modal>}

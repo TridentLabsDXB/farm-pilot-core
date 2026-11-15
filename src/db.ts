@@ -14,6 +14,12 @@ export function openDb(path: string): Database.Database {
   db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA);
   db.exec(SCHEMA_M2);
+  // 2026-11-16: slots are numbered 1..N everywhere (database, API, UI). Rows written by the first Milestone 2 build used the 0-based group index.
+  // Two passes through negative numbers because the unique index (type, slot) is checked row by row.
+  if (!db.prepare("SELECT 1 FROM settings WHERE key='slots_1based'").get()) db.transaction(() => {
+    db.exec("UPDATE sensors SET slot = -slot - 1 WHERE slot IS NOT NULL; UPDATE sensors SET slot = -slot WHERE slot < 0; UPDATE sensors SET sent_slot = sent_slot + 1 WHERE sent_slot IS NOT NULL; UPDATE pending_removals SET slot = slot + 1 WHERE slot IS NOT NULL;");
+    db.prepare("INSERT INTO settings(key,value) VALUES('slots_1based','1')").run();
+  })();
   return db;
 }
 

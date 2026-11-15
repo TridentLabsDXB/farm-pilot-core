@@ -3,6 +3,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../db.js";
 import { audit } from "../db.js";
+import { config } from "../config.js";
 import { buildView } from "./health.js";
 import { HttpError, type Registry } from "./registry.js";
 import type { GatewayService } from "./service.js";
@@ -27,7 +28,9 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   app.get("/api/gateway", { preHandler: admin }, async () => {
     const pend = (db.prepare("SELECT COUNT(*) c FROM sensors WHERE replaced_by IS NULL AND (sent_slot IS NULL OR sent_slot IS NOT slot OR sent_interval IS NOT reporting_interval)").get() as { c: number }).c
       + (db.prepare("SELECT COUNT(*) c FROM pending_removals").get() as { c: number }).c;
-    return { enabled: svc.enabled, online: svc.online, lastOk: svc.lastOk, lastError: svc.lastError, model: reg.map.gateway_model, manual: reg.map.manual_version, mapVersion: reg.map.map_version, info: svc.info,
+    const link = config.gwTransport === "off" ? null : { transport: config.gwTransport, host: config.gwHost, port: config.gwPort, serialPath: config.gwSerialPath, baud: config.gwBaud, parity: config.gwParity, dataBits: 8, stopBits: 1,
+      address: config.gwAddress || reg.map.default_gateway_address, timeoutMs: config.gwTimeoutMs, retries: config.gwRetries };
+    return { enabled: svc.enabled, online: svc.online, lastOk: svc.lastOk, lastError: svc.lastError, link, model: reg.map.gateway_model, manual: reg.map.manual_version, mapVersion: reg.map.map_version, info: svc.info,
       types: typesInfo(), unsent: pend, pending: db.prepare("SELECT type,serial,slot FROM pending_removals").all(), lastSync: svc.lastSync(), unassigned: svc.unassigned(), syncing: svc.syncing, settings: reg.settings() };
   });
   app.put("/api/gateway/settings", { preHandler: admin }, async (req) => guard(() => { reg.saveSettings(A(req), req.body); return { ok: true }; }));
@@ -72,7 +75,7 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   app.post<{ Params: { serial: string }; Body: { metric: string; dueAt: number | null } }>("/api/sensors/:serial/calibrate/due", { preHandler: admin }, async (req) => guard(() => { reg.setCalDue(A(req), req.params.serial.toUpperCase(), String(req.body?.metric), req.body?.dueAt ?? null); return { ok: true }; }));
 
   // ---- farm structure ----
-  app.get("/api/structure", { preHandler: admin }, async () => ({ zones: reg.zones(), points: reg.points(), sensors: buildView(db, reg, svc, true).sensors.map((s) => ({ serial: s.serial, label: s.label, slot: s.slot, zoneId: s.zoneId, type: s.type })), templates: TEMPLATES }));
+  app.get("/api/structure", { preHandler: admin }, async () => ({ zones: reg.zones(), points: reg.points(), sensors: buildView(db, reg, svc, true).sensors.map((s) => ({ serial: s.serial, label: s.labelSet ? s.label : "", slot: s.slot, zoneId: s.zoneId, type: s.type })), templates: TEMPLATES }));
   app.post<{ Body: { name: string; type: string } }>("/api/zones", { preHandler: admin }, async (req) => guard(() => ({ id: reg.addZone(A(req), req.body?.name, req.body?.type) })));
   app.patch<{ Params: { id: string }; Body: any }>("/api/zones/:id", { preHandler: admin }, async (req) => guard(() => { reg.updateZone(A(req), Number(req.params.id), req.body ?? {}); return { ok: true }; }));
   app.delete<{ Params: { id: string } }>("/api/zones/:id", { preHandler: admin }, async (req) => guard(() => { reg.removeZone(A(req), Number(req.params.id)); return { ok: true }; }));

@@ -20,24 +20,25 @@ for (const framing of ["mbap", "rtu"] as const) {
   test(`[${framing}] system registers, write groups, read back config, data decode`, async () => {
     const { sim, drv } = await rig(framing); const t0 = Date.now();
     assert.deepEqual(await drv.readSystem(), { address: 1, groupAddress: 1, version: 0x200 });
-    await drv.writeGroup("th", 0, { serial: "4A01B3F2", interval: 60 }); await drv.writeGroup("th", 2, { serial: "4A01B3F3", interval: 300 });
+    await drv.writeGroup("th", 1, { serial: "4A01B3F2", interval: 60 }); await drv.writeGroup("th", 3, { serial: "4A01B3F3", interval: 300 });
     const cfg = await drv.readConfig("th");
-    assert.equal(cfg.length, 30); assert.deepEqual([cfg[0].serial, cfg[0].interval, cfg[1].serial, cfg[2].serial, cfg[2].interval], ["4A01B3F2", 60, null, "4A01B3F3", 300]);
-    assert.equal((await drv.readData("th", 2))[0].allZero, true);          // configured but nothing received yet
+    assert.equal(cfg.length, 30); assert.equal(cfg[0].slot, 1); assert.equal(cfg[29].slot, 30); assert.deepEqual([cfg[0].serial, cfg[0].interval, cfg[1].serial, cfg[2].serial, cfg[2].interval], ["4A01B3F2", 60, null, "4A01B3F3", 300]);
+    assert.equal((await drv.readData("th", 3))[0].allZero, true);          // configured but nothing received yet
     sim.tick(t0 + 5000);
-    const d = await drv.readData("th", 2); assert.equal(d.length, 3);      // only up to the highest configured slot
+    const d = await drv.readData("th", 3); assert.equal(d.length, 3); assert.deepEqual(d.map((c) => c.slot), [1, 2, 3]);      // only up to the highest configured slot
     assert.equal(d[0].allZero, false); assert.equal(d[1].allZero, true); assert.ok(d[0].values.temperature > 10 && d[0].values.voltage > 3 && d[0].values.rssi < -60);
-    await drv.clearGroup("th", 0); assert.equal((await drv.readConfig("th"))[0].serial, null); assert.equal((await drv.readData("th", 0))[0].allZero, true);
+    await drv.clearGroup("th", 1); assert.equal((await drv.readConfig("th"))[0].serial, null); assert.equal((await drv.readData("th", 1))[0].allZero, true);
   });
 }
 test("exceptions: bad address, delete-all, reject injection, silent gateway times out, address guard", async () => {
   const { sim, drv, master } = await rig("mbap");
   await assert.rejects(master.read(4, 0x0900, 1), (e: any) => e instanceof ModbusException && e.code === 2);
   await assert.rejects(master.read(3, 0x0100, 1), (e: any) => e instanceof ModbusException);          // FC03 on the config area: strict split
-  await drv.writeGroup("th", 1, { serial: "4A01B3F4", interval: 60 }); await drv.deleteAll(); assert.equal((await drv.readConfig("th")).every((g) => g.serial === null), true);
-  sim.rejectSerials.add("4A01B3F5"); await assert.rejects(drv.writeGroup("th", 0, { serial: "4A01B3F5", interval: 60 }), (e: any) => e.code === 4);
-  sim.rejectAll = true; await assert.rejects(drv.clearGroup("th", 0), (e: any) => e.code === 4); sim.rejectAll = false;
-  await assert.rejects(drv.writeGroup("th", 0, { serial: "4A01B3F4", interval: 1 }), /outside/);
+  await drv.writeGroup("th", 2, { serial: "4A01B3F4", interval: 60 }); await drv.deleteAll(); assert.equal((await drv.readConfig("th")).every((g) => g.serial === null), true);
+  sim.rejectSerials.add("4A01B3F5"); await assert.rejects(drv.writeGroup("th", 1, { serial: "4A01B3F5", interval: 60 }), (e: any) => e.code === 4);
+  sim.rejectAll = true; await assert.rejects(drv.clearGroup("th", 1), (e: any) => e.code === 4); sim.rejectAll = false;
+  await assert.rejects(drv.writeGroup("th", 1, { serial: "4A01B3F4", interval: 1 }), /outside/);
+  await assert.rejects(drv.writeGroup("th", 0, { serial: "4A01B3F4", interval: 60 }), /slot out of range/); await assert.rejects(drv.writeGroup("th", 31, { serial: "4A01B3F4", interval: 60 }), /slot out of range/);
   for (const a of [0, 123, 160, 255]) await assert.rejects(drv.setAddress(a), /never 123 or 160/);
   sim.silent = true; await assert.rejects(drv.readSystem(), /timeout/);
 });
@@ -49,8 +50,8 @@ test("queue: a write queued behind polls runs before the remaining polls", async
   void drv;
 });
 test("replay: recorded register values appear at their time", async () => {
-  const { sim, drv } = await rig("mbap"); sim.preconfigure("th", 0, "4A01B3F2", 60, 0);
-  sim.loadReplay({ frames: [{ t: 0, type: "th", slot: 0, regs: [235, 580, 330, 0xffb0] }, { t: 10, type: "th", slot: 0, regs: [240, 590, 329, 0xffb2] }] }, 1000);
-  sim.tick(1000); let v = (await drv.readData("th", 0))[0].values; assert.deepEqual([v.temperature, v.humidity, v.voltage, v.rssi], [23.5, 58, 3.3, -80]);
-  sim.tick(12000); v = (await drv.readData("th", 0))[0].values; assert.equal(v.temperature, 24);
+  const { sim, drv } = await rig("mbap"); sim.preconfigure("th", 1, "4A01B3F2", 60, 0);
+  sim.loadReplay({ frames: [{ t: 0, type: "th", slot: 1, regs: [235, 580, 330, 0xffb0] }, { t: 10, type: "th", slot: 1, regs: [240, 590, 329, 0xffb2] }] }, 1000);
+  sim.tick(1000); let v = (await drv.readData("th", 1))[0].values; assert.deepEqual([v.temperature, v.humidity, v.voltage, v.rssi], [23.5, 58, 3.3, -80]);
+  sim.tick(12000); v = (await drv.readData("th", 1))[0].values; assert.equal(v.temperature, 24);
 });

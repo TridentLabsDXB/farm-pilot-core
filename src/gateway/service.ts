@@ -61,7 +61,7 @@ export class GatewayService extends EventEmitter {
     for (const t of Object.values(drv.map.types)) {
       if (!t.enabled) continue; const sensors = all.filter((s) => s.type === t.key && s.sent_slot !== null); if (!sensors.length) continue;
       const ch = await drv.readData(t.key, Math.max(...sensors.map((s) => s.sent_slot!)));
-      for (const s of sensors) { const c = ch[s.sent_slot!]; if (c) this.process(s, c, cals, now); }
+      for (const s of sensors) { const c = ch[s.sent_slot! - 1]; if (c) this.process(s, c, cals, now); }
     }
   }
   private process(s: SensorRow, c: { regs: number[]; values: Record<string, number>; allZero: boolean }, cals: Map<string, any>, now: number) {
@@ -124,7 +124,7 @@ export class GatewayService extends EventEmitter {
           let back: Group[] | null = null; try { back = await this.drv!.readConfig(type, "write"); } catch { /* every unverified item becomes a timeout below */ }
           for (const it of attempted) {
             if (it.status === "failed") { done.set(it.serial + it.slot + it.action, it); continue; }
-            const g = back?.[it.slot]; const w = plan.writes.find((x) => x.slot === it.slot && x.serial === it.serial);
+            const g = back?.[it.slot - 1]; const w = plan.writes.find((x) => x.slot === it.slot && x.serial === it.serial);
             const okv = !back ? null : w ? g?.serial === w.serial && g.interval === w.interval : g?.serial === null;
             if (okv === null) { it.status = "failed"; it.reason = "timeout"; } else if (!okv) { it.status = "failed"; it.reason = "mismatch"; }
             done.set(it.serial + it.slot + it.action, it);

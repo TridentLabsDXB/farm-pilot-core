@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Scada, type SensorView } from "./api";
 import { go } from "./App";
-import { Battery, Chip, Modal, Signal, StatusChip, SYNC, ago, dt, dur, errText, fmt } from "./ui";
+import { Battery, Chip, Modal, Signal, StatusChip, SYNC, ago, dateOnly, dayMon, dt, dur, errText, fmt, hhmm } from "./ui";
 
 interface Detail { sensor: SensorView | null; row: { serial: string; type: string; label: string; replacedBy: string | null; slot: number | null }; calibrations: any[]; active: Record<string, any>; limits: Record<string, { maxOffset: number; gainMin: number; gainMax: number }>;
   type: { presets: number[]; min: number; max: number; label: string } }
@@ -16,7 +16,7 @@ function Chart({ t, metric, range }: { t: Trend; metric: Metric; range: string }
   let lo = Math.min(...vals), hi = Math.max(...vals); if (hi - lo < 1) { lo -= 0.5; hi += 0.5; } const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
   const x = (ts: number) => P + ((ts - t0) / Math.max(1, t1 - t0)) * (W - P - 8), y = (v: number) => H - 22 - ((v - lo) / (hi - lo)) * (H - 22 - 10);
   const path = (f: (p: Trend["points"][0]) => number | null) => pts.map((p) => ({ ts: p.ts, v: f(p) })).filter((p) => p.v !== null).map((p, i) => `${i ? "L" : "M"}${x(p.ts).toFixed(1)},${y(p.v as number).toFixed(1)}`).join("");
-  const fmtT = (ts: number) => new Date(ts).toLocaleString([], range === "24h" ? { hour: "2-digit", minute: "2-digit" } : { month: "short", day: "numeric" });
+  const fmtT = (ts: number) => range === "24h" ? hhmm(ts) : dayMon(ts);
   return (
     <svg className="fp-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${metric} trend, calibrated solid line, raw dashed line`}>
       {[0, 1, 2, 3].map((i) => { const v = lo + ((hi - lo) * i) / 3; return <g key={i}><line x1={P} x2={W - 8} y1={y(v)} y2={y(v)} stroke="var(--fp-border)" strokeWidth="1" /><text x={4} y={y(v) + 3}>{v.toFixed(1)}</text></g>; })}
@@ -39,7 +39,7 @@ export default function SensorDetail({ serial, scada, reload }: { serial: string
   return (<>
     <section className="fp-card">
       <div className="fp-row fp-spread"><button className="fp-btn small" onClick={() => go("/settings/sensors")}>← Sensors</button>{s && <span className="fp-row"><StatusChip status={s.status} /><Chip tone={SYNC[s.syncState][0]}>{SYNC[s.syncState][1]}</Chip></span>}</div>
-      <div className="fp-row fp-spread"><div><h3>{d.row.label || serial}</h3><span className="fp-cap">{serial} · {d.type.label} · slot {(d.row.slot ?? -1) + 1}{d.row.replacedBy ? ` · replaced by ${d.row.replacedBy}` : ""}</span></div>
+      <div className="fp-row fp-spread"><div><h3>{d.row.label || serial}</h3><span className="fp-cap">{serial} · {d.type.label} · slot {d.row.slot ?? "--"}{d.row.replacedBy ? ` · replaced by ${d.row.replacedBy}` : ""}</span></div>
         {s && <Identity serial={serial} label={d.row.label} zoneId={s.zoneId} zones={zones} onDone={() => { load(); reload(); }} onErr={(e) => setMsg({ t: "err", s: e })} />}</div>
       {msg && <p className={`fp-msg ${msg.t}`} role="status">{msg.s}</p>}
       {!s && <p className="fp-msg fp-muted">This sensor was replaced. Its history stays available; it is no longer polled.</p>}
@@ -101,7 +101,7 @@ function CalCard({ d, metric, raw, serial, onDone, onErr }: { d: Detail; metric:
         {calc && (viol.length ? <div style={{ marginTop: 6 }}><Chip tone="alarm">OUTSIDE LIMIT</Chip><p className="fp-msg err">{viol.join("; ")}. The sensor will be flagged CHECK SENSOR.</p><label className="fp-row"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} /> I understand, apply anyway</label></div> : <div style={{ marginTop: 6 }}><Chip tone="ok">WITHIN LIMIT ±{lim.maxOffset}</Chip></div>)}</div>
       <label className="fp-field"><span className="fp-cap">Calibration due date (optional)</span><input className="fp-input" type="date" value={due} onChange={(e) => setDue(e.target.value)} /></label>
       <div className="fp-row"><button className="fp-btn primary" disabled={!calc || (viol.length > 0 && !ok)} onClick={apply}>Apply calibration</button><button className="fp-btn" onClick={() => { setRef(""); setRaw2(""); setRef2(""); setOk(false); }}>Cancel</button></div>
-      <span className="fp-cap" style={{ textTransform: "none" }}>{act ? `Calibrated ${dt(act.calibrated_at)} by ${act.calibrated_by}${act.due_at ? `, due ${new Date(act.due_at).toLocaleDateString()}` : ""}` : "Not calibrated. The sensor shows raw values."}</span>
+      <span className="fp-cap" style={{ textTransform: "none" }}>{act ? `Calibrated ${dt(act.calibrated_at)} by ${act.calibrated_by}${act.due_at ? `, due ${dateOnly(act.due_at)}` : ""}` : "Not calibrated. The sensor shows raw values."}</span>
       <div className="fp-row"><button className="fp-btn small danger" disabled={!act} onClick={() => setConfirmReset(true)}>Reset to raw</button><button className="fp-btn small" onClick={() => setHist(!hist)}>History</button></div>
       {hist && <ul className="fp-list">{hist2.map((c) => <li key={c.id}><span>{dt(c.calibrated_at)} · {c.method}</span><span className="fp-muted">×{c.gain} {c.offset >= 0 ? "+" : ""}{c.offset} · {c.calibrated_by}{c.active ? " · ACTIVE" : ""}</span></li>)}{!hist2.length && <li className="fp-muted">No calibration yet.</li>}</ul>}
       {confirmReset && <Modal title="Reset to raw?" onClose={() => setConfirmReset(false)}><p className="fp-msg">The {metric} correction is removed. Past history is not rewritten.</p><div className="fp-row"><button className="fp-btn danger" onClick={() => { setConfirmReset(false); api(`/sensors/${serial}/calibrate/reset`, { method: "POST", json: { metric } }).then(() => onDone("Reset to raw.")).catch((e) => onErr(errText(e))); }}>Reset to raw</button><button className="fp-btn" onClick={() => setConfirmReset(false)}>Cancel</button></div></Modal>}

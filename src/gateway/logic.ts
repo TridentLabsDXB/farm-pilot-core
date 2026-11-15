@@ -8,7 +8,7 @@ export interface PlanClear { slot: number; serial: string; reason: "removed" | "
 export interface SyncPlan { writes: PlanWrite[]; clears: PlanClear[]; unassigned: Group[]; failures: { serial: string; reason: string }[]; reassigned: { serial: string; from: number | null; to: number }[]; confirm: { kind: string; serial: string; slot: number }[]; }
 
 /** First free slot for a type: not used by a registry sensor, not held by any gateway group (foreign or pending removal), not in `extraTaken`. Lowest index first, stable. */
-export function freeSlot(groups: number, taken: Set<number>): number | null { for (let i = 0; i < groups; i++) if (!taken.has(i)) return i; return null; }
+export function freeSlot(groups: number, taken: Set<number>): number | null { for (let i = 1; i <= groups; i++) if (!taken.has(i)) return i; return null; }
 
 export function planSync(groups: number, sensors: RegSensor[], gateway: Group[], pendingRemovals: { serial: string; slot: number | null }[]): SyncPlan {
   const plan: SyncPlan = { writes: [], clears: [], unassigned: [], failures: [], reassigned: [], confirm: [] };

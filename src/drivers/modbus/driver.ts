@@ -19,26 +19,26 @@ export class GatewayDriver {
     const t = this.type(typeKey), c = t.config;
     const regs = await this.master.read(c.read_fc as 3 | 4, c.base, t.groups * c.regs_per_group, prio);
     const groups: Group[] = [];
-    for (let slot = 0; slot < t.groups; slot++) {
-      const g = regs.slice(slot * c.regs_per_group, (slot + 1) * c.regs_per_group);
+    for (let slot = 1; slot <= t.groups; slot++) {          // slots are numbered 1..groups; the register address uses slot-1
+      const g = regs.slice((slot - 1) * c.regs_per_group, slot * c.regs_per_group);
       const empty = g.every((x) => x === 0);
       groups.push({ slot, serial: empty ? null : regsToSerial(g[c.serial.reg], g[c.serial.reg + 1], c.serial.word_order), interval: g[c.interval.reg], control: g[c.control.reg] });
     }
     return groups;
   }
-  /** Read channel data (FC03) only up to the highest configured slot (0-based, inclusive), not all groups. */
+  /** Read channel data (FC03) only up to the highest configured slot (1-based), not all groups. Channel i of the result is slot i+1. */
   async readData(typeKey: string, highestSlot: number, prio: Priority = "poll"): Promise<Channel[]> {
-    const t = this.type(typeKey), d = t.data; const n = Math.min(t.groups, highestSlot + 1); if (n <= 0) return [];
+    const t = this.type(typeKey), d = t.data; const n = Math.min(t.groups, highestSlot); if (n <= 0) return [];
     const regs = await this.master.read(d.read_fc as 3 | 4, d.base, n * d.regs_per_channel, prio);
     const out: Channel[] = [];
-    for (let slot = 0; slot < n; slot++) { const r = regs.slice(slot * d.regs_per_channel, (slot + 1) * d.regs_per_channel); out.push({ slot, regs: r, values: decodeChannel(r, t), allZero: r.every((x) => x === 0) }); }
+    for (let i = 0; i < n; i++) { const slot = i + 1; const r = regs.slice(i * d.regs_per_channel, (i + 1) * d.regs_per_channel); out.push({ slot, regs: r, values: decodeChannel(r, t), allZero: r.every((x) => x === 0) }); }
     return out;
   }
   groupRegs(typeKey: string, g: { serial: string; interval: number; control?: number }): number[] {
     const t = this.type(typeKey), c = t.config; const r = new Array(c.regs_per_group).fill(0);
     const [a, b] = serialToRegs(g.serial, c.serial.word_order); r[c.serial.reg] = a; r[c.serial.reg + 1] = b; r[c.interval.reg] = g.interval; r[c.control.reg] = g.control ?? c.control.value_on_add; return r;
   }
-  groupAddr(typeKey: string, slot: number) { const t = this.type(typeKey); if (!Number.isInteger(slot) || slot < 0 || slot >= t.groups) throw new Error("slot out of range"); return t.config.base + slot * t.config.regs_per_group; }
+  groupAddr(typeKey: string, slot: number) { const t = this.type(typeKey); if (!Number.isInteger(slot) || slot < 1 || slot > t.groups) throw new Error("slot out of range (1.." + t.groups + ")"); return t.config.base + (slot - 1) * t.config.regs_per_group; }
   async writeGroup(typeKey: string, slot: number, g: { serial: string; interval: number; control?: number }) {
     const t = this.type(typeKey); if (!t.config.write_fc.includes(16)) throw new Error("type has no FC16 write");
     if (g.interval < t.config.interval.min || g.interval > t.config.interval.max) throw new Error(`interval ${g.interval} outside ${t.config.interval.min}..${t.config.interval.max}`);

@@ -106,7 +106,7 @@ export class GatewaySim {
     const r = this.replay!; const el = (now - r.start) / 1000;
     while (r.idx < r.frames.length && r.frames[r.idx].t <= el) {
       const f = r.frames[r.idx++]; const t = this.map.types[f.type]; const d = this.data.get(f.type); if (!t || !d) continue;
-      f.regs.forEach((v, i) => (d[f.slot * t.data.regs_per_channel + i] = v & 0xffff));
+      f.regs.forEach((v, i) => (d[(f.slot - 1) * t.data.regs_per_channel + i] = v & 0xffff));
     }
     if (r.idx >= r.frames.length && r.loop) { r.idx = 0; r.start = now; }
   }
@@ -118,7 +118,7 @@ export class GatewaySim {
   // ---- failure injection and bench setup ----
   preconfigure(type: string, slot: number, serial: string, intervalSec: number, now = Date.now()) {
     const t = this.map.types[type], c = t.config, cfg = this.cfg.get(type)!, [a, b] = serialToRegs(serial, c.serial.word_order);
-    const o = slot * c.regs_per_group; cfg[o + c.serial.reg] = a; cfg[o + c.serial.reg + 1] = b; cfg[o + c.interval.reg] = intervalSec; cfg[o + c.control.reg] = c.control.value_on_add; this.syncPhys(now);
+    const o = (slot - 1) * c.regs_per_group; cfg[o + c.serial.reg] = a; cfg[o + c.serial.reg + 1] = b; cfg[o + c.interval.reg] = intervalSec; cfg[o + c.control.reg] = c.control.value_on_add; this.syncPhys(now);
   }
   freeze(serial: string, on = true) { const p = this.phys.get(serial); if (!p) return false; p.frozen = on; return true; }
   zero(serial: string) {                                                  // sensor goes dead AND its registers read zeros
@@ -129,7 +129,7 @@ export class GatewaySim {
   setVoltage(serial: string, v: number | null) { const p = this.phys.get(serial); if (!p) return false; p.voltOverride = v ?? undefined; if (v !== null) p.volt = v; return true; }
   state() {
     return { address: this.address, silent: this.silent, rejectAll: this.rejectAll, rejectSerials: [...this.rejectSerials],
-      sensors: [...this.phys.values()].map((p) => ({ serial: p.serial, slot: p.slot, intervalSec: p.intervalMs / 1000, frozen: p.frozen, zeroed: p.zeroed, volt: +p.volt.toFixed(3), rssi: p.rssi })),
+      sensors: [...this.phys.values()].map((p) => ({ serial: p.serial, slot: p.slot === null ? null : p.slot + 1, intervalSec: p.intervalMs / 1000, frozen: p.frozen, zeroed: p.zeroed, volt: +p.volt.toFixed(3), rssi: p.rssi })),
       configured: Object.fromEntries([...this.cfg].map(([k, regs]) => { const t = this.map.types[k]; let n = 0; for (let g = 0; g < t.groups; g++) if (regs.slice(g * t.config.regs_per_group, (g + 1) * t.config.regs_per_group).some((x) => x)) n++; return [k, n]; })) };
   }
 }

@@ -1,5 +1,5 @@
 import { test, after } from "node:test"; import assert from "node:assert/strict";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo } from "node:net"; import { rmSync } from "node:fs";
 import { openDb } from "../src/db.js"; import { Ingest } from "../src/ingest.js";
 import { loadRegMap } from "../src/drivers/modbus/regmap.js";
 import { GatewaySim } from "../src/tools/gateway-sim/sim.js"; import { serveSim } from "../src/tools/gateway-sim/server.js";
@@ -34,9 +34,9 @@ test("rejected write: that serial FAILED with reason, others confirmed, polling 
   assert.equal(svc.paused, false); assert.equal(reg.get(POOL[1])!.sent_slot, null);
 });
 test("type full: foreign groups appear after the sensors were added, extra sensor fails with 'type full'; unassigned shows foreign serials, never auto-added", async () => {
-  const { sim, reg, svc, db } = await rig(); reg.add(A, "th", POOL.slice(0, 2));                       // slots 0 and 1
+  const { sim, reg, svc, db } = await rig(); reg.add(A, "th", POOL.slice(0, 2));                       // slots 1 and 2
   assert.throws(() => reg.add(A, "th", Array.from({ length: 29 }, (_, i) => "0000" + i.toString(16).toUpperCase().padStart(4, "0"))), /full/);   // registry blocks beyond 30
-  for (let i = 0; i < 29; i++) sim.preconfigure("th", i, "0000" + i.toString(16).toUpperCase().padStart(4, "0"), 300);   // configured with the maker's tool meanwhile
+  for (let i = 0; i < 29; i++) sim.preconfigure("th", i + 1, "0000" + i.toString(16).toUpperCase().padStart(4, "0"), 300);   // configured with the maker's tool meanwhile
   (svc as any).n = 0; await svc.pollNow();
   assert.equal(svc.unassigned().length, 29); assert.equal((db.prepare("SELECT COUNT(*) c FROM sensors").get() as any).c, 2);
   const [r] = await svc.sync(A, ["th"], true); assert.equal(r.items.filter((i) => i.status === "confirmed").length, 1); assert.deepEqual(r.items.filter((i) => i.status === "failed").map((i) => i.reason), ["type full"]);
@@ -69,9 +69,9 @@ test("calibration: calibrated value in view + calibrated series, raw kept in his
   assert.ok(buildView(db, reg, svc, false).alarms.some((a) => a.kind === "calibration_due"));
   assert.equal(buildView(db, reg, svc, false).sensors[0].serial, undefined);     // Operators never see serials/slots/raw
   const n = reg.replace(A, POOL[0], POOL[7]); const nv = buildView(db, reg, svc, true).sensors.find((s) => s.serial === n)!;
-  assert.equal(nv.label, "Row 1"); assert.equal(nv.calibrated, false); assert.equal(reg.get(POOL[0])!.replaced_by, n); assert.equal(reg.get(n)!.slot, 0);
+  assert.equal(nv.label, "Row 1"); assert.equal(nv.calibrated, false); assert.equal(reg.get(POOL[0])!.replaced_by, n); assert.equal(reg.get(n)!.slot, 1);
   await assert.rejects(svc.sync(A, ["th"], false), (e: any) => e.status === 409 && e.extra.plan.confirm[0].kind === "replaced");
-  const [r] = await svc.sync(A, ["th"], true); assert.equal(r.ok, true); assert.equal(sim.state().sensors.find((s) => s.serial === POOL[7])!.slot, 0);
+  const [r] = await svc.sync(A, ["th"], true); assert.equal(r.ok, true); assert.equal(sim.state().sensors.find((s) => s.serial === POOL[7])!.slot, 1);
   assert.equal(hist(db, POOL[0], "temperature").length, 2);                      // old serial keeps its history
 });
 test("calibration limits refuse unless confirmed; reset to raw; history kept", async () => {
@@ -94,7 +94,7 @@ test("frozen sensor -> NO UPDATE after 3 intervals; low voltage; silent gateway 
 });
 test("remove sensor: slot not reused until the confirmed Send; delete-all resets the gateway", async () => {
   const { sim, reg, svc } = await rig(); reg.add(A, "th", POOL.slice(0, 2)); await svc.sync(A, ["th"], false);
-  reg.remove(A, POOL[0]); reg.add(A, "th", [POOL[2]]); assert.equal(reg.get(POOL[2])!.slot, 2);          // slot 0 is held by the pending removal, 1 by the other sensor
+  reg.remove(A, POOL[0]); reg.add(A, "th", [POOL[2]]); assert.equal(reg.get(POOL[2])!.slot, 3);          // slot 1 is held by the pending removal, 2 by the other sensor
   await assert.rejects(svc.sync(A, ["th"], false), (e: any) => e.status === 409 && e.extra.plan.confirm[0].kind === "removed");
   const [r] = await svc.sync(A, ["th"], true); assert.equal(r.ok, true); assert.equal(sim.state().configured.th, 2);
   await svc.deleteAll(A); assert.equal(sim.state().configured.th, 0); assert.ok(reg.list().every((s) => s.sent_slot === null));
@@ -108,8 +108,26 @@ test("backup export/import round trip keeps sensors, intervals, calibrations, st
 });
 
 test("gateway down at boot: system info and config are read on the first successful cycle, not 10 cycles later", async () => {
-  const { sim, reg, svc } = await rig(false); reg.add(A, "th", [POOL[0]]); sim.preconfigure("th", 0, POOL[0], 300);   // already configured in the gateway (e.g. after a restore)
+  const { sim, reg, svc } = await rig(false); reg.add(A, "th", [POOL[0]]); sim.preconfigure("th", 1, POOL[0], 300);   // already configured in the gateway (e.g. after a restore)
   sim.silent = true; await svc.pollNow(); assert.equal(svc.online, false); assert.equal(svc.info.address, undefined);
   sim.silent = false; await svc.pollNow(); assert.equal(svc.online, true); assert.equal(svc.info.address, 1);
-  assert.equal(reg.get(POOL[0])!.sent_slot, 0);                                  // reconciled from the read-back: IN GATEWAY without a Send
+  assert.equal(reg.get(POOL[0])!.sent_slot, 1);                                  // reconciled from the read-back: IN GATEWAY without a Send
+});
+
+test("slots are 1..30: first sensor gets 1, the 30th gets 30, the 31st is refused", async () => {
+  const { reg, svc, sim } = await rig(); const ser = (i: number) => (0x1000 + i).toString(16).toUpperCase().padStart(8, "0");
+  reg.add(A, "th", Array.from({ length: 30 }, (_, i) => ser(i))); const l = reg.list(); assert.equal(l[0].slot, 1); assert.equal(Math.max(...l.map((s) => s.slot!)), 30); assert.equal(Math.min(...l.map((s) => s.slot!)), 1);
+  assert.throws(() => reg.add(A, "th", [ser(99)]), /full/);
+  const [r] = await svc.sync(A, ["th"], false); assert.equal(r.ok, true); assert.equal(sim.state().configured.th, 30);              // slot 30 = last group, register 0x0100 + 29*4
+  assert.equal(sim.state().sensors.length, 8);
+});
+test("migration: a 0-based database from the first M2 build becomes 1-based exactly once", () => {
+  const path = "/tmp/claude-0/migrate-test.db"; for (const x of ["", "-wal", "-shm"]) rmSync(path + x, { force: true });
+  const db = openDb(path); db.prepare("DELETE FROM settings WHERE key='slots_1based'").run();
+  for (const [i, s] of ["AAAAAAA1", "AAAAAAA2", "AAAAAAA3"].entries()) db.prepare("INSERT INTO sensors(serial,type,slot,sent_slot,reporting_interval,created_at) VALUES(?,?,?,?,?,?)").run(s, "th", i, i === 2 ? null : i, 300, 1);
+  db.prepare("INSERT INTO pending_removals(type,serial,slot) VALUES('th','OLD',5)").run(); db.close();
+  const d2 = openDb(path); const rows = d2.prepare("SELECT slot,sent_slot FROM sensors ORDER BY serial").all();
+  assert.deepEqual(rows, [{ slot: 1, sent_slot: 1 }, { slot: 2, sent_slot: 2 }, { slot: 3, sent_slot: null }]); assert.equal((d2.prepare("SELECT slot FROM pending_removals").get() as any).slot, 6); d2.close();
+  const d3 = openDb(path); assert.deepEqual(d3.prepare("SELECT slot FROM sensors ORDER BY serial").all().map((r: any) => r.slot), [1, 2, 3]); d3.close();   // second open: no second shift
+  for (const x of ["", "-wal", "-shm"]) rmSync(path + x, { force: true });
 });
