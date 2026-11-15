@@ -14,6 +14,7 @@ export function openDb(path: string): Database.Database {
   db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA);
   db.exec(SCHEMA_M2);
+  for (const [col, type] of [["clear_reason", "TEXT"], ["last_data_at", "INTEGER"]]) if (!(db.prepare("PRAGMA table_info(alarm_events)").all() as { name: string }[]).some((c) => c.name === col)) db.exec(`ALTER TABLE alarm_events ADD COLUMN ${col} ${type}`);   // dev copies that already had the first version of the table
   // 2026-11-16: slots are numbered 1..N everywhere (database, API, UI). Rows written by the first Milestone 2 build used the 0-based group index.
   // Two passes through negative numbers because the unique index (type, slot) is checked row by row.
   if (!db.prepare("SELECT 1 FROM settings WHERE key='slots_1based'").get()) db.transaction(() => {
@@ -98,7 +99,9 @@ CREATE TABLE IF NOT EXISTS gateway_state (id INTEGER PRIMARY KEY CHECK (id=1), o
 -- Alarm history: one row per alarm episode (raised -> cleared), with who acknowledged it. Written by AlarmTracker; the live alarm list itself is still computed on demand.
 CREATE TABLE IF NOT EXISTS alarm_events (
   id INTEGER PRIMARY KEY, kind TEXT NOT NULL, source TEXT NOT NULL, severity TEXT NOT NULL, text TEXT NOT NULL,
-  raised_at INTEGER NOT NULL, cleared_at INTEGER, acked_by TEXT, acked_at INTEGER);
+  raised_at INTEGER NOT NULL, cleared_at INTEGER, acked_by TEXT, acked_at INTEGER,
+  clear_reason TEXT,        -- recovered | sensor_removed | other
+  last_data_at INTEGER);    -- NO UPDATE only: when the sensor's data last changed
 CREATE INDEX IF NOT EXISTS idx_alarm_raised ON alarm_events(raised_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_open ON alarm_events(kind, source) WHERE cleared_at IS NULL;
 CREATE TABLE IF NOT EXISTS sync_runs (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, username TEXT NOT NULL, type TEXT NOT NULL, ok INTEGER NOT NULL, result TEXT NOT NULL);

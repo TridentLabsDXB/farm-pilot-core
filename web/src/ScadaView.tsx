@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type Cmd, type Scada, type SensorView, type State, type ZoneView } from "./api";
-import { Battery, Chip, CommissioningBanner, Signal, StatusChip, ago, fmt, useNow, type Tone } from "./ui";
+import { Battery, Chip, CommissioningBanner, Modal, Signal, StatusChip, ago, fmt, useNow, type Tone } from "./ui";
 
 const ZONE_STATUS = (z: ZoneView): [Tone, string] => z.status === "unknown" ? ["off", "UNKNOWN"] : z.status === "empty" ? ["off", "NO SENSORS"] : z.noUpdate ? ["warn", `${z.noUpdate} NO UPDATE`] : z.lowBattery ? ["warn", "LOW BATTERY"] : ["ok", "ONLINE"];
 
@@ -9,7 +9,7 @@ function Row({ s, now }: { s: SensorView; now: number }) {
   return (
     <div className="fp-srow" data-warn={warn ? 1 : 0}>
       <span className="l">{s.label}</span><span className={`v ${dim ? "dim" : ""}`}>{fmt(s.temperature)} °C &nbsp;{fmt(s.humidity, 0)} %</span>
-      <span className="m"><StatusChip status={s.status} /><Battery v={s.voltage} low={s.lowVoltage} /><Signal rssi={s.rssi} band={s.rssiBand} /><span>changed {ago(s.lastChange, now)}</span>{s.calDue && <Chip tone="warn">CAL DUE</Chip>}{s.checkSensor && <Chip tone="warn">CHECK SENSOR</Chip>}</span>
+      <span className="m"><StatusChip status={s.status} /><Battery v={s.voltage} level={s.batteryLevel} isLow={s.batteryLow} /><Signal rssi={s.rssi} band={s.rssiBand} /><span>changed {ago(s.lastChange, now)}</span>{s.calDue && <Chip tone="warn">CAL DUE</Chip>}{s.checkSensor && <Chip tone="warn">CHECK SENSOR</Chip>}</span>
     </div>
   );
 }
@@ -32,7 +32,7 @@ function Zone({ z, now }: { z: ZoneView; now: number }) {
 
 const CMD_WORD: Record<Cmd["status"], string> = { sent: "SENT", confirmed: "CONFIRMED", timeout: "TIMEOUT" };
 function PumpCard({ state, now, reload }: { state: State; now: number; reload: () => void }) {
-  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [ask, setAsk] = useState<"on" | "off" | null>(null);
   const t = state.topics.find((x) => x.topic === `farmpilot/${state.farm}/water`); const st = t?.sensors.find((x) => x.key === "WPump1")?.readings.status;
   const fresh = !!t && now - t.ts <= 30_000; const look = !fresh || (st !== 0 && st !== 1) ? "nodata" : st === 1 ? "run" : "stopped";
   const last = state.commands.find((c) => c.pump === "pump1"); const pending = last?.status === "sent";
@@ -41,13 +41,16 @@ function PumpCard({ state, now, reload }: { state: State; now: number; reload: (
   return (
     <section className="fp-card" aria-label="Pump 1">
       <div className="fp-row fp-spread"><h3>Pump 1</h3><Chip tone={look === "run" ? "ok" : "off"}>{look === "run" ? "PUMP ON" : look === "stopped" ? "PUMP OFF" : "NO DATA"}</Chip></div>
-      <div className="fp-row"><button className="fp-btn go" style={{ flex: 1 }} disabled={busy || pending} aria-label="Start pump 1" onClick={() => send("on")}>Start</button>
-        <button className="fp-btn stop" style={{ flex: 1 }} disabled={busy || pending} aria-label="Stop pump 1" onClick={() => send("off")}>Stop</button></div>
+      <div className="fp-row"><button className="fp-btn go" style={{ flex: 1 }} disabled={busy || pending} aria-label="Start pump 1" onClick={() => setAsk("on")}>Start</button>
+        <button className="fp-btn stop" style={{ flex: 1 }} disabled={busy || pending} aria-label="Stop pump 1" onClick={() => setAsk("off")}>Stop</button></div>
       <div className="fp-inset" aria-live="polite"><div className="fp-cap">Last command</div>
         {last ? <div className="fp-row" style={{ marginTop: 6 }}><Chip tone={tone}>{CMD_WORD[last.status]}</Chip><span className="fp-num" style={{ fontSize: 13 }}>{last.action.toUpperCase()} · {last.username} · {ago(last.created_at, now)}</span></div> : <div className="fp-num">--</div>}
         {last?.status === "timeout" && <p className="fp-msg">No acknowledgement from the controller{last.note ? ` (${last.note})` : ""}.</p>}
         {last?.status === "sent" && <p className="fp-msg">Waiting for the controller, up to {state.commandTimeoutSec} s.</p>}</div>
       {err && <p className="fp-msg err" role="alert">{err}</p>}
+      {ask && <Modal title={ask === "on" ? "Start Pump 1?" : "Stop Pump 1?"} onClose={() => setAsk(null)}>
+        <p className="fp-msg">{ask === "on" ? "This sends a START command to the controller." : "This sends a STOP command to the controller."} It is logged with your name.</p>
+        <div className="fp-row"><button className={`fp-btn ${ask === "on" ? "go" : "stop"}`} style={{ flex: 1 }} onClick={() => { const a = ask; setAsk(null); send(a); }}>{ask === "on" ? "Yes, start pump" : "Yes, stop pump"}</button><button className="fp-btn" style={{ flex: 1, minHeight: 56 }} onClick={() => setAsk(null)}>Cancel</button></div></Modal>}
       <span className="fp-cap" style={{ textTransform: "none" }}>The PLC keeps its own logic; this panel only sends commands.</span>
     </section>
   );

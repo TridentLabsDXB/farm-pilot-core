@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Scada, type SensorView, type TypeInfo } from "./api";
+import { api, type Scada, type AdminSensor, type TypeInfo } from "./api";
 import { go } from "./App";
 import Scan, { scanSupported } from "./Scan";
 import { Battery, Chip, CommissioningBanner, Modal, Signal, SYNC, StatusChip, ago, dt, dur, errText } from "./ui";
@@ -8,7 +8,7 @@ export const linkText = (l: GwInfo["link"]) => (!l ? "no link configured" : l.tr
 export interface GwInfo { link: null | { transport: string; host: string; port: number; serialPath: string; baud: number; parity: string; dataBits: number; stopBits: number; address: number; timeoutMs: number; retries: number }; enabled: boolean; online: boolean; lastOk: number | null; lastError: string | null; model: string; mapVersion: number; info: { address?: number; version?: number }; types: TypeInfo[]; unsent: number;
   pending: { type: string; serial: string; slot: number | null }[]; lastSync: { type: string; ok: boolean; at: number; items: { serial: string; slot: number; action: string; status: string; reason?: string }[] } | null;
   unassigned: { type: string; slot: number; serial: string; interval: number }[]; syncing: boolean; settings: { pollSec: number } }
-interface SList { types: TypeInfo[]; sensors: SensorView[]; zones: { id: number; name: string }[]; pattern: string; }
+interface SList { types: TypeInfo[]; sensors: AdminSensor[]; zones: { id: number; name: string }[]; pattern: string; }
 
 export default function SensorsPage({ scada, reload }: { scada: Scada | null; reload: () => void }) {
   const [list, setList] = useState<SList | null>(null); const [gw, setGw] = useState<GwInfo | null>(null);
@@ -26,11 +26,11 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
     finally { setBusy(false); load(); reload(); }
   };
   // Only the server's allowed set is offered (T/H: 1 min, 5 min; plus 30 s in commissioning mode). The server rejects anything else.
-  const setInterval_ = async (s: SensorView, v: string) => { try { await api(`/sensors/${s.serial}`, { method: "PATCH", json: { interval: Number(v) } }); load(); } catch (e) { fail(e); } };
-  const presets = (s: SensorView) => { const t = list.types.find((x) => x.key === s.type)!; return [...new Set([...t.presets, s.intervalSec])].sort((a, b) => a - b); };   // a stored value that is no longer allowed is still shown, and flagged
+  const setInterval_ = async (s: AdminSensor, v: string) => { try { await api(`/sensors/${s.serial}`, { method: "PATCH", json: { interval: Number(v) } }); load(); } catch (e) { fail(e); } };
+  const presets = (s: AdminSensor) => { const t = list.types.find((x) => x.key === s.type)!; return [...new Set([...t.presets, s.intervalSec])].sort((a, b) => a - b); };   // a stored value that is no longer allowed is still shown, and flagged
   const setCommissioning = async (on: boolean) => { try { await api("/gateway/settings", { method: "PUT", json: { commissioning: on } }); load(); } catch (e) { fail(e); } };
   const changes = sensors.filter((s) => s.syncState !== "in_gateway");
-  const interval = (s: SensorView) => (
+  const interval = (s: AdminSensor) => (
     <span className="stack"><select className="fp-input" aria-label={`Interval for ${s.label}`} value={s.intervalSec} onChange={(e) => setInterval_(s, e.target.value)}>{presets(s).map((p) => <option key={p} value={p}>{dur(p)}{s.intervalOk || p !== s.intervalSec ? "" : " (not allowed)"}</option>)}</select>{!s.intervalOk && <Chip tone="warn" title="This stored value is not in the allowed set. Choose an allowed interval.">NOT ALLOWED</Chip>}{s.applying && <Chip tone="info">APPLYING</Chip>}</span>);
   return (<>
     {th?.commissioning && <CommissioningBanner until={scada?.commissioning?.until ?? null} onOff={() => setCommissioning(false)} />}

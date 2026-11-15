@@ -31,3 +31,32 @@ test("commissioning mode switches itself off after 8 hours and the switch-off is
   reg.saveSettings(A, { commissioning: true }); now += 3600_000; reg.saveSettings(A, { commissioning: false }); assert.equal(reg.settings().commissioning, false);
   reg.saveSettings(A, { commissioning: true }); assert.equal(reg.settings().commissioningUntil, now + COMMISSIONING_MS);                                          // a fresh 8 hours from the new switch-on
 });
+
+import type { SyncContext } from "../src/gateway/alarms.js";
+const world = (online: boolean, sensors: Record<string, { status: string; calDue?: boolean; lastChange?: number | null }>): SyncContext => ({ gatewayOnline: online, sensor: (s) => (sensors[s] ? { status: sensors[s].status, calDue: !!sensors[s].calDue, lastChange: sensors[s].lastChange ?? null } : null) });
+const row = (db: any, kind: string) => db.prepare("SELECT * FROM alarm_events WHERE kind=? ORDER BY id DESC").get(kind) as any;
+
+test("freeze: while the gateway is offline sensor alarms are neither raised nor cleared; open ones stay open and are reported unknown", () => {
+  const db = openDb(":memory:"); const svc = { enabled: true, online: true } as any; const t = new AlarmTracker(db, null as any, svc);
+  t.sync([noUp("S1")], 1000, world(true, { S1: { status: "no_update", lastChange: 400 } }));
+  svc.online = false; t.sync([gwOff], 2000, world(false, { S1: { status: "ok" } }));                       // sensor looks fine in stale data, gateway is offline: must NOT clear
+  let h = t.history(10, true); assert.equal(h.find((r) => r.kind === "no_update")!.cleared_at, null); assert.equal(h.find((r) => r.kind === "no_update")!.unknown, true); assert.equal(h.find((r) => r.kind === "gateway_offline")!.unknown, false);
+  t.sync([gwOff, { kind: "low_battery", severity: "warning", text: "x", serial: "S2" }], 2500, world(false, { S1: { status: "no_update" }, S2: { status: "low_battery" } }));      // a sensor alarm computed from stale data is not raised either
+  assert.equal(h.length, 2); assert.equal(t.history(10, true).length, 2);
+  svc.online = true; t.sync([noUp("S1")], 3000, world(true, { S1: { status: "no_update" } }));               // back online and still silent: the SAME episode continues
+  h = t.history(10, true); assert.equal(h.filter((r) => r.kind === "no_update").length, 1); assert.equal(h.find((r) => r.kind === "no_update")!.cleared_at, null); assert.equal(h.find((r) => r.kind === "no_update")!.unknown, false);
+  assert.equal(h.find((r) => r.kind === "gateway_offline")!.cleared_at, 3000); assert.equal(h.find((r) => r.kind === "gateway_offline")!.clear_reason, "recovered");
+});
+test("clear_reason: recovered / sensor_removed / other; NO UPDATE records the time of the sensor's last data", () => {
+  const db = openDb(":memory:"); const t = new AlarmTracker(db, null as any, null as any);
+  t.sync([noUp("S1"), noUp("S2"), noUp("S3")], 1000, world(true, { S1: { status: "no_update", lastChange: 123 }, S2: { status: "no_update", lastChange: 456 }, S3: { status: "no_update", lastChange: 789 } }));
+  assert.deepEqual((db.prepare("SELECT source,last_data_at FROM alarm_events ORDER BY source").all() as any[]).map((r) => [r.source, r.last_data_at]), [["S1", 123], ["S2", 456], ["S3", 789]]);
+  t.sync([], 2000, world(true, { S1: { status: "ok" }, S3: { status: "not_sent" } }));                         // S1 is healthy again, S2 was removed, S3 was reset to NOT SENT
+  const r = Object.fromEntries((db.prepare("SELECT source,clear_reason FROM alarm_events").all() as any[]).map((x) => [x.source, x.clear_reason])); assert.deepEqual(r, { S1: "recovered", S2: "sensor_removed", S3: "other" });
+  t.sync([{ kind: "calibration_due", severity: "warning", text: "c", serial: "S1" }], 3000, world(true, { S1: { status: "ok", calDue: true } })); t.sync([], 4000, world(true, { S1: { status: "ok", calDue: false } }));
+  assert.equal(row(db, "calibration_due").clear_reason, "recovered"); assert.equal(row(db, "calibration_due").last_data_at, null);
+});
+test("a sensor removed while the gateway is offline is cleared as sensor_removed (the alarm would be about nothing)", () => {
+  const db = openDb(":memory:"); const t = new AlarmTracker(db, null as any, null as any); t.sync([noUp("S1")], 1000, world(true, { S1: { status: "no_update" } }));
+  t.sync([gwOff], 2000, world(false, {})); assert.equal(row(db, "no_update").clear_reason, "sensor_removed");
+});

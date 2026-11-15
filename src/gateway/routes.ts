@@ -5,7 +5,7 @@ import type { Db } from "../db.js";
 import { audit } from "../db.js";
 import { config } from "../config.js";
 import { AlarmTracker } from "./alarms.js";
-import { buildView } from "./health.js";
+import { buildView, type AdminSensorView } from "./health.js";
 import { HttpError, type Registry } from "./registry.js";
 import type { GatewayService } from "./service.js";
 
@@ -56,7 +56,7 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   }));
 
   // ---- sensors ----
-  app.get("/api/sensors", { preHandler: admin }, async () => ({ types: typesInfo(), sensors: buildView(db, reg, svc, true).sensors, zones: reg.zones(), pattern: reg.map.serial_pattern.source }));
+  app.get("/api/sensors", { preHandler: admin }, async () => ({ types: typesInfo(), sensors: (buildView(db, reg, svc, true).sensors as AdminSensorView[]), zones: reg.zones(), pattern: reg.map.serial_pattern.source }));
   app.post<{ Body: { type: string; serials: string[] | string; labels?: Record<string, string> } }>("/api/sensors", { preHandler: admin }, async (req) => guard(() => {
     const raw = Array.isArray(req.body?.serials) ? req.body.serials : String(req.body?.serials ?? "").split(/[\s,;]+/); const list = raw.map((s) => String(s).trim()).filter(Boolean);
     if (!list.length) throw new HttpError(400, "no serials given"); const type = String(req.body?.type ?? "th");
@@ -64,7 +64,7 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   }));
   app.get<{ Params: { serial: string } }>("/api/sensors/:serial", { preHandler: admin }, async (req) => {
     const serial = req.params.serial.toUpperCase(); const s = reg.get(serial); if (!s) throw new HttpError(404, "sensor not found");
-    const v = buildView(db, reg, svc, true).sensors.find((x) => x.serial === serial);
+    const v = (buildView(db, reg, svc, true).sensors as AdminSensorView[]).find((x) => x.serial === serial);
     return { sensor: v ?? null, row: { serial: s.serial, type: s.type, label: s.label, replacedBy: s.replaced_by, slot: s.slot }, calibrations: reg.calHistory(serial), active: Object.fromEntries(["temperature", "humidity"].map((m) => [m, reg.calRow(serial, m) ?? null])),
       limits: reg.limits(), type: { ...typesInfo().find((t) => t.key === s.type) } };
   });
@@ -83,7 +83,7 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   app.post<{ Params: { serial: string }; Body: { metric: string; dueAt: number | null } }>("/api/sensors/:serial/calibrate/due", { preHandler: admin }, async (req) => guard(() => { reg.setCalDue(A(req), req.params.serial.toUpperCase(), String(req.body?.metric), req.body?.dueAt ?? null); return { ok: true }; }));
 
   // ---- farm structure ----
-  app.get("/api/structure", { preHandler: admin }, async () => ({ zones: reg.zones(), points: reg.points(), sensors: buildView(db, reg, svc, true).sensors.map((s) => ({ serial: s.serial, label: s.labelSet ? s.label : "", slot: s.slot, zoneId: s.zoneId, type: s.type })), templates: TEMPLATES }));
+  app.get("/api/structure", { preHandler: admin }, async () => ({ zones: reg.zones(), points: reg.points(), sensors: (buildView(db, reg, svc, true).sensors as AdminSensorView[]).map((s) => ({ serial: s.serial, label: s.labelSet ? s.label : "", slot: s.slot, zoneId: s.zoneId, type: s.type })), templates: TEMPLATES }));
   app.post<{ Body: { name: string; type: string } }>("/api/zones", { preHandler: admin }, async (req) => guard(() => ({ id: reg.addZone(A(req), req.body?.name, req.body?.type) })));
   app.patch<{ Params: { id: string }; Body: any }>("/api/zones/:id", { preHandler: admin }, async (req) => guard(() => { reg.updateZone(A(req), Number(req.params.id), req.body ?? {}); return { ok: true }; }));
   app.delete<{ Params: { id: string } }>("/api/zones/:id", { preHandler: admin }, async (req) => guard(() => { reg.removeZone(A(req), Number(req.params.id)); return { ok: true }; }));

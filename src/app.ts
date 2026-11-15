@@ -23,6 +23,8 @@ declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
 export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null) {
   const app = Fastify({ logger: { level: "info" }, trustProxy: config.trustProxy, bodyLimit: 64 * 1024 });
+  // Every registered route is recorded, so tests can call ALL of them as an Operator (test/operator-access.test.ts).
+  const routes: { method: string; url: string }[] = []; app.addHook("onRoute", (r) => { for (const m of [r.method].flat()) routes.push({ method: String(m), url: r.url }); });
   await app.register(cookie);
   await app.register(websocket);
   const clients = new Set<WebSocket>();
@@ -35,6 +37,8 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
     if (!u) return reply.code(401).send({ error: "login required" });
     req.user = u;
   });
+  /** True when user `id` is an active Admin and no other active Admin exists: deleting or disabling them would lock everyone out of Settings. */
+  const lastActiveAdmin = (id: number) => { const u = db.prepare("SELECT role,active FROM users WHERE id=?").get(id) as { role: string; active: number } | undefined; if (!u || u.role !== "admin" || !u.active) return false; return (db.prepare("SELECT COUNT(*) c FROM users WHERE role='admin' AND active=1 AND id<>?").get(id) as { c: number }).c === 0; };
   const admin = async (req: any, reply: any) => { if (req.user?.role !== "admin") return reply.code(403).send({ error: "admin only" }); };
 
   app.get("/api/health", async () => ({ ok: true, build: buildStamp(), uptime_s: Math.round(process.uptime()), rss_mb: Math.round(process.memoryUsage().rss / 1048576),
@@ -77,13 +81,14 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   app.post<{ Params: { id: string }; Body: { password?: string; active?: boolean } }>("/api/users/:id", { preHandler: admin }, async (req, reply) => {
     const id = Number(req.params.id); const { password, active } = req.body ?? {};
     if (password !== undefined) { if (password.length < 8) return reply.code(400).send({ error: "password 8+ chars" }); db.prepare("UPDATE users SET pass_hash=? WHERE id=?").run(hashPassword(password), id); db.prepare("DELETE FROM sessions WHERE user_id=?").run(id); }
-    if (active !== undefined) { if (id === req.user!.id && !active) return reply.code(400).send({ error: "cannot disable yourself" }); db.prepare("UPDATE users SET active=? WHERE id=?").run(active ? 1 : 0, id); if (!active) db.prepare("DELETE FROM sessions WHERE user_id=?").run(id); }
+    if (active !== undefined) { if (id === req.user!.id && !active) return reply.code(400).send({ error: "cannot disable yourself" }); if (!active && lastActiveAdmin(id)) return reply.code(400).send({ error: "cannot disable the last active Admin" }); db.prepare("UPDATE users SET active=? WHERE id=?").run(active ? 1 : 0, id); if (!active) db.prepare("DELETE FROM sessions WHERE user_id=?").run(id); }
     audit(db, req.user!.username, req.user!.role, "user.update", { id, password: password !== undefined, active });
     return { ok: true };
   });
   app.delete<{ Params: { id: string } }>("/api/users/:id", { preHandler: admin }, async (req, reply) => {
     const id = Number(req.params.id); const u = db.prepare("SELECT username FROM users WHERE id=?").get(id) as { username: string } | undefined;
     if (!u) return reply.code(404).send({ error: "user not found" }); if (id === req.user!.id) return reply.code(400).send({ error: "cannot delete yourself" });
+    if (lastActiveAdmin(id)) return reply.code(400).send({ error: "cannot delete the last active Admin" });
     db.transaction(() => { db.prepare("DELETE FROM sessions WHERE user_id=?").run(id); db.prepare("DELETE FROM users WHERE id=?").run(id); audit(db, req.user!.username, req.user!.role, "user.delete", { id, username: u.username }); })();
     return { ok: true };      // audit_log keeps every row the user ever wrote (append-only), by username
   });
@@ -107,5 +112,5 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
     await app.register(fstatic, { root: webDir });
     app.setNotFoundHandler((req, reply) => req.url.startsWith("/api/") ? reply.code(404).send({ error: "not found" }) : reply.sendFile("index.html"));
   }
-  return { app, pushTelemetry: (t: LiveTopic) => send({ type: "telemetry", ...t }), pushCommand: (c: CommandRow) => send({ type: "command", command: c }) };
+  return { app, routes, pushTelemetry: (t: LiveTopic) => send({ type: "telemetry", ...t }), pushCommand: (c: CommandRow) => send({ type: "command", command: c }) };
 }

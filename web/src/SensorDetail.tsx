@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type Scada, type SensorView } from "./api";
+import { api, type Scada, type AdminSensor } from "./api";
 import { go } from "./App";
 import { Battery, Chip, Modal, Signal, StatusChip, SYNC, ago, dateOnly, dayMon, dt, dur, errText, fmt, hhmm, parseDate } from "./ui";
 const addMonths = (n: number) => { const d = new Date(); d.setMonth(d.getMonth() + n); return d.getTime(); };
 
-interface Detail { sensor: SensorView | null; row: { serial: string; type: string; label: string; replacedBy: string | null; slot: number | null }; calibrations: any[]; active: Record<string, any>; limits: Record<string, { maxOffset: number; gainMin: number; gainMax: number }>;
+interface Detail { sensor: AdminSensor | null; row: { serial: string; type: string; label: string; replacedBy: string | null; slot: number | null }; calibrations: any[]; active: Record<string, any>; limits: Record<string, { maxOffset: number; gainMin: number; gainMax: number }>;
   type: { presets: number[]; min: number; max: number; label: string } }
 interface Trend { points: { ts: number; cal: number; raw: number | null }[]; markers: { ts: number; method: string }[] }
 type Metric = "temperature" | "humidity";
@@ -80,7 +80,7 @@ function CalCard({ d, metric, raw, serial, onDone, onErr }: { d: Detail; metric:
   const lim = d.limits[metric]; const act = d.active[metric]; const hist2 = d.calibrations.filter((c) => c.metric === metric);
   const calc = useMemo(() => {
     const n = (v: string) => (v.trim() === "" || !Number.isFinite(Number(v)) ? null : Number(v));
-    if (mode === "offset") { const r = n(ref); return raw === undefined || r === null ? null : { offset: Math.round((r - raw) * 1000) / 1000, gain: 1 }; }
+    if (mode === "offset") { const r1 = n(raw1), r = n(ref); return r1 === null || r === null ? null : { offset: Math.round((r - r1) * 1000) / 1000, gain: 1 }; }
     if (mode === "two_point") { const r1 = n(raw1), a = n(ref), r2 = n(raw2), b = n(ref2); if (r1 === null || a === null || r2 === null || b === null || Math.abs(r2 - r1) < 1e-9) return null; const g = (b - a) / (r2 - r1); return { gain: Math.round(g * 10000) / 10000, offset: Math.round((a - g * r1) * 1000) / 1000 }; }
     const o = n(off), g = n(gain); return o === null || g === null ? null : { offset: o, gain: g };
   }, [mode, ref, raw1, raw2, ref2, off, gain, raw]);
@@ -88,14 +88,17 @@ function CalCard({ d, metric, raw, serial, onDone, onErr }: { d: Detail; metric:
   const apply = () => {
     const dueAt = due.trim() ? parseDate(due) : null;
     const body: any = { metric, method: mode, dueAt, confirmOutOfLimits: ok };
-    if (mode === "offset") Object.assign(body, { raw, reference: Number(ref) }); else if (mode === "two_point") Object.assign(body, { raw: Number(raw1), reference: Number(ref), raw2: Number(raw2), reference2: Number(ref2) }); else Object.assign(body, { offset: Number(off), gain: Number(gain) });
+    if (mode === "offset") Object.assign(body, { raw: Number(raw1), reference: Number(ref) }); else if (mode === "two_point") Object.assign(body, { raw: Number(raw1), reference: Number(ref), raw2: Number(raw2), reference2: Number(ref2) }); else Object.assign(body, { offset: Number(off), gain: Number(gain) });
     api(`/sensors/${serial}/calibrate`, { method: "POST", json: body }).then(() => { setRef(""); setOk(false); onDone("Calibration applied."); }).catch((e) => onErr(errText(e)));
   };
   return (
     <section className="fp-card"><h3>Calibration · {metric}</h3>
       <div className="fp-row">{([["offset", "Offset"], ["two_point", "Two-point"], ["manual", "Manual"]] as const).map(([k, l]) => <button key={k} className="fp-btn small" style={mode === k ? { borderColor: "var(--fp-accent)", color: "var(--fp-accent)" } : undefined} aria-pressed={mode === k} onClick={() => setMode(k)}>{l}</button>)}</div>
       <div className="fp-inset"><span className="fp-cap">1 · Raw reading now (live)</span><div className="fp-big">{fmt(raw, 1)}<small> {UNIT[metric]}</small></div><span className="fp-cap" style={{ textTransform: "none" }}>current correction: {act ? `×${act.gain} ${act.offset >= 0 ? "+" : ""}${act.offset}` : "none"}</span></div>
-      {mode === "offset" && <label className="fp-field"><span className="fp-cap">2 · Reference reading (trusted instrument)</span><input className="fp-input" inputMode="decimal" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="e.g. 22.9" /></label>}
+      {mode === "offset" && <div className="fp-field"><span className="fp-cap">2 · Raw reading and reference reading (trusted instrument). Type the raw value, or take the live reading at the moment you read the reference.</span>
+        <div className="fp-row"><span className="fp-cap" style={{ width: 56 }}>Raw</span><input className="fp-input" style={{ width: 96 }} inputMode="decimal" aria-label="Raw reading" value={raw1} onChange={(e) => setRaw1(e.target.value)} placeholder="raw" />
+          <button type="button" className="fp-btn small" disabled={raw === undefined} onClick={() => setRaw1(raw === undefined ? "" : raw.toFixed(1))}>Use live reading</button></div>
+        <div className="fp-row"><span className="fp-cap" style={{ width: 56 }}>Reference</span><input className="fp-input" style={{ width: 110 }} inputMode="decimal" aria-label="Reference reading" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="e.g. 22.9" /></div></div>}
       {mode === "two_point" && <div className="fp-field"><span className="fp-cap">2 · Two reference points (e.g. salt-solution test). Type the raw value you read at each point, or take the live reading at that moment.</span>
         {([["Point 1", raw1, setRaw1, ref, setRef], ["Point 2", raw2, setRaw2, ref2, setRef2]] as const).map(([name, rv, setRv, fv, setFv], i) => (
           <div key={i} className="fp-row"><span className="fp-cap" style={{ width: 56 }}>{name}</span>
@@ -104,7 +107,7 @@ function CalCard({ d, metric, raw, serial, onDone, onErr }: { d: Detail; metric:
             <span>→</span><input className="fp-input" style={{ width: 110 }} inputMode="decimal" aria-label={`${name} reference`} value={fv} onChange={(e) => setFv(e.target.value)} placeholder="reference" /></div>))}</div>}
       {mode === "manual" && <div className="fp-field"><span className="fp-cap">2 · Offset and gain</span><div className="fp-row"><label className="fp-field"><span className="fp-cap">Offset</span><input className="fp-input" inputMode="decimal" value={off} onChange={(e) => setOff(e.target.value)} /></label><label className="fp-field"><span className="fp-cap">Gain</span><input className="fp-input" inputMode="decimal" value={gain} onChange={(e) => setGain(e.target.value)} /></label></div></div>}
       <div className="fp-inset"><span className="fp-cap">3 · New correction</span>
-        {calc ? <div className="fp-num" style={{ marginTop: 4 }}>{mode === "offset" && raw !== undefined ? `raw ${raw.toFixed(1)}, reference ${ref}, ` : ""}offset {calc.offset >= 0 ? "+" : ""}{calc.offset}{calc.gain !== 1 ? `, gain ${calc.gain}` : ""}</div> : <div className="fp-num fp-muted" style={{ marginTop: 4 }}>enter the values above</div>}
+        {calc ? <div className="fp-num" style={{ marginTop: 4 }}>{mode === "offset" && raw1.trim() !== "" ? `raw ${raw1}, reference ${ref}, ` : ""}offset {calc.offset >= 0 ? "+" : ""}{calc.offset}{calc.gain !== 1 ? `, gain ${calc.gain}` : ""}</div> : <div className="fp-num fp-muted" style={{ marginTop: 4 }}>enter the values above</div>}
         {calc && (viol.length ? <div style={{ marginTop: 6 }}><Chip tone="alarm">OUTSIDE LIMIT</Chip><p className="fp-msg err">{viol.join("; ")}. The sensor will be flagged CHECK SENSOR.</p><label className="fp-row"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} /> I understand, apply anyway</label></div> : <div style={{ marginTop: 6 }}><Chip tone="ok">WITHIN LIMIT ±{lim.maxOffset}</Chip></div>)}</div>
       <div className="fp-field"><span className="fp-cap">Calibration due date (optional)</span>
         <div className="fp-row"><input className="fp-input" style={{ width: 150 }} aria-label="Calibration due date" value={due} onChange={(e) => setDue(e.target.value)} placeholder="16 Nov 2026" />

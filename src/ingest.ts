@@ -45,8 +45,9 @@ export class Ingest {
     this.db.transaction(() => { for (const [m, v] of Object.entries(values)) if (Number.isFinite(v)) { const id = this.getSeries(topic, key, m); this.upLatest.run(id, v, now); this.insRaw.run(id, now, v); } })();
   }
 
+  /** Latest values of the MQTT topics (pump, demo sensors). The gateway series (topic gateway/<type>, key = serial, raw values) are NEVER part of this snapshot: it is served to every logged-in user. */
   snapshot(): LiveTopic[] {
-    const rows = this.db.prepare("SELECT s.topic,s.sensor_key,s.metric,l.value,l.ts FROM latest l JOIN series s ON s.id=l.series_id").all() as any[];
+    const rows = this.db.prepare("SELECT s.topic,s.sensor_key,s.metric,l.value,l.ts FROM latest l JOIN series s ON s.id=l.series_id WHERE s.topic LIKE 'farmpilot/%'").all() as any[];
     const by = new Map<string, LiveTopic>();
     for (const r of rows) {
       let t = by.get(r.topic); if (!t) by.set(r.topic, (t = { topic: r.topic, ts: 0, sensors: [] }));

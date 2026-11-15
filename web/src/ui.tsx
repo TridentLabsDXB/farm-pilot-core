@@ -24,9 +24,11 @@ export const SYNC: Record<string, [Tone, string]> = { in_gateway: ["ok", "IN GAT
 
 // Four-segment level icon. Scale: empty at (low-voltage threshold - 0.4 V), full at 3.60 V, so a sensor sitting just above the warning line shows ONE segment.
 // The icon is a hint only: the voltage is always printed, and "LOW" is added as a word, in amber, below the threshold.
-export const Battery = ({ v, low }: { v?: number; low: number }) => {
-  const empty = low - 0.4, pct = v ? Math.max(0, Math.min(1, (v - empty) / (3.6 - empty))) : 0; const segs = v ? Math.max(1, Math.ceil(pct * 4)) : 0; const isLow = !!v && v < low;
-  return <span className="fp-bat" data-low={isLow ? 1 : 0} title={v ? `${v.toFixed(2)} V, warns below ${low.toFixed(2)} V` : "no reading"}><i aria-hidden>{[0, 1, 2, 3].map((k) => <b key={k} data-on={k < segs ? 1 : 0} />)}</i>{v ? `${v.toFixed(2)} V` : "--"}{isLow && <span className="fp-cap" style={{ color: "inherit" }}>LOW</span>}</span>;
+export const Battery = ({ v, low, level, isLow }: { v?: number; low?: number; level?: number; isLow?: boolean }) => {
+  // Operators get level and isLow computed by the server (they never receive the threshold); Admin pages may pass the threshold instead.
+  const bound = (low ?? 3.2) - 0.4; const pct = level ?? (v ? Math.max(0, Math.min(1, (v - bound) / (3.6 - bound))) : 0); const lowNow = isLow ?? (!!v && low !== undefined && v < low);
+  const segs = v ? Math.max(1, Math.ceil(pct * 4)) : 0;
+  return <span className="fp-bat" data-low={lowNow ? 1 : 0} title={v ? `${v.toFixed(2)} V${lowNow ? " (low)" : ""}` : "no reading"}><i aria-hidden>{[0, 1, 2, 3].map((k) => <b key={k} data-on={k < segs ? 1 : 0} />)}</i>{v ? `${v.toFixed(2)} V` : "--"}{lowNow && <span className="fp-cap" style={{ color: "inherit" }}>LOW</span>}</span>;
 };
 export const Signal = ({ rssi, band }: { rssi?: number; band: string }) => {
   const n = band === "good" ? 4 : band === "weak" ? 2 : band === "poor" ? 1 : 0; const c = band === "good" ? "var(--fp-ok)" : band === "none" ? "var(--fp-off)" : "var(--fp-warn)";
