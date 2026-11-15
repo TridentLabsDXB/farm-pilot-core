@@ -1,0 +1,21 @@
+/* FARM-PILOT CORE -- shared design tokens, UI spec direction A (approved 2026-11-16). ONE file: CORE and EDGE use the same names.
+   Light is the default, dark is a header toggle (same tokens remapped). Status colours mean state only, never decoration, and every status also shows a lamp shape + a word. */
+.core {
+  --fp-head: "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --fp-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fp-bg: #F3F5F7; --fp-card: #FFFFFF; --fp-border: #D5DBE1; --fp-inset: #EEF1F4;
+  --fp-text: #1B2430; --fp-muted: #5B6877; --fp-text2: #4A5663; --fp-accent: #0F6E8C; --fp-accent-tint: #E3F1F5;
+  --fp-ok: #187A33; --fp-ok-bg: #E8F4EA; --fp-ok-bd: #B7DCC0;
+  --fp-warn: #9A5B00; --fp-warn-bg: #FFF4E0; --fp-warn-bd: #F0D59B; --fp-warn-text: #5C4310;
+  --fp-alarm: #C62828; --fp-alarm-bg: #FDF0F0; --fp-alarm-bd: #EDB4B4; --fp-off: #7A8794;
+  --fp-shadow: 0 2px 6px rgba(27, 36, 48, 0.06);
+  --fp-radius-card: 14px; --fp-radius-panel: 10px; --fp-radius-btn: 10px;
+}
+.core[data-theme="dark"] {
+  --fp-bg: #0b0e10; --fp-card: #161a1e; --fp-border: #3a434c; --fp-inset: #101316;
+  --fp-text: #e5e7eb; --fp-muted: #9ca3af; --fp-text2: #c0c6cf; --fp-accent: #7dd3fc; --fp-accent-tint: #14303b;
+  --fp-ok: #4ade80; --fp-ok-bg: #10261a; --fp-ok-bd: #1f5a35;
+  --fp-warn: #fbbf24; --fp-warn-bg: #2b2108; --fp-warn-bd: #6b5413; --fp-warn-text: #f3dca0;
+  --fp-alarm: #f87171; --fp-alarm-bg: #2d1414; --fp-alarm-bd: #6b2a2a; --fp-off: #9ca3af;
+  --fp-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}

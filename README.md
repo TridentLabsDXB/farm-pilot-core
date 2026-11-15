@@ -1,6 +1,6 @@
 # FARM-PILOT CORE
 
-Single-customer, fully offline appliance edition of Farm-Pilot. One Node process: embedded MQTT broker (Aedes, loopback only), SQLite (WAL), REST + WebSocket API and the SCADA View SPA. No Docker, Node-RED, InfluxDB, MinIO or Postgres. **Control never depends on this PC: the PLC keeps its own logic.** This repo is Milestone 0 + 1 (test bench).
+Single-customer, fully offline appliance edition of Farm-Pilot. One Node process: embedded MQTT broker (Aedes, loopback only), SQLite (WAL), REST + WebSocket API and the SCADA View SPA. No Docker, Node-RED, InfluxDB, MinIO or Postgres. **Control never depends on this PC: the PLC keeps its own logic.** This repo is Milestone 0 + 1 + 2 (test bench; Milestone 2 = C1 LoRa gateway over Modbus, T/H sensors).
 
 ## Run
 Bench (core.farm-pilot.com host, as root):
@@ -46,5 +46,31 @@ Reason: the shared Nginx Proxy Manager runs as a Docker container on this host a
 ## Measured on the bench (2 vCPU / 7.8 GB shared host, 2026-11-15)
 Idle runtime: ~98 MB RSS, ~0.1 % CPU. History: 100 sensors x 2 readings x 1/min = 288 000 rows/day, ~42 bytes/row, **~11.6 MB/day -> ~350 MB per 30 days per 100 sensors**. Retention test: 35 days seeded, 30 kept, rollup rows kept.
 
+## Milestone 2: C1 gateway (ThingSend XZ-DS-MUS2, Modbus RTU, T/H sensors)
+Source of truth: manual "XZ-DS-MUS2 manual V20". Everything the manual does not say is marked `ASSUMED` in `config/gateway-thingsend.yaml` and must be verified on real hardware.
+
+**Enable polling** (off by default; without `GW_TRANSPORT` the runtime behaves as in Milestone 1) in `/etc/farmpilot-core.env`:
+`GW_TRANSPORT=tcp|rtu-tcp|rtu-serial`, `GW_HOST`/`GW_PORT` (tcp, rtu-tcp), `GW_SERIAL_PATH` (default `/dev/ttyUSB0`), `GW_BAUD` (9600), `GW_PARITY` (none), `GW_ADDRESS` (0 = map default), `GW_TIMEOUT_MS` (1500), `GW_RETRIES` (2), `GW_REGMAP` (`config/gateway-thingsend.yaml`). On the real box use `rtu-serial` (RS485 / USB-RS485, 9600 8N1); `serialport` is an optional dependency loaded only then. If the register map is invalid the gateway part is disabled with a clear log line; the rest of the runtime keeps running.
+
+**Code map:** `src/drivers/modbus/` (frames, transports, priority-queue master, register-map loader, driver) · `src/gateway/` (logic = planner, calibration, staleness, health; registry; service = poll loop + Send to Gateway; routes; health view) · `src/tools/gateway-sim/` (simulator; dev only) · `config/gateway-thingsend.yaml` (register map, types as config blocks; gas, light, door_smoke, soil are disabled placeholders for Milestone 2b).
+
+**Gateway simulator** (`farmpilot-gateway-sim.service`, bench only, installed by `deploy/install-gateway-sim.sh`): Modbus TCP on 127.0.0.1:5020, RTU-over-TCP on 5021, control HTTP on 127.0.0.1:5030. Eight physical T/H sensors (serials `4A01B3F2`..`4A01B3F9`) only transmit once a group with their serial is configured. Control: `POST /freeze?serial=`, `/unfreeze`, `/zero?serial=` (registers read zeros), `/voltage?serial=&v=3.0`, `/stop` and `/start` (gateway stops answering), `/reject?on=1[&serial=]` (writes rejected), `/preconfig?type=th&slot=&serial=&interval=` (a group configured "with the maker's tool"), `/replay` (POST JSON `{"loop":false,"frames":[{"t":0,"type":"th","slot":0,"regs":[235,580,360,65456]}]}`), `GET /state`. Optional virtual serial pair with `socat` is described at the top of `src/tools/gateway-sim/main.ts`.
+
+**Behaviour decisions**
+- The gateway is the truth for "sent": `sent_slot`/`sent_interval` mirror the last config read-back (FC04). IN GATEWAY / CHANGED / NOT SENT derive from them.
+- Send to Gateway (per type): pause polling, read back groups, plan (changed groups only, zeros for removed), ask for confirmation if anything is removed, moved or replaced, write with FC16, read back and verify every group, retry once, resume polling in `finally`. Groups in the gateway that CORE does not know are never touched and never auto-added: they show as NEW SENSOR FOUND (ADD / IGNORE) and their slots are reserved.
+- A sensor deleted in CORE (or replaced) is cleared in the gateway only by the next confirmed Send; its slot is not reused before that.
+- History: topic `gateway/<type>`, key = serial, metrics `temperature`/`humidity` (calibrated) and `temperature_raw`/`humidity_raw`, `voltage`, `rssi`; written only when the channel frame changed. Rollups, alarms and the SCADA View use the calibrated series.
+- Staleness: fingerprint of the whole channel frame; identical for 3 intervals of that sensor = NO UPDATE (all zeros = NO DATA). Heuristic until validated on hardware.
+- Poll period: the configured default (30 s) but never longer than half the shortest sensor interval in use, floor 10 s; backoff while failing; gateway OFFLINE after 3 failed cycles (a Modbus exception reply does not count: the gateway answered).
+- `serialport` and `yaml` were added as dependencies. The UI follows `core-ui-spec-direction-a.md` (light default, dark toggle, `web/src/tokens.css`); the old demo AIR/SOIL/WATER MQTT cards were replaced by structure-built zone cards, the pump card is unchanged in behaviour.
+
+**ASSUMED (verify on hardware, then edit the YAML):** default gateway address 1; group register order `[serial_hi, serial_lo, interval, control]`; serial as 8 hex digits, high word first; interval unit seconds, range 10..86400 (soil 60..86400); control value 0 on add; version register value; low-voltage 3.20 V; RSSI good above -90 / poor below -105; FC03 for data and FC04 for config (the simulator is strict about this split; set `lenientFc` in `sim.ts` to see the other behaviour).
+**How to swap in real values:** edit `config/gateway-thingsend.yaml` (bump `map_version`) and restart `farmpilot-core`; no code change. A new sensor type = a config block with `enabled: true`.
+
+**Hardware validation checklist (industrial PC, real gateway over RS485):** address / group address / version registers; FC03 vs FC04 behaviour; group register order and serial word order (compare with the printed label); interval unit and range, and whether the gateway pushes it to the sensor; control register meaning; registers of a never-received and of a silent sensor (switch a sensor off and record whether they freeze, zero or change; adjust the detector and the simulator's freeze mode to match); RSSI/voltage behaviour of a healthy sensor; group persistence after a gateway power cycle; polling time at 9600 baud; soil data start (0x4001 vs 0x5001) before Milestone 2b.
+
+**Tests:** `npm test` (unit: register map, decoding, planner, calibration, staleness, rate limit; integration against the simulator over TCP and RTU framing). `scripts/acceptance.mjs` runs the bench acceptance against a running core + simulator.
+
 ## Out of scope
-Modbus, Wi-Fi hotspot, licence flag, EDGE uplink, fleet menu, USB backups, Arabic UI.
+Wi-Fi hotspot, licence flag, EDGE uplink, fleet menu, USB backups, Arabic UI; soil, light, gas/CO2, door/smoke types (Milestone 2b), LoRa actuator control, rules engine.

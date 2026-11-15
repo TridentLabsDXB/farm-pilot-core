@@ -26,7 +26,9 @@ export class GatewayService extends EventEmitter {
   private period() {
     const st = this.reg.settings(); const iv = this.reg.list().filter((s) => s.sent_slot !== null).map((s) => s.reporting_interval);
     const base = pollPeriodMs(iv.length ? Math.min(...iv) : null, st.pollSec);
-    return this.failCycles > 0 ? Math.min(300_000, base * 2 ** Math.min(this.failCycles, 5)) : base;     // backoff while failing
+    // Failing but not yet offline: retry every 10 s so "offline after N failed cycles" is quick. Once offline: back off (to 5 min) so a dead bus is not hammered.
+    if (this.failCycles > 0 && this.online) return Math.min(base, 10_000);
+    return this.failCycles > 0 ? Math.min(300_000, base * 2 ** Math.min(this.failCycles - 2, 5)) : base;
   }
   private schedule(ms: number) { if (this.stopped || !this.started) return; clearTimeout(this.timer); this.timer = setTimeout(() => void this.run(), ms); }
   private async run() {

@@ -95,7 +95,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
     clients.add(socket); socket.on("close", () => clients.delete(socket)); socket.on("error", () => clients.delete(socket));
   });
 
-  const webDir = join(dirname(fileURLToPath(import.meta.url)), "..", "web", "dist");
+  const webDir = process.env.WEB_DIR || join(dirname(fileURLToPath(import.meta.url)), "..", "web", "dist");
   if (existsSync(webDir)) {
     await app.register(fstatic, { root: webDir });
     app.setNotFoundHandler((req, reply) => req.url.startsWith("/api/") ? reply.code(404).send({ error: "not found" }) : reply.sendFile("index.html"));

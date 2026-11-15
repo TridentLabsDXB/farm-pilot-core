@@ -1,0 +1,44 @@
+import { useCallback, useEffect, useState } from "react";
+import { api } from "./api";
+import { Chip, errText } from "./ui";
+
+interface Z { id: number; name: string; type: string; } interface P { id: number; zone_id: number; serial: string; metric: string; role: string; unit: string; }
+interface S { serial: string; label: string; slot: number; zoneId: number | null; type: string; } interface T { key: string; label: string; name: string; type: string; roles: string[]; }
+const ZTYPES: [string, string][] = [["climate", "Climate"], ["soil", "Soil"], ["water_storage", "Water storage"], ["irrigation", "Irrigation"], ["custom", "Custom"]];
+
+export default function StructurePage({ reload }: { reload: () => void }) {
+  const [d, setD] = useState<{ zones: Z[]; points: P[]; sensors: S[]; templates: T[] } | null>(null); const [sel, setSel] = useState<number | null>(null);
+  const [name, setName] = useState(""); const [type, setType] = useState("climate"); const [msg, setMsg] = useState<{ t: string; s: string } | null>(null); const [pick, setPick] = useState("");
+  const load = useCallback(() => api<any>("/structure").then(setD).catch((e) => setMsg({ t: "err", s: errText(e) })), []); useEffect(() => { load(); }, [load]);
+  const zone = d?.zones.find((z) => z.id === sel) ?? null; useEffect(() => { if (zone) { setName(zone.name); setType(zone.type); } }, [zone?.id, zone?.name, zone?.type]);
+  if (!d) return <section className="fp-card"><p className="fp-msg">Loading...</p></section>;
+  const run = async (f: () => Promise<any>, ok?: string) => { setMsg(null); try { const r = await f(); if (ok) setMsg({ t: "ok", s: ok }); await load(); reload(); return r; } catch (e) { setMsg({ t: "err", s: errText(e) }); } };
+  const count = (id: number) => d.sensors.filter((s) => s.zoneId === id).length; const free = d.sensors.filter((s) => s.zoneId === null);
+  const addZone = async (n: string, t: string) => { const r = await run(() => api<{ id: number }>("/zones", { method: "POST", json: { name: n, type: t } }), "Zone added."); if (r) setSel(r.id); };
+  const mine = d.points.filter((p) => p.zone_id === sel);
+  return (<>
+    <div className="fp-two" style={{ gridTemplateColumns: "minmax(0,300px) minmax(0,1fr)" }}>
+      <section className="fp-card"><h3>Farm</h3><div className="fp-tree fp-list">{d.zones.map((z) => <li key={z.id}><button className="fp-btn" style={sel === z.id ? { borderColor: "var(--fp-accent)", color: "var(--fp-accent)" } : undefined} aria-pressed={sel === z.id} onClick={() => setSel(z.id)}><span>{z.name}</span> <span className="fp-cap">{ZTYPES.find(([k]) => k === z.type)?.[1]} · {count(z.id)} sensors</span></button></li>)}</div>
+        {!d.zones.length && <p className="fp-msg fp-muted">No zones yet. Start from a template.</p>}
+        <button className="fp-btn" onClick={() => { setSel(null); setName(""); setType("climate"); }}>Add zone</button></section>
+      <section className="fp-card"><h3>{zone ? `Zone: ${zone.name}` : "New zone"}</h3>
+        <div className="fp-row"><span className="fp-cap">Templates</span>{d.templates.map((t) => <button key={t.key} className="fp-btn small" onClick={() => { setName(t.name); setType(t.type); }}>{t.label}</button>)}</div>
+        <div className="fp-row"><label className="fp-field" style={{ flex: 1, minWidth: 200 }}><span className="fp-cap">Zone name</span><input className="fp-input" value={name} onChange={(e) => setName(e.target.value)} /></label>
+          <label className="fp-field"><span className="fp-cap">Zone type</span><select className="fp-input" value={type} onChange={(e) => setType(e.target.value)}>{ZTYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label></div>
+        <div className="fp-row">{zone ? <><button className="fp-btn primary" onClick={() => run(() => api(`/zones/${zone.id}`, { method: "PATCH", json: { name, type } }), "Saved.")}>Save zone</button>
+          <button className="fp-btn danger" onClick={() => confirm(`Delete zone ${zone.name}? Its sensors stay, but leave the zone.`) && run(() => api(`/zones/${zone.id}`, { method: "DELETE" }).then(() => setSel(null)), "Zone deleted.")}>Delete zone</button></>
+          : <button className="fp-btn primary" disabled={!name.trim()} onClick={() => addZone(name, type)}>Create zone</button>}</div>
+        {zone && <><h3 style={{ fontSize: 18 }}>Points</h3>
+          {!mine.length ? <p className="fp-msg fp-muted">No points. Add a sensor to place its temperature and humidity here.</p> : <ul className="fp-list">{mine.map((p) => { const s = d.sensors.find((x) => x.serial === p.serial); return <li key={p.id}>
+            <span><b style={{ fontFamily: "var(--fp-head)", fontSize: 16 }}>{p.role}</b> · {s?.label ?? p.serial} <span className="fp-muted">{p.serial} · slot {(s?.slot ?? -1) + 1} · {p.unit}</span></span>
+            <button className="fp-btn small danger" onClick={() => run(() => api(`/points/${p.id}`, { method: "DELETE" }))}>Remove</button></li>; })}</ul>}
+          <div className="fp-row"><select className="fp-input" aria-label="Sensor to add" value={pick} onChange={(e) => setPick(e.target.value)}><option value="">Add point: choose a sensor...</option>{d.sensors.filter((s) => s.zoneId !== zone.id).map((s) => <option key={s.serial} value={s.serial}>{s.label} ({s.serial})</option>)}</select>
+            <button className="fp-btn" disabled={!pick} onClick={() => run(() => api("/zones/assign", { method: "POST", json: { serial: pick, zoneId: zone.id } }).then(() => setPick("")))}>Add point</button></div></>}
+      </section></div>
+    <section className="fp-card"><h3>Sensors not in any zone</h3>
+      {!free.length ? <Chip tone="ok">ALL SENSORS PLACED</Chip> : <ul className="fp-list">{free.map((s) => <li key={s.serial}><span>{s.label} <span className="fp-muted">{s.serial} · slot {s.slot + 1}</span></span>
+        <select className="fp-input" aria-label={`Assign ${s.label}`} value="" onChange={(e) => e.target.value && run(() => api("/zones/assign", { method: "POST", json: { serial: s.serial, zoneId: Number(e.target.value) } }), "Assigned.")}><option value="">Assign to zone...</option>{d.zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}</select></li>)}</ul>}
+    </section>
+    {msg && <p className={`fp-msg ${msg.t}`} role="status">{msg.s}</p>}
+  </>);
+}

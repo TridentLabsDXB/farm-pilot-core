@@ -28,7 +28,7 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
     const pend = (db.prepare("SELECT COUNT(*) c FROM sensors WHERE replaced_by IS NULL AND (sent_slot IS NULL OR sent_slot IS NOT slot OR sent_interval IS NOT reporting_interval)").get() as { c: number }).c
       + (db.prepare("SELECT COUNT(*) c FROM pending_removals").get() as { c: number }).c;
     return { enabled: svc.enabled, online: svc.online, lastOk: svc.lastOk, lastError: svc.lastError, model: reg.map.gateway_model, manual: reg.map.manual_version, mapVersion: reg.map.map_version, info: svc.info,
-      types: typesInfo(), unsent: pend, lastSync: svc.lastSync(), unassigned: svc.unassigned(), syncing: svc.syncing, settings: reg.settings() };
+      types: typesInfo(), unsent: pend, pending: db.prepare("SELECT type,serial,slot FROM pending_removals").all(), lastSync: svc.lastSync(), unassigned: svc.unassigned(), syncing: svc.syncing, settings: reg.settings() };
   });
   app.put("/api/gateway/settings", { preHandler: admin }, async (req) => guard(() => { reg.saveSettings(A(req), req.body); return { ok: true }; }));
   app.post<{ Body: { type: string } }>("/api/gateway/sync/plan", { preHandler: admin }, async (req) => svc.preview(String(req.body?.type ?? "th")));
