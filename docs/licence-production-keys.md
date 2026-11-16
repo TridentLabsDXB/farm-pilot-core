@@ -27,15 +27,16 @@ export const LICENCE_PUBLIC_KEYS: Record<string, string> = {
 };
 ```
 
-Remove the `dev-1` line for release builds. Commit, then build with `./deploy.sh --release`. Check on a test box: a licence signed with the new key installs; a licence signed with `dev-1` is refused with BAD_SIGNATURE.
+`keys.ts` has two sets: `PROD_KEYS` (trusted by every build, put the prod line there) and `DEV_KEYS` (`dev-1`). **`dev-1` is trusted only by builds that are not a release**: a build made with `./deploy.sh --release` writes `released` into `dist/BUILD.json` and then accepts production keys only. `./deploy.sh --release` also refuses to run while `PROD_KEYS` has no `prod-N` line. Commit, then build with `./deploy.sh --release`. Check on a test box: a licence signed with the new key installs; a licence signed with `dev-1` is refused with BAD_SIGNATURE.
 
 ## 4. Issue a licence (offline machine again)
 1. The customer opens About and sends the Device ID (`FP-XXXX-XXXX-XXXX`, use COPY).
 2. On the offline machine:
    ```bash
    npm run licence -- sign --key /media/usb-keys/farmpilot/prod-1.private.pem --key-id prod-1 \
-     --device FP-XXXX-XXXX-XXXX --licensed-to "Customer Name" --type FULL \
+     --device FP-XXXX-XXXX-XXXX --licensed-to "Customer Name" --type PRO \
      --gateways 2 --sensors 50 --valid-until 2027-12-31 --seq 1 --out customer.fplic
+   # many at once: npm run licence -- batch --csv devices.csv --type PRO --key /media/usb-keys/farmpilot/prod-1.private.pem --key-id prod-1 --out ./licences/ --zip --gateways 2 --sensors 50
    npm run licence -- verify customer.fplic --device FP-XXXX-XXXX-XXXX --public-key-file /media/usb-keys/farmpilot/prod-1.public.txt
    ```
 3. `--seq` rises with every licence issued the same day for any customer (the licence id is `FPL-YYYYMMDD-NNNN` and a box refuses an older id than the one installed). A re-issue for a replaced or cloned box is a new licence for the new Device ID after you have verified the customer.
@@ -46,3 +47,16 @@ Generate `prod-2` the same way, add its public line to `keys.ts` next to `prod-1
 
 ## Checks that protect you
 `test/licence-issue.test.ts` fails if any private key appears in a repository file, and the tool refuses to read or write a key inside the repository. `tools/` is excluded from the build (`tsconfig`) and from `git archive` (`.gitattributes`); keep it out of any hand-made bundle too.
+
+## Exact commands for the production key (run on the OFFLINE machine, never on the bench)
+```bash
+# 1. offline laptop, network disabled, Node 22 and a USB copy of this repository (with node_modules)
+cd farmpilot-core
+npm run licence -- keygen --key-id prod-1 --out /media/usb-keys/farmpilot
+sha256sum /media/usb-keys/farmpilot/prod-1.public.txt        # write this into the key register
+# 2. copy ONLY prod-1.public.txt to a networked machine (the .pem never leaves the offline media)
+# 3. on the development machine: add the single line printed by keygen to PROD_KEYS in src/licence/keys.ts
+#      "prod-1": "<contents of prod-1.public.txt>",
+# 4. commit, then: ./deploy.sh --release        (refuses if PROD_KEYS is empty or the tree is dirty)
+# 5. on a test box: install a licence signed with prod-1 (works) and one signed with dev-1 (BAD_SIGNATURE)
+```

@@ -1,4 +1,4 @@
-# Licence file format v1 (FROZEN)
+# Licence file format v1 (FROZEN) and format 2 (2026-11-17)
 
 Spec: About page and licensing (Option A). Code: `src/licence/format.ts`. The signature of a fixed test licence is pinned in `test/licence.test.ts`, so any change to this format fails a test. A change needs a new format version, not an edit.
 
@@ -32,3 +32,14 @@ size and shape (`NOT_A_LICENCE`), signature (`BAD_SIGNATURE`; unknown `key_id` t
 
 ## Keys
 `dev-1` in `src/licence/keys.ts` is a development key. Production: Trident Labs generates the real pair offline, adds only the public half here under a new `key_id`, and issues with `tools/licence-issue`. The private key never enters the repo, a bundle or a box.
+
+## Format 2 (added 2026-11-17)
+v1 above is unchanged and still verifies. Format 2 adds what v1 had no room for. A box that predates it refuses a format 2 file (`NOT_A_LICENCE`), so update the box first.
+
+- New field `format_version` = `2`. A v1 file has no such field. Any other value is `NOT_A_LICENCE`.
+- `limits` has exactly `gateways`, `sensors`, `reports_days`, `retention_days`. Each is a whole number or **`null` = unlimited** (`retention_days` null = never prune history). Ranges: gateways 0..1000, sensors 0..100000, reports_days 1..3650, retention_days 1..3650.
+  - `reports_days`: how far back charts, CSV export and Reports reach. `retention_days`: how long history (raw and hourly rows) is kept; the retention job reads it at every run.
+- Signed message prefix is `farmpilot-licence-v2` + `\n` (v1 keeps `farmpilot-licence-v1`); the rest of the rule is the same. `format_version` and every limit are inside the signature.
+- A v1 licence on a box means reports unlimited inside retention and history kept 365 days. FREE (built in, also EXPIRED and INVALID): 1 gateway, 10 sensors, reports 7 days, history kept 90 days.
+- **ENGINEERING** is a type that must be format 2 with every limit null and `valid_until` null (anything else is `NOT_A_LICENCE`). It is for Trident machines only and is shown as "ENGINEERING LICENCE".
+- Retention note: when a licence expires or is removed the FREE numbers apply again, and the next retention run removes history older than 90 days. There is no grace period yet.
