@@ -10,7 +10,7 @@ const limitText = (l: LicenceInfo) => `${l.state === "LICENSED" ? `Licence ${l.t
 const licWord = (l: LicenceInfo) => (l.state === "LICENSED" ? l.type : l.state);
 
 export default function SensorsPage({ scada, reload }: { scada: Scada | null; reload: () => void }) {
-  const S = useSync(scada, reload); const { list, gw, load, ok, fail } = S; const [adding, setAdding] = useState(false); const [lic, setLic] = useState<LicenceInfo | null>(null);
+  const S = useSync(scada, reload); const { list, gw, load, ok, fail } = S; const [adding, setAdding] = useState(false); const [lic, setLic] = useState<LicenceInfo | null>(null); const [customFor, setCustomFor] = useState<string | null>(null);
   const nSensors = list?.sensors.length;
   useEffect(() => { api<AboutInfo>("/about").then((a) => setLic(a.licence)).catch(() => {}); }, [nSensors, adding]);          // usage line: refreshed after every add or remove
   if (!list || !gw) return <section className="fp-card"><p className="fp-msg">Loading...</p></section>;
@@ -19,8 +19,14 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
   const setInterval_ = async (s: AdminSensor, v: string) => { try { await api(`/sensors/${s.serial}`, { method: "PATCH", json: { interval: Number(v) } }); load(); } catch (e) { fail(e); } };
   const presets = (s: AdminSensor) => { const t = list.types.find((x) => x.key === s.type)!; return [...new Set([...t.presets, s.interval])].sort((a, b) => a - b); };   // a stored value that is no longer allowed is still shown, and flagged
   const setCommissioning = async (on: boolean) => { try { await api("/gateway/settings", { method: "PUT", json: { commissioning: on } }); load(); } catch (e) { fail(e); } };
-  const interval = (s: AdminSensor) => (
-    <span className="stack"><select className="fp-input" aria-label={`Interval for ${s.label}`} value={s.interval} onChange={(e) => setInterval_(s, e.target.value)}>{presets(s).map((p) => <option key={p} value={p}>{mdur(p)}{s.intervalOk || p !== s.interval ? "" : " (not allowed)"}</option>)}</select><input className="fp-input" style={{ width: 72 }} type="number" inputMode="numeric" aria-label={`Custom interval in minutes for ${s.label}`} placeholder="custom" min={list.types.find((x) => x.key === s.type)?.min} max={list.types.find((x) => x.key === s.type)?.max} onKeyDown={(e) => { if (e.key === "Enter" && (e.target as HTMLInputElement).value) { setInterval_(s, (e.target as HTMLInputElement).value); (e.target as HTMLInputElement).value = ""; } }} />{!s.intervalOk && <Chip tone="warn" title="This stored value is outside the allowed range. Choose an allowed interval.">NOT ALLOWED</Chip>}{s.applying && <Chip tone="info">APPLYING</Chip>}</span>);
+  // 2026-11-17 -- the custom field used to sit under every dropdown and was cut off ("cust"). It is now hidden until "Custom..." is chosen, then it fills the cell; Enter applies, Esc or an empty blur cancels.
+  const interval = (s: AdminSensor) => { const ty = list.types.find((x) => x.key === s.type); const editing = customFor === s.serial;
+    const apply = (el: HTMLInputElement) => { if (el.value) setInterval_(s, el.value); setCustomFor(null); };
+    return (
+    <span className="stack" style={{ width: "100%" }}><select className="fp-input" style={{ width: "100%" }} aria-label={`Interval for ${s.label}`} value={editing ? "custom" : s.interval} onChange={(e) => (e.target.value === "custom" ? setCustomFor(s.serial) : (setCustomFor(null), setInterval_(s, e.target.value)))}>{presets(s).map((p) => <option key={p} value={p}>{mdur(p)}{s.intervalOk || p !== s.interval ? "" : " (not allowed)"}</option>)}<option value="custom">Custom...</option></select>
+      {editing && <input className="fp-input" style={{ width: "100%", minWidth: 0 }} autoFocus type="number" inputMode="numeric" aria-label={`Custom interval in minutes for ${s.label}`} placeholder={ty ? `${ty.min}-${ty.max}` : "min"} title={ty ? `Whole minutes, ${ty.min} to ${ty.max}` : undefined} min={ty?.min} max={ty?.max}
+        onKeyDown={(e) => { if (e.key === "Enter") apply(e.currentTarget); else if (e.key === "Escape") setCustomFor(null); }} onBlur={(e) => apply(e.currentTarget)} />}
+      {!s.intervalOk && <Chip tone="warn" title="This stored value is outside the allowed range. Choose an allowed interval.">NOT ALLOWED</Chip>}{s.applying && <Chip tone="info">APPLYING</Chip>}</span>); };
   return (<>
     {!!th?.commissioningPresets.length && th?.commissioning && <CommissioningBanner until={scada?.commissioning?.until ?? null} onOff={() => setCommissioning(false)} />}
     <section className="fp-card">
