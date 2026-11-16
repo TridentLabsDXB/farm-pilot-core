@@ -61,9 +61,9 @@ const timers = [
   setInterval(() => commands.sweep(), 1000),
   setInterval(() => { try { lic.refresh(); } catch (e) { console.error("licence check", e); } }, 24 * 3600_000),
   setInterval(() => { try { runRollup(db); purgeSessions(db); purgeFails(db); } catch (e) { console.error("rollup", e); } }, 10 * 60_000),
-  setInterval(() => { runRetention(db, config.retentionDays).then((n) => n && console.log(`retention removed ${n} raw rows`)).catch((e) => console.error("retention", e)); }, 6 * 3600_000),
+  setInterval(() => { runRetention(db, config.retentionDays ?? lic.retentionDays()).then((n) => n && console.log(`retention removed ${n} history rows`)).catch((e) => console.error("retention", e)); }, 6 * 3600_000),
 ];
-setTimeout(() => runRetention(db, config.retentionDays).catch((e) => console.error("retention", e)), 30_000);
+setTimeout(() => runRetention(db, config.retentionDays ?? lic.retentionDays()).catch((e) => console.error("retention", e)), 30_000);
 
 let stopping = false;
 async function shutdown() {
