@@ -112,6 +112,11 @@ export default function About({ admin, from }: { admin: boolean; from: string })
                 <Tile k="NODE.JS" v={c.node_version} /><Tile k="SQLITE" v={c.sqlite_version || "--"} /><Tile k="DATABASE SIZE" v={bytes(c.database_bytes)} /><Tile k="SERIAL PORTS" v={c.serial_ports.length ? `${c.serial_ports.length}: ${c.serial_ports.slice(0, 4).join(", ")}${c.serial_ports.length > 4 ? "..." : ""}` : "None found"} />
               </div>
               <div className="ab-folder"><span className="fp-cap">DATA FOLDER</span><code className="fp-num">{c.data_folder}</code></div>
+              <div className="fp-row ab-btns2">
+                <button className="fp-btn" onClick={async () => { try { const d = await api<unknown>("/diagnostics"); await flash("diag", JSON.stringify(d, null, 2)); } catch (e) { setCopied("!diag"); setErr(errText(e)); } }}>COPY DIAGNOSTICS</button>
+                <a className="fp-btn" href="/api/support-bundle" download>SUPPORT BUNDLE</a>
+                {copied === "diag" && <Chip tone="ok">COPIED</Chip>}{copied === "!diag" && <Chip tone="warn">COULD NOT COPY</Chip>}
+              </div>
             </section>)}
         </div>
       </div>

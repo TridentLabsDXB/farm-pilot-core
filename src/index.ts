@@ -12,7 +12,10 @@ import { Registry } from "./gateway/registry.js";
 import { GatewayService } from "./gateway/service.js";
 import { PortStore } from "./ports/store.js";
 import { PortManager } from "./ports/manager.js";
+import { installLogCapture } from "./about/logbuf.js";
+import { LicenceService } from "./licence/service.js";
 
+installLogCapture();                       // keeps a sanitised copy of the last log lines for diagnostics (about/logbuf.ts)
 const db = openDb(config.dbPath);
 ensureAdmin(db);
 const broker = new AedesBroker(config.mqttPort, config.mqttHost);
@@ -49,12 +52,14 @@ if (portStore.migrateFromEnv({ transport: config.gwTransport, host: config.gwHos
   console.log("RS-485 ports: migrated the gateway link settings from the environment into Port 1");
 const ports = new PortManager(db, portStore, map, gw);
 await ports.start();
-const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError, ports);
+const lic = new LicenceService(db);       // FREE until a licence is installed; re-read now and every 24 h (expiry is also checked live on every use)
+const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError, ports, lic);
 pushTelemetry = pt; pushCommand = pc;
 await app.listen({ host: config.host, port: config.port });
 
 const timers = [
   setInterval(() => commands.sweep(), 1000),
+  setInterval(() => { try { lic.refresh(); } catch (e) { console.error("licence check", e); } }, 24 * 3600_000),
   setInterval(() => { try { runRollup(db); purgeSessions(db); purgeFails(db); } catch (e) { console.error("rollup", e); } }, 10 * 60_000),
   setInterval(() => { runRetention(db, config.retentionDays).then((n) => n && console.log(`retention removed ${n} raw rows`)).catch((e) => console.error("retention", e)); }, 6 * 3600_000),
 ];

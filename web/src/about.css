@@ -35,3 +35,4 @@
 .ab-text { max-height: 60vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--fp-mono); font-size: 12px; background: var(--fp-inset); border: 1px solid var(--fp-border); border-radius: var(--fp-radius-panel); padding: 12px; margin: 12px 0 0; }
 @media (max-width: 1023px) { .ab-grid { grid-template-columns: minmax(0, 1fr); } .ab-id { flex-direction: column; } .ab-comp { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 767px) { .ab-back { display: inline-flex; } .ab-comp { grid-template-columns: minmax(0, 1fr); } .ab .fp-btn { min-height: 44px; } .ab-logo { width: 180px; height: 180px; } }
+.ab-btns2 { margin-top: 8px; } .ab a.fp-btn { display: inline-flex; align-items: center; text-decoration: none; }

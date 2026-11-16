@@ -25,6 +25,7 @@ import { registerPortRoutes } from "./ports/routes.js";
 import { registerAboutRoutes } from "./about/routes.js";
 import { LicenceService } from "./licence/service.js";
 import { registerLicenceRoutes } from "./licence/routes.js";
+import { registerSupportRoutes } from "./about/support.js";
 import { readBuild } from "./about/build.js";
 
 const COOKIE = "core_session";
@@ -125,6 +126,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   // Licence: FREE until a licence file is installed. It only limits ADDING sensors and gateways (see licence/service.ts); nothing here can stop polling, alarms or commands.
   const licence = lic ?? new LicenceService(db); if (reg) reg.limiter = licence; if (ports) ports.limiter = licence;
   registerAboutRoutes(app, { db, admin, prof, licence: () => licence.summary() }); registerLicenceRoutes(app, licence, admin, () => send({ type: "scada" }));
+  registerSupportRoutes(app, { db, admin, prof, licence: () => licence.summary(), ports, gw });
   if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof, ports); gw.on("update", () => send({ type: "scada" })); }
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
   if (ports) registerPortRoutes(app, ports, admin, () => send({ type: "ports" }));
