@@ -12,6 +12,7 @@ import { Registry } from "./gateway/registry.js";
 import { GatewayService } from "./gateway/service.js";
 import { PortStore } from "./ports/store.js";
 import { PortManager } from "./ports/manager.js";
+import { isWin, shutdownSignals } from "./platform.js";
 
 const db = openDb(config.dbPath);
 ensureAdmin(db);
@@ -62,8 +63,10 @@ setTimeout(() => runRetention(db, config.retentionDays).catch((e) => console.err
 
 let stopping = false;
 async function shutdown() {
-  if (stopping) return; stopping = true; timers.forEach(clearInterval);
+  if (stopping) return; stopping = true; if (isWin()) setTimeout(() => process.exit(1), 15_000).unref(); timers.forEach(clearInterval);
   await ports.stop(); await gw?.stop(); await app.close(); client.end(true); await broker.stop(); db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); process.exit(0);
 }
-process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
+// Windows (W1): there is no SIGTERM. Ctrl+C = SIGINT, Ctrl+Break and a service stop wrapper (NSSM/WinSW send Ctrl+C first) = SIGINT/SIGBREAK, closing the console = SIGHUP.
+// A 15 s guard makes sure a hung close cannot keep the process alive. WAL is crash-safe, so a hard kill still loses nothing already committed.
+for (const sig of shutdownSignals()) process.on(sig, shutdown);
 void getSetting;
