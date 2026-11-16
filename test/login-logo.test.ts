@@ -8,3 +8,11 @@ test("login logo: files, alt text, no separate FARM-PILOT CORE title, 220 px des
   assert.match(css, /\.fp-login-logo \{ width: 220px/); assert.match(css, /max-width: 767px\) \{ \.fp-login-logo \{ width: 180px/); assert.ok(!/https?:\/\//.test(login.replace(/\/\/.*$/gm, "")), "no external requests");
   for (const k of ["setShow", "CAPS LOCK IS ON", "TOO MANY ATTEMPTS", "WRONG USER OR PASSWORD", "retry-after"]) assert.ok(login.includes(k), k);
 });
+
+test("login credit line: exact text, 'Trident Labs' stronger, between the card and the build footer, plain text (no link, no flag emoji, no external request), footer unchanged", () => {
+  assert.match(login, /<p className="fp-login-credit">Engineered in the UAE by <strong>Trident Labs<\/strong><\/p>/);
+  const i = login.indexOf("</form>"), c = login.indexOf('className="fp-login-credit"'), f = login.indexOf('<footer className="fp-login-foot">'); assert.ok(i < c && c < f, "order: card, credit, footer");
+  assert.match(login, /<footer className="fp-login-foot">FARM-PILOT CORE\{version \? ` · \$\{version\}` : ""\}<\/footer>/);
+  const line = login.slice(c, login.indexOf("</p>", c)); assert.ok(!/<a |href|https?:|["“”]/.test(line.replace('className="fp-login-credit"', "")), "no link, no quotation marks"); assert.ok(!/[\u{1F1E6}-\u{1F1FF}]/u.test(login), "no flag emoji");
+  assert.match(css, /\.fp-login-credit \{[^}]*font-size: 13px[^}]*letter-spacing: \.08em[^}]*color: var\(--fp-muted\)/); assert.match(css, /\.fp-login-credit strong \{ font-weight: 700; color: var\(--fp-text\)/);
+});
