@@ -27,6 +27,7 @@ import { LicenceService } from "./licence/service.js";
 import { registerLicenceRoutes } from "./licence/routes.js";
 import { registerSupportRoutes } from "./about/support.js";
 import { readBuild } from "./about/build.js";
+import { registerHistoryRoutes } from "./history/routes.js";
 
 const COOKIE = "core_session";
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
@@ -127,7 +128,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   const licence = lic ?? new LicenceService(db); if (reg) reg.limiter = licence; if (ports) ports.limiter = licence;
   registerAboutRoutes(app, { db, admin, prof, licence: () => licence.summary() }); registerLicenceRoutes(app, licence, admin, () => send({ type: "scada" }));
   registerSupportRoutes(app, { db, admin, prof, licence: () => licence.summary(), ports, gw });
-  if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof, ports); gw.on("update", () => send({ type: "scada" })); }
+  if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof, ports); gw.on("update", () => send({ type: "scada" })); registerHistoryRoutes(app, { db, reg, svc: gw, prof, licence }); }
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
   if (ports) registerPortRoutes(app, ports, admin, () => send({ type: "ports" }));
 
