@@ -55,7 +55,7 @@ test("retention: removes raw AND hourly rows older than the licence's days, keep
   const a = JSON.parse((x.db.prepare("SELECT detail FROM audit_log WHERE action='retention.prune'").get() as any).detail); assert.equal(a.days, 90); assert.equal(a.raw_rows, 3);
   const n = mk(); assert.equal(await runRetention(n.db, null, n.now), 0); assert.equal(n.count("history_raw"), 6, "null: nothing is pruned"); assert.equal(n.db.prepare("SELECT COUNT(*) c FROM audit_log WHERE action='retention.prune'").get().c, 0);
   const { lic } = svc(); assert.equal(lic.retentionDays(), 90); lic.install(A, file(eng())); assert.equal(lic.retentionDays(), null, "installing ENGINEERING stops pruning at the next run, no restart");
-  assert.equal(config.retentionDays, null, "RETENTION_DAYS is an override only; unset = the licence decides"); assert.match(readFileSync("src/index.ts", "utf8"), /config\.retentionDays \?\? lic\.retentionDays\(\)/);
+  assert.equal(config.retentionDays, null, "RETENTION_DAYS is an override only; unset = the licence decides"); assert.match(readFileSync("src/retention.ts", "utf8"), /override \?\? lic\.retentionDays\(\)/); assert.match(readFileSync("src/index.ts", "utf8"), /runLicenceRetention\(db, lic\)/);
 });
 test("dev-1 verifies only in non-release builds; a release build trusts production keys only; --release needs a production key", async () => {
   assert.ok("dev-1" in trustedKeys(false)); assert.ok(!("dev-1" in trustedKeys(true))); assert.deepEqual(Object.keys(trustedKeys(true)).sort(), Object.keys(PROD_KEYS).sort()); assert.ok("dev-1" in LICENCE_PUBLIC_KEYS, "this (non-release) test run trusts dev-1");

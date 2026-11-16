@@ -16,7 +16,7 @@ export function registerAboutRoutes(app: FastifyInstance, d: AboutDeps) {
   const computer = () => computerInfo(d.db, { dataDir: config.dataDir, dbPath: config.dbPath, timezone: d.prof.publicInfo().timezone }, { serialPorts: d.serialPorts ?? (() => listSerialNames()) });
   app.get("/api/about", async (req) => {
     const b = readBuild(), isAdmin = (req as any).user?.role === "admin";
-    const base = { product: branding.product_name, tagline: branding.tagline, credit_line: branding.credit_line, support_contact: branding.support_contact, version: b.version, build: b.build, released: b.released, label: b.label, licence: licence(), uptime_s: Math.round(process.uptime()) };
+    const base = { product: branding.product_name, tagline: branding.tagline, credit_line: branding.credit_line, support_contact: branding.support_contact, version: b.version, build: b.build, released: b.released, label: b.label, licence: isAdmin ? licence() : { ...licence(), grace: undefined }, uptime_s: Math.round(process.uptime()) };
     return isAdmin ? { ...base, device_id: deviceId(), computer: await computer() } : base;
   });
   app.get("/api/about/computer", { preHandler: d.admin }, async () => computer());

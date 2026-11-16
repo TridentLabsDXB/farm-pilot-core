@@ -7,7 +7,9 @@ export type LicenceState = "FREE" | "LICENSED" | "EXPIRED" | "INVALID";
 /** null = unlimited (licence v2). */
 export interface LimitSet { gateways: number | null; sensors: number | null; }
 export interface LicenceSummary { type: string; licensed_to: string | null; valid_until: string | null; state: LicenceState; limits: LimitSet; usage: Usage; over_limit: boolean; reason?: string;
-  reports_days: number | null; retention_days: number | null; }      // how far back charts / CSV / Reports reach and how long history is kept; null = unlimited / never prune
+  reports_days: number | null; retention_days: number | null;
+  /** Admin only (the About route removes it for Operators). Set while a downgrade grace is running or waiting for its prune: history older than retention_days is deleted from `delete_on` on. ISO UTC. */
+  grace?: { downgrade_at: string; delete_on: string } | null; }      // how far back charts / CSV / Reports reach and how long history is kept; null = unlimited / never prune
 export const over = (used: number, limit: number | null) => limit !== null && used > limit;
 export const overLimit = (u: Usage, l: LimitSet) => over(u.sensors, l.sensors) || over(u.gateways, l.gateways);
 export function freeSummary(db: Db): LicenceSummary {
