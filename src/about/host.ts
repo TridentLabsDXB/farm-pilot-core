@@ -6,9 +6,10 @@ import * as nodeOs from "node:os";
 import { statfs } from "node:fs/promises";
 import type { Db } from "../db.js";
 
+/** Every field is null when its source failed ("unavailable" in the UI): one failing call never takes the whole answer down. */
 export interface Computer {
-  computer_name: string; operating_system: string; cpu: string; memory_used_bytes: number; memory_total_bytes: number; disk_free_bytes: number | null; disk_total_bytes: number | null;
-  uptime_s: number; ip_addresses: string[]; time_zone: string; node_version: string; sqlite_version: string; database_bytes: number | null; serial_ports: string[]; data_folder: string; platform: string;
+  computer_name: string | null; operating_system: string | null; cpu: string | null; memory_used_bytes: number | null; memory_total_bytes: number | null; disk_free_bytes: number | null; disk_total_bytes: number | null;
+  uptime_s: number | null; ip_addresses: string[] | null; time_zone: string | null; node_version: string | null; sqlite_version: string | null; database_bytes: number | null; serial_ports: string[] | null; data_folder: string | null; platform: string | null;
 }
 export interface HostDeps {
   platform?: NodeJS.Platform; os?: Pick<typeof nodeOs, "hostname" | "version" | "release" | "cpus" | "totalmem" | "freemem" | "uptime" | "networkInterfaces">;
@@ -31,24 +32,39 @@ export function osName(d: HostDeps = {}): string {
   return `${pretty || o.version()} (${platform === "linux" ? "Linux" : platform} ${o.release()})`;
 }
 
-/** Non-internal IPv4 addresses. os.networkInterfaces() throws EAFNOSUPPORT (error 97) under the systemd unit's address-family restrictions (found on the bench, 2026-11-16), so Linux falls back to /proc/net/fib_trie. Never throws. */
+/** Virtual, bridge and loopback interfaces that are noise on the About page: lo, docker0, br-*, veth*, virbr*, VM and container adapters, Windows vEthernet / VMware / VirtualBox / Hyper-V / loopback. */
+export const VIRTUAL_IFACE = /^(lo\d*|docker\d*|br-.*|veth.*|virbr.*|vmnet.*|vboxnet.*|cni.*|flannel.*|cali.*|kube.*|vEthernet.*|.*VMware.*|.*VirtualBox.*|.*Hyper-V.*|Loopback.*)$/i;
+const linkLocal = (a: string) => a.startsWith("169.254.");
+/**
+ * Real (non-virtual, non-link-local, non-loopback) IPv4 addresses. os.networkInterfaces() throws EAFNOSUPPORT (error 97) under the systemd unit's address-family restrictions (found on the bench, 2026-11-16),
+ * so Linux then reads the local addresses from /proc/net/fib_trie and maps each to its interface through /proc/net/route to apply the same name filter. Never throws.
+ */
 export function ipv4Addresses(o: Pick<typeof nodeOs, "networkInterfaces">, read: (p: string) => string): string[] {
-  try { const ips: string[] = []; for (const list of Object.values(o.networkInterfaces())) for (const a of list ?? []) if (a.family === "IPv4" && !a.internal) ips.push(a.address); return ips; } catch { /* fall through */ }
-  try { const out = new Set<string>(); const lines = read("/proc/net/fib_trie").split("\n"); for (let i = 0; i < lines.length - 1; i++) { const m = /\|-- (\d+\.\d+\.\d+\.\d+)\s*$/.exec(lines[i]); if (m && /\/32 host LOCAL/.test(lines[i + 1]) && !m[1].startsWith("127.")) out.add(m[1]); } return [...out]; } catch { return []; }
+  try { const ips: string[] = []; for (const [name, list] of Object.entries(o.networkInterfaces())) if (!VIRTUAL_IFACE.test(name)) for (const a of list ?? []) if (a.family === "IPv4" && !a.internal && !linkLocal(a.address)) ips.push(a.address); return ips; } catch { /* fall through */ }
+  try {
+    const out = new Set<string>(); const lines = read("/proc/net/fib_trie").split("\n");
+    for (let i = 0; i < lines.length - 1; i++) { const m = /\|-- (\d+\.\d+\.\d+\.\d+)\s*$/.exec(lines[i]); if (m && /\/32 host LOCAL/.test(lines[i + 1]) && !m[1].startsWith("127.") && !linkLocal(m[1])) out.add(m[1]); }
+    const routes: { iface: string; dest: number; mask: number }[] = []; try { for (const l of read("/proc/net/route").split("\n").slice(1)) { const f = l.trim().split(/\s+/); if (f.length > 7 && f[0]) { const le = (h: string) => Number(Buffer.from(h, "hex").readUInt32LE(0)); const mask = le(f[7]); if (mask) routes.push({ iface: f[0], dest: le(f[1]), mask }); } } } catch { /* no route table: keep all */ }
+    const bytes = (a: string) => Buffer.from(a.split(".").map(Number)).readUInt32LE(0);
+    return [...out].filter((a) => { const hit = routes.find((r) => ((bytes(a) & r.mask) >>> 0) === r.dest); return !(hit && VIRTUAL_IFACE.test(hit.iface)); });
+  } catch { return []; }
 }
+const safe = <T>(f: () => T): T | null => { try { const v = f(); return v === undefined ? null : v; } catch { return null; } };
+const safeAsync = async <T>(f: () => Promise<T>): Promise<T | null> => { try { const v = await f(); return v === undefined ? null : v; } catch { return null; } };
+
 export async function computerInfo(db: Db, opts: { dataDir: string; dbPath: string; timezone?: string }, d: HostDeps = {}): Promise<Computer> {
-  const platform = d.platform ?? process.platform, o = d.os ?? nodeOs;
+  const platform = d.platform ?? process.platform, o = d.os ?? nodeOs, read = d.readFile ?? ((p: string) => readFileSync(p, "utf8"));
   const size = d.fileSize ?? ((p: string) => { try { return statSync(p).size; } catch { return null; } });
-  let free: number | null = null, total: number | null = null;
-  try { const s = await (d.statfs ?? ((p: string) => statfs(p)))(opts.dataDir); free = s.bavail * s.bsize; total = s.blocks * s.bsize; } catch { /* folder missing: shown as -- */ }
-  const ips = ipv4Addresses(o, d.readFile ?? ((p) => readFileSync(p, "utf8")));
-  const cpus = o.cpus(); const db1 = size(opts.dbPath), wal = size(opts.dbPath + "-wal");
-  let sqlite = ""; try { sqlite = String((db.prepare("select sqlite_version() v").get() as { v: string }).v); } catch { /* closed db */ }
-  let ports: string[] = []; try { ports = await (d.serialPorts ?? (() => Promise.resolve([])))(); } catch { /* listing failed */ }
-  let tz = opts.timezone ?? ""; if (!tz) { try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { tz = "UTC"; } }
-  return { computer_name: o.hostname(), operating_system: osName(d), cpu: cpus.length ? `${cpus[0].model.replace(/\s+/g, " ").trim()} x${cpus.length}` : "--", memory_used_bytes: o.totalmem() - o.freemem(), memory_total_bytes: o.totalmem(),
-    disk_free_bytes: free, disk_total_bytes: total, uptime_s: Math.round(o.uptime()), ip_addresses: ips, time_zone: tz, node_version: d.nodeVersion ?? process.version, sqlite_version: sqlite,
-    database_bytes: db1 === null ? null : db1 + (wal ?? 0), serial_ports: ports, data_folder: opts.dataDir, platform };
+  const disk = await safeAsync(async () => { const s = await (d.statfs ?? ((p: string) => statfs(p)))(opts.dataDir); return { free: s.bavail * s.bsize, total: s.blocks * s.bsize }; });
+  const dbSize = safe(() => { const a = size(opts.dbPath); return a === null ? null : a + (size(opts.dbPath + "-wal") ?? 0); });
+  const cpu = safe(() => { const c = o.cpus(); return c.length ? `${c[0].model.replace(/\s+/g, " ").trim()} x${c.length}` : null; });
+  return {
+    computer_name: safe(() => o.hostname()), operating_system: safe(() => osName(d)), cpu,
+    memory_used_bytes: safe(() => o.totalmem() - o.freemem()), memory_total_bytes: safe(() => o.totalmem()), disk_free_bytes: disk?.free ?? null, disk_total_bytes: disk?.total ?? null,
+    uptime_s: safe(() => Math.round(o.uptime())), ip_addresses: safe(() => ipv4Addresses(o, read)), time_zone: safe(() => opts.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || null),
+    node_version: safe(() => d.nodeVersion ?? process.version), sqlite_version: safe(() => String((db.prepare("select sqlite_version() v").get() as { v: string }).v)), database_bytes: dbSize,
+    serial_ports: await safeAsync(() => (d.serialPorts ?? (() => Promise.resolve([] as string[])))()), data_folder: opts.dataDir ?? null, platform,
+  };
 }
 
 /** Serial ports as plain names. Windows: SerialPort.list() (COM3...). Linux: the existing /dev listing. A missing serialport module or a driver error gives an empty list. */

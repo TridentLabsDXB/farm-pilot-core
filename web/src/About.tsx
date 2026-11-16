@@ -16,7 +16,8 @@ export async function copyText(text: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(text); return true; } catch { /* insecure context (plain HTTP on the hotspot): fall back */ }
   try { const t = document.createElement("textarea"); t.value = text; t.setAttribute("readonly", ""); t.style.cssText = "position:fixed;opacity:0"; document.body.appendChild(t); t.select(); const ok = document.execCommand("copy"); t.remove(); return ok; } catch { return false; }
 }
-function Tile({ k, v }: { k: string; v: string }) { return <div className="ab-tile"><span className="fp-cap">{k}</span><span className="ab-val">{v}</span></div>; }
+function Tile({ k, v, nowrap }: { k: string; v: string | null; nowrap?: boolean }) { return <div className="ab-tile" data-nowrap={nowrap ? 1 : 0}><span className="fp-cap">{k}</span><span className="ab-val" data-na={v === null ? 1 : 0}>{v ?? "unavailable"}</span></div>; }
+const na = <T,>(v: T | null | undefined, f: (x: T) => string): string | null => (v === null || v === undefined ? null : f(v));
 function Bar({ label, n, max }: { label: string; n: number; max: number }) {
   const over = n > max, pct = max > 0 ? Math.min(100, (n / max) * 100) : over ? 100 : 0;
   return (<div className="ab-usage" data-over={over ? 1 : 0}>
@@ -49,7 +50,7 @@ function Upload({ lic, onDone }: { lic: LicenceInfo; onDone: () => void }) {
   return (<div className="ab-upload">
     <div className="ab-drop" data-drag={drag ? 1 : 0} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); void pick(e.dataTransfer.files?.[0] ?? null); }}>
       <span className="fp-cap">DROP LICENCE FILE HERE</span>
-      <span className="fp-num" data-testid="chosen-file">{file ? `${file.name} (${file.size} bytes)` : "No file chosen"}</span>
+      <span className="ab-chosen" data-testid="chosen-file">{file ? `${file.name} (${file.size} bytes)` : "No file chosen"}</span>
       <input ref={input} type="file" accept=".fplic,application/json" hidden onChange={(e) => void pick(e.target.files?.[0] ?? null)} aria-label="Licence file" />
       <button className="fp-btn" onClick={() => input.current?.click()}>CHOOSE FILE</button>
     </div>
@@ -82,13 +83,12 @@ export default function About({ admin, from }: { admin: boolean; from: string })
         <section className="fp-card ab-id" aria-label="Product">
           <picture><source type="image/webp" srcSet="/brand/farm-pilot-core-logo-512.webp 512w, /brand/farm-pilot-core-logo-1024.webp 1024w" sizes="230px" /><img className="ab-logo" src="/brand/farm-pilot-core-logo-512.png" alt="Farm Pilot CORE logo" width={230} height={230} /></picture>
           <h2>{info.product}</h2><p className="fp-muted">{info.tagline}</p>
-          <div className="ab-tiles"><Tile k="VERSION" v={info.version ? `v${info.version}` : "--"} /><Tile k="BUILD" v={info.build} /><Tile k="RELEASED" v={day(info.released)} /></div>
-          <p className="fp-cap ab-label" data-testid="build-label">{info.product} · {info.label}</p>
+          <div className="ab-tiles"><Tile k="VERSION" v={info.version ? `v${info.version}` : "--"} nowrap /><Tile k="BUILD" v={info.build} nowrap /><Tile k="RELEASED" v={day(info.released)} nowrap /></div>
           <hr />
           <p className="ab-credit">{info.credit_line.replace(/Trident Labs$/, "")}{/Trident Labs$/.test(info.credit_line) ? <strong>Trident Labs</strong> : null}</p>
           <p className="fp-muted ab-support">{info.support_contact}</p>
           <div className="fp-row ab-btns"><button className="fp-btn" onClick={() => setDlg("notes")}>RELEASE NOTES</button><button className="fp-btn" onClick={() => setDlg("notices")}>NOTICES</button></div>
-          <p className="fp-cap">Running for {upFor(info.uptime_s)}</p>
+          <p className="fp-cap ab-uptime">Running for {upFor(info.uptime_s)}</p>
         </section>
         <div className="ab-right">
           <section className="fp-card" aria-label="Licence">
@@ -107,11 +107,11 @@ export default function About({ admin, from }: { admin: boolean; from: string })
             <section className="fp-card" aria-label="This computer">
               <div className="fp-row fp-spread"><h3>THIS COMPUTER</h3><span className="fp-cap" data-testid="refreshed">refreshed {hms(at)}</span></div>
               <div className="ab-comp">
-                <Tile k="COMPUTER NAME" v={c.computer_name} /><Tile k="OPERATING SYSTEM" v={c.operating_system} /><Tile k="CPU" v={c.cpu} /><Tile k="MEMORY (USED / TOTAL)" v={`${bytes(c.memory_used_bytes)} / ${bytes(c.memory_total_bytes)}`} />
-                <Tile k="DISK FREE (DATA VOLUME)" v={`${bytes(c.disk_free_bytes)}${c.disk_total_bytes ? ` of ${bytes(c.disk_total_bytes)}` : ""}`} /><Tile k="UPTIME" v={upFor(c.uptime_s)} /><Tile k="IP ADDRESS" v={c.ip_addresses.length ? c.ip_addresses.slice(0, 3).join(", ") + (c.ip_addresses.length > 3 ? ` +${c.ip_addresses.length - 3} more` : "") : "--"} /><Tile k="TIME ZONE" v={c.time_zone} />
-                <Tile k="NODE.JS" v={c.node_version} /><Tile k="SQLITE" v={c.sqlite_version || "--"} /><Tile k="DATABASE SIZE" v={bytes(c.database_bytes)} /><Tile k="SERIAL PORTS" v={c.serial_ports.length ? `${c.serial_ports.length}: ${c.serial_ports.slice(0, 4).join(", ")}${c.serial_ports.length > 4 ? "..." : ""}` : "None found"} />
+                <Tile k="COMPUTER NAME" v={c.computer_name} /><Tile k="OPERATING SYSTEM" v={c.operating_system} /><Tile k="CPU" v={c.cpu} /><Tile k="MEMORY (USED / TOTAL)" v={c.memory_used_bytes === null || c.memory_total_bytes === null ? null : `${bytes(c.memory_used_bytes)} / ${bytes(c.memory_total_bytes)}`} />
+                <Tile k="DISK FREE (DATA VOLUME)" v={c.disk_free_bytes === null ? null : `${bytes(c.disk_free_bytes)}${c.disk_total_bytes ? ` of ${bytes(c.disk_total_bytes)}` : ""}`} /><Tile k="UPTIME" v={na(c.uptime_s, upFor)} /><Tile k="IP ADDRESS" v={na(c.ip_addresses, (l) => (l.length ? l.slice(0, 3).join(", ") + (l.length > 3 ? ` +${l.length - 3} more` : "") : "--"))} /><Tile k="TIME ZONE" v={c.time_zone} />
+                <Tile k="NODE.JS" v={c.node_version} /><Tile k="SQLITE" v={c.sqlite_version} /><Tile k="DATABASE SIZE" v={na(c.database_bytes, bytes)} /><Tile k="SERIAL PORTS" v={na(c.serial_ports, (l) => (l.length ? `${l.length}: ${l.slice(0, 4).join(", ")}${l.length > 4 ? "..." : ""}` : "None found"))} />
               </div>
-              <div className="ab-folder"><span className="fp-cap">DATA FOLDER</span><code className="fp-num">{c.data_folder}</code></div>
+              <div className="ab-folder"><span className="fp-cap">DATA FOLDER</span><code className="fp-num">{c.data_folder ?? "unavailable"}</code></div>
               <div className="fp-row ab-btns2">
                 <button className="fp-btn" onClick={async () => { try { const d = await api<unknown>("/diagnostics"); await flash("diag", JSON.stringify(d, null, 2)); } catch (e) { setCopied("!diag"); setErr(errText(e)); } }}>COPY DIAGNOSTICS</button>
                 <a className="fp-btn" href="/api/support-bundle" download>SUPPORT BUNDLE</a>

@@ -2,7 +2,7 @@
 import { test, after } from "node:test"; import assert from "node:assert/strict";
 import { createHash } from "node:crypto"; import { mkdtempSync, writeFileSync, readFileSync, mkdirSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";
 import { loadBranding, BRANDING_DEFAULTS } from "../src/about/branding.js"; import { buildLabel, readBuild } from "../src/about/build.js";
-import { deviceIdFromMachineId, readMachineId, thisDeviceId, DEVICE_ID_RE } from "../src/licence/device.js"; import { computerInfo, osName, ipv4Addresses } from "../src/about/host.js";
+import { deviceIdFromMachineId, readMachineId, thisDeviceId, DEVICE_ID_RE } from "../src/licence/device.js"; import { computerInfo, osName, ipv4Addresses, VIRTUAL_IFACE } from "../src/about/host.js";
 import { FREE_LICENCE } from "../src/licence/free.js"; import { openDb } from "../src/db.js";
 import { rig } from "./rig.js";
 // @ts-ignore plain .mjs scripts without types
@@ -95,7 +95,7 @@ test("UI wiring (source): ABOUT in the sidebar above the version caption, route 
   assert.ok(sb.indexOf(">ABOUT</button>") > 0 && sb.indexOf(">ABOUT</button>") < sb.indexOf("fp-sb-ver"), "ABOUT above the caption"); assert.match(sb, /FARM-PILOT CORE\{version \? ` · v\$\{version\}` : ""\}/);
   assert.match(app, /page === "about" \? "about"/); assert.match(app, />MORE<\/button>/); assert.match(st, /go\("\/about"\)\}>ABOUT</);
   assert.match(ab, /alt="Farm Pilot CORE logo"/); assert.match(ab, /farm-pilot-core-logo-512\.png/); for (const k of ["RELEASE NOTES", "NOTICES", "VERSION", "BUILD", "RELEASED", "LICENCE", "THIS COMPUTER", "COMPUTER NAME", "OPERATING SYSTEM", "DISK FREE", "SERIAL PORTS", "DATA FOLDER", "refreshed", "OVER LIMIT", "Not activated", "No expiry"]) assert.ok(ab.includes(k), k);
-  assert.match(ab, /setInterval\(load, 10_000\)/); assert.match(ab, /info\.label/); assert.match(login, /h\.build_label/);
+  assert.match(ab, /setInterval\(load, 10_000\)/); assert.ok(!/build-label|info\.label/.test(ab), "no duplicate build label line under the tiles"); assert.match(login, /h\.build_label/);
   assert.match(css, /max-width: 1023px/); assert.match(css, /max-width: 767px/); assert.match(css, /grid-template-columns: 380px/); assert.match(css, /\.ab-logo \{ width: 230px/); assert.match(css, /data-theme="dark"\] \.ab-logo \{ filter: drop-shadow/);
   assert.ok(!/https?:\/\//.test(ab.replace(/\/\/.*$/gm, "")), "no external requests");
 });
@@ -104,4 +104,36 @@ test("IP addresses survive os.networkInterfaces() failing (EAFNOSUPPORT under th
   const boom = { networkInterfaces: () => { throw new Error("uv_interface_addresses returned Unknown system error 97"); } };
   const trie = "Main:\n  +-- 0.0.0.0/0 3 0 5\n     |-- 10.0.0.3\n        /32 host LOCAL\n     |-- 10.0.0.255\n        /32 link BROADCAST\n     |-- 127.0.0.1\n        /32 host LOCAL\n     |-- 172.17.0.1\n        /32 host LOCAL\n";
   assert.deepEqual(ipv4Addresses(boom as any, () => trie), ["10.0.0.3", "172.17.0.1"]); assert.deepEqual(ipv4Addresses(boom as any, () => { throw new Error("no proc"); }), []);
+});
+
+test("fault tolerance: one failing source gives null for THAT field only (UI says unavailable); every source can fail at once without throwing; Windows sources too", async () => {
+  const db = openDb(":memory:"); const boom = () => { throw new Error("source failed"); };
+  const okOs = { hostname: () => "H", version: () => "v", release: () => "1", cpus: () => [{ model: "CPU" }] as any, totalmem: () => 8e9, freemem: () => 2e9, uptime: () => 100, networkInterfaces: () => ({}) as any };
+  const base = { dataDir: tmpdir(), dbPath: "/no/db", timezone: "Asia/Dubai" };
+  for (const platform of ["linux", "win32"] as const) {
+    const all = await computerInfo(db, base, { platform, os: okOs }); assert.equal(all.computer_name, "H"); assert.equal(all.cpu, "CPU x1");
+    const cases: [keyof typeof okOs, string[]][] = [["hostname", ["computer_name"]], ["cpus", ["cpu"]], ["totalmem", ["memory_used_bytes", "memory_total_bytes"]], ["freemem", ["memory_used_bytes"]], ["uptime", ["uptime_s"]], ["networkInterfaces", ["ip_addresses"]]];
+    for (const [fn, fields] of cases) { const c: any = await computerInfo(db, base, { platform, os: { ...okOs, [fn]: boom }, readFile: boom }); for (const f of fields) if (!(fn === "networkInterfaces" && f === "ip_addresses")) assert.equal(c[f], null, `${platform}: ${fn} failing must null ${f}`); assert.equal(c.node_version, process.version, "other fields survive"); assert.equal(c.sqlite_version.length > 0, true); }
+    const d = await computerInfo(db, base, { platform, os: okOs, statfs: async () => { throw new Error("no disk"); }, serialPorts: async () => { throw new Error("no ports"); }, fileSize: boom, run: boom });
+    assert.equal(d.disk_free_bytes, null); assert.equal(d.disk_total_bytes, null); assert.equal(d.serial_ports, null); assert.equal(d.database_bytes, null); assert.equal(d.computer_name, "H");
+    const dead: any = await computerInfo({ prepare: boom } as any, base, { platform, os: { hostname: boom, version: boom, release: boom, cpus: boom, totalmem: boom, freemem: boom, uptime: boom, networkInterfaces: boom } as any, run: boom, readFile: boom, statfs: boom as any, fileSize: boom, serialPorts: boom as any });
+    for (const k of ["computer_name", "cpu", "memory_used_bytes", "memory_total_bytes", "disk_free_bytes", "uptime_s", "sqlite_version", "database_bytes", "serial_ports"]) assert.equal(dead[k], null, `${platform} ${k}`); assert.ok(dead.operating_system === null || typeof dead.operating_system === "string");
+  }
+  const x = await rig(); closers.push(x.close); const r = await x.call(x.admin, "GET", "/api/about/computer"); assert.equal(r.status, 200);
+});
+test("IP list: docker, bridge, veth, virbr, lo, VM and link-local addresses are hidden (os call and /proc fallback)", () => {
+  for (const n of ["lo", "docker0", "br-3f2a1c", "veth12ab", "virbr0", "vEthernet (Default Switch)", "VMware Network Adapter VMnet8", "VirtualBox Host-Only Network", "Loopback Pseudo-Interface 1", "cni0"]) assert.match(n, VIRTUAL_IFACE, n);
+  for (const n of ["eth0", "ens3", "enp0s31f6", "wlan0", "wg0", "br0", "Ethernet", "Wi-Fi"]) assert.doesNotMatch(n, VIRTUAL_IFACE, n);
+  const a = (address: string, internal = false) => ({ family: "IPv4", internal, address });
+  const os = { networkInterfaces: () => ({ lo: [a("127.0.0.1", true)], eth0: [a("192.168.1.20"), { family: "IPv6", internal: false, address: "fe80::1" }], docker0: [a("172.17.0.1")], "br-abc": [a("172.18.0.1")], veth1: [a("10.9.9.9")], wlan0: [a("169.254.3.4")], wg0: [a("10.0.0.3")] }) as any };
+  assert.deepEqual(ipv4Addresses(os, () => ""), ["192.168.1.20", "10.0.0.3"]);
+  const trie = "     |-- 10.0.0.3\n        /32 host LOCAL\n     |-- 172.17.0.1\n        /32 host LOCAL\n     |-- 192.168.1.20\n        /32 host LOCAL\n     |-- 169.254.1.1\n        /32 host LOCAL\n     |-- 127.0.0.1\n        /32 host LOCAL\n";
+  const le = (ip: string) => Buffer.from(ip.split(".").map(Number)).toString("hex").toUpperCase(); const route = `Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n docker0\t${le("172.17.0.0")}\t00000000\t0001\t0\t0\t0\t${le("255.255.0.0")}\n eth0\t${le("192.168.1.0")}\t00000000\t0001\t0\t0\t0\t${le("255.255.255.0")}\n wg0\t${le("10.0.0.0")}\t00000000\t0001\t0\t0\t0\t${le("255.255.255.0")}\n`;
+  const boom = { networkInterfaces: () => { throw new Error("97"); } } as any;
+  assert.deepEqual(ipv4Addresses(boom, (p) => (p.endsWith("fib_trie") ? trie : route)).sort(), ["10.0.0.3", "192.168.1.20"], "fallback maps addresses to interfaces through /proc/net/route");
+});
+test("UI polish (source): RELEASED nowrap, chooser text in page font, sidebar compact and pinned ABOUT on short screens, identity card stretches", () => {
+  const css = readFileSync("web/src/about.css", "utf8"), core = readFileSync("web/src/core.css", "utf8"), ab = readFileSync("web/src/About.tsx", "utf8");
+  assert.match(css, /data-nowrap="1"\] \.ab-val \{ white-space: nowrap/); assert.match(css, /\.ab-chosen \{ font-family: var\(--fp-mono\)/); assert.match(css, /align-items: stretch/); assert.match(ab, /unavailable/);
+  assert.match(core, /\.fp-sb-bottom \{[^}]*position: sticky; bottom: -16px/); assert.match(core, /max-height: 860px\)[\s\S]*\.fp-sb-brand img \{ width: 48px/);
 });
