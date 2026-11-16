@@ -13,7 +13,8 @@
     "sim": "node dist/sim/simulator.js",
     "dev": "tsx watch src/index.ts",
     "seed:bench": "node dist/scripts/seed-bench.js",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test --test-force-exit test/*.test.ts",
+    "licence": "node --import tsx tools/licence-issue/index.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
