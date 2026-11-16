@@ -186,3 +186,5 @@ textarea.fp-input { padding: 10px 12px; min-height: 120px; width: 100%; }
   .fp-hchart { max-height: 240px; } .fp-hchart text { font-size: 17px; } .fp-chartbar .fp-meta { display: none; }
 }
 .fp-lock { vertical-align: -2px; margin-right: 4px; }
+/* 2026-11-17 -- text links in the accent colour, not the browser default purple/blue (Sensors Gateway "RS-485 Ports"); same look as OPEN CONTROL */
+.core a.fp-link, .core .fp-hint a { color: var(--fp-accent); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; } .core a.fp-link:visited, .core .fp-hint a:visited { color: var(--fp-accent); } .core a.fp-link:focus-visible, .core .fp-hint a:focus-visible { outline: 2px solid var(--fp-accent); outline-offset: 2px; border-radius: 2px; }

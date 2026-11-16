@@ -28,7 +28,7 @@ export default function GatewayPage({ scada, reload }: { scada: Scada | null; re
       {!l ? <p className="fp-msg fp-muted">No gateway link is configured.</p> : <ul className="fp-list">
         <li><span>Port</span><span>Port {l.portId}, {l.transport === "serial" ? l.line : l.transport === "tcp" ? `TCP ${l.host}:${l.port}` : ""}{l.enabled ? "" : " (switched off)"}</span></li>
         <li><span>Modbus address</span><span>{l.address}</span></li><li><span>Timeout / retries</span><span>{l.timeoutMs} ms / {l.retries}</span></li></ul>}
-      <span className="fp-hint">Read-only summary. The line settings, the port and the address of this device are set in <a href="#/settings/rs485-ports" onClick={(e) => { e.preventDefault(); go("/settings/rs485-ports"); }}>RS-485 Ports</a>.</span></section>
+      <span className="fp-hint">Read-only summary. The line settings, the port and the address of this device are set in <a className="fp-link" href="#/settings/rs485-ports" onClick={(e) => { e.preventDefault(); go("/settings/rs485-ports"); }}>RS-485 Ports</a>.</span></section>
     <section className="fp-card"><h3>Timing and calibration limits</h3>
       <div className="fp-form"><span className="fp-cap wide">Timing</span>{fld("pollSec", "Modbus poll (s)", "Shortened to half the shortest sensor interval, minimum 10 s.")}<span />
         <span className="fp-cap wide">Calibration limits</span>{fld("tOff", "Max temperature offset (°C)")}{fld("hOff", "Max humidity offset (%RH)")}</div>
