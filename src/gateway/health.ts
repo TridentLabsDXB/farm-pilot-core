@@ -43,11 +43,16 @@ export function buildView(db: Db, reg: Registry, svc: GatewayService, admin: boo
       syncState: s.sent_slot === null ? "not_sent" : s.sent_slot !== s.slot || s.sent_interval !== s.reporting_interval ? "changed" : "in_gateway" };
     sensors.push(v);
   }
+  // 2026-11-17 -- a sensor that HAS reported (last_change known) and has been silent longer than its threshold is "no update" for ALARM purposes, whether the gateway keeps
+  // repeating the old frame (status no_update) or answers an all-zero frame (status no_data). Bench finding: after the simulator lost its state all 8 sensors answered zeros, the status
+  // turned from no_update to no_data, the alarm condition vanished and the history showed 8 episodes of 0 minutes. A sensor that never reported stays NO DATA (commissioning), no alarm.
+  const rows = reg.list();
+  const silent = rows.map((s, i) => sensors[i].status === "no_update" || (sensors[i].status === "no_data" && s.last_change !== null && svc.detector.liveness({ fp: "silent", lastChange: s.last_change }, now, reg.intervalSec(s.type, s.reporting_interval)) === "no_update"));
   const alarms: Alarm[] = [];
   if (svc.enabled && !online) alarms.push({ kind: "gateway_offline", severity: "alarm", text: "Gateway offline: sensor values are unknown", since: svc.lastOk });
   else for (const [i, s] of reg.list().entries()) {
     const v = sensors[i];
-    if (v.status === "no_update") alarms.push({ kind: "no_update", severity: "alarm", text: `${v.label}: no update`, serial: s.serial, since: s.last_change });
+    if (silent[i]) alarms.push({ kind: "no_update", severity: "alarm", text: `${v.label}: no update`, serial: s.serial, since: s.last_change });
     if (v.status === "low_battery") alarms.push({ kind: "low_battery", severity: "warning", text: `${v.label}: low battery ${v.voltage?.toFixed(2)} V`, serial: s.serial });
     if (v.calDue) alarms.push({ kind: "calibration_due", severity: "warning", text: `${v.label}: calibration due`, serial: s.serial });
   }
