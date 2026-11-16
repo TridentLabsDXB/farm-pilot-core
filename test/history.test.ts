@@ -64,7 +64,7 @@ test("web: URL state (view, range), a locked range falls back to 24H, bare URL m
 });
 test("web source: legend toggles, NO UPDATE legend word, 12 series cap, 1M locked with lock icon and PRO, no CDN", () => {
   const c = readFileSync("web/src/MonitoringCharts.tsx", "utf8"), v = readFileSync("web/src/ScadaView.tsx", "utf8");
-  assert.match(c, /aria-pressed=\{!off\[s\.id\]\}/); assert.match(c, /NO UPDATE/); assert.match(c, /MAX_SERIES/); assert.match(c, /No sensors in this zone yet/); assert.match(c, /No data in this range/); assert.match(c, /60_000/);
+  assert.match(c, /aria-pressed=\{!hid\(s\)\}/); assert.match(c, /NO UPDATE/); assert.match(c, /MAX_SERIES/); assert.match(c, /off\[s\.id\] \?\? s\.i >= MAX_SERIES/, "one visibility rule for every metric"); assert.ok(!/n\[s\.key\] = i >= MAX_SERIES/.test(c), "no per-load initialiser that can differ between TEMPERATURE and HUMIDITY"); assert.match(c, /No sensors in this zone yet/); assert.match(c, /No data in this range/); assert.match(c, /60_000/);
   assert.match(v, /fp-lock/), assert.ok(!/🔒/.test(v), "an SVG lock, not an emoji (no emoji font on the box)"); assert.match(v, /PRO/); assert.match(v, /CARDS|cards/); assert.ok(!/https?:\/\//.test(c), "nothing is loaded from the internet");
 });
 
