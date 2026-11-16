@@ -3,7 +3,7 @@
 // inline code did: nothing in this file changes Linux behaviour.
 import { execFileSync } from "node:child_process";
 import { userInfo } from "node:os";
-import { win32 } from "node:path";
+import { posix, win32 } from "node:path";
 
 export type Platform = NodeJS.Platform;
 export const isWin = (p: Platform = process.platform) => p === "win32";
@@ -15,10 +15,10 @@ export interface DefaultPaths { dataDir: string; dbPath: string; logsDir: string
 /**
  * Default locations. Linux keeps the systemd layout. On Windows everything hangs off C:\FarmPilot-Core (override the whole base with
  * FARMPILOT_CORE_HOME, or only the data with DATA_DIR / DB_PATH). DB_PATH defaults to <DATA_DIR>\core.db on Windows, so moving the data
- * directory moves the database with it. On Linux DB_PATH and DATA_DIR stay independent, as before.
+ * directory moves the database with it. On Linux too (2026-11-17, docs/ops-notes.md) DB_PATH defaults to <DATA_DIR>/core.db; set DB_PATH explicitly only to keep the database outside the data folder.
  */
 export function defaultPaths(platform: Platform = process.platform, env: Record<string, string | undefined> = process.env): DefaultPaths {
-  if (!isWin(platform)) return { dataDir: env.DATA_DIR || "/var/lib/farmpilot-core", dbPath: env.DB_PATH || "/var/lib/farmpilot-core/core.db", logsDir: env.LOGS_DIR || "/var/log/farmpilot-core", envFile: "/etc/farmpilot-core.env", serialPath: "/dev/ttyUSB0" };
+  if (!isWin(platform)) return { dataDir: env.DATA_DIR || "/var/lib/farmpilot-core", dbPath: env.DB_PATH || posix.join(env.DATA_DIR || "/var/lib/farmpilot-core", "core.db"), logsDir: env.LOGS_DIR || "/var/log/farmpilot-core", envFile: "/etc/farmpilot-core.env", serialPath: "/dev/ttyUSB0" };
   const base = env.FARMPILOT_CORE_HOME || WIN_BASE, dataDir = env.DATA_DIR || win32.join(base, "data");
   return { dataDir, dbPath: env.DB_PATH || win32.join(dataDir, "core.db"), logsDir: env.LOGS_DIR || win32.join(base, "logs"), envFile: win32.join(base, "core.env"), serialPath: "COM3" };
 }

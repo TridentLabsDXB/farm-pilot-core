@@ -13,7 +13,7 @@ Layout on the bench: code + `node/` (Node 22 tarball, SHA256-verified, gitignore
 
 Local dev: `npm i && npm --prefix web i && npm run build && HOST_BIND_IP=127.0.0.1 DB_PATH=./dev.db DATA_DIR=. npm start`.
 
-Environment: `HOST_BIND_IP` (default 127.0.0.1), `PORT` (4100), `MQTT_PORT` (1884, loopback only), `DB_PATH`, `COOKIE_SECURE` (`auto` | `true` | `false`), `RETENTION_DAYS` (30), `COMMAND_TIMEOUT_SEC` (10, Admin can change), `COMMAND_DEDUPE_MS` (3000).
+Environment: `HOST_BIND_IP` (default 127.0.0.1), `PORT` (4100), `MQTT_PORT` (1884, loopback only), `DATA_DIR` (default /var/lib/farmpilot-core), `DB_PATH` (default `<DATA_DIR>/core.db`), `COOKIE_SECURE` (`auto` | `true` | `false`), `RETENTION_DAYS` (30), `COMMAND_TIMEOUT_SEC` (10, Admin can change), `COMMAND_DEDUPE_MS` (3000).
 `COOKIE_SECURE=auto` marks the session cookie Secure only when the request came over HTTPS (X-Forwarded-Proto from NPM). On the real box the hotspot serves plain HTTP, so use `auto` or `false` there.
 
 ## Simulator (dev / bench only, never on the box image)

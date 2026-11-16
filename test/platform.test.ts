@@ -4,10 +4,10 @@ import { mkdtempSync, readFileSync, rmSync, existsSync, statSync } from "node:fs
 import { defaultPaths, restrictToCurrentUser, shutdownSignals, isWin } from "../src/platform.js";
 import { writeInitialPassword } from "../src/auth.js";
 
-test("defaults: Linux keeps the systemd layout, DATA_DIR and DB_PATH stay independent", () => {
+test("defaults: Linux keeps the systemd layout; DB_PATH defaults to <DATA_DIR>/core.db (2026-11-17) and an explicit DB_PATH wins", () => {
   assert.deepEqual(defaultPaths("linux", {}), { dataDir: "/var/lib/farmpilot-core", dbPath: "/var/lib/farmpilot-core/core.db", logsDir: "/var/log/farmpilot-core", envFile: "/etc/farmpilot-core.env", serialPath: "/dev/ttyUSB0" });
   const o = defaultPaths("linux", { DATA_DIR: "/x", DB_PATH: "/y/a.db" }); assert.equal(o.dataDir, "/x"); assert.equal(o.dbPath, "/y/a.db");
-  assert.equal(defaultPaths("linux", { DATA_DIR: "/x" }).dbPath, "/var/lib/farmpilot-core/core.db");   // unchanged old behaviour
+  assert.equal(defaultPaths("linux", { DATA_DIR: "/x" }).dbPath, "/x/core.db");   // was /var/lib/farmpilot-core/core.db: a throwaway instance with only DATA_DIR opened the live database (docs/ops-notes.md)
 });
 test("defaults: Windows uses C:\\FarmPilot-Core (never C:\\FarmPilot), DATA_DIR moves the database with it, both overridable", () => {
   const w = defaultPaths("win32", {});

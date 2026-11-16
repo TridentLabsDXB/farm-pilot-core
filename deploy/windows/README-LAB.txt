@@ -4,6 +4,8 @@ Test bundle for the lab tablet (Windows 10 64-bit, Intel Atom x5-Z8350). Not a r
 (the development licence key dev-1 is trusted). The version, build id and build date are on the ABOUT page and at the
 end of this file.
 
+ADDRESS: http://127.0.0.1:4100 on the tablet. From a phone on the tablet's hotspot: http://192.168.137.1:4100 (usually; see step 5 to find the real IP).
+
 WHAT IS IN THE ZIP (unpack at C:\ so everything lands under C:\FarmPilot-Core)
     C:\FarmPilot-Core\README-LAB.txt       this file
     C:\FarmPilot-Core\core.env.example     optional settings; copy to core.env to use
@@ -28,8 +30,13 @@ FIRST-RUN CHECKLIST (tick each one; write down what happened where it did not ma
         If "better-sqlite3" or "serialport" FAIL, copy the window text and send it (the Windows binaries need no extra runtime installed).
         If it FAILs for anything else: do not go on, copy the window text and send it.
  [ ] 4. Double-click start-core.cmd. A black window opens and stays open (that is the program). It prints the web addresses and the data folder.
-        Windows Firewall asks about node.exe: tick "Private networks" (and "Public networks" if the tablet's hotspot is listed as public), click Allow.
- [ ] 5. Open http://127.0.0.1:4100 in the tablet's browser. For a phone: switch on the tablet's Mobile Hotspot (Settings > Network & Internet > Mobile hotspot),
+        On the first start Windows Defender Firewall asks to allow node.exe: tick BOTH "Private networks" AND "Public networks", then click "Allow access".
+        The tablet's own hotspot network is often classified as Public; if only Private is ticked, a phone on the hotspot cannot reach CORE.
+        (If you clicked Cancel by mistake: Control Panel > Windows Defender Firewall > Allow an app > Change settings > node.exe > tick Private and Public.)
+ [ ] 5. Web address: http://127.0.0.1:4100 on the tablet itself (port 4100), and http://<tablet IP>:4100 from a phone.
+        To find the tablet's IP: open Command Prompt and type  ipconfig  . Look for "IPv4 Address" under the adapter the phone is connected through.
+        With the Mobile Hotspot on, the tablet's own address on the hotspot is usually 192.168.137.1 (start-core.cmd prints all of them under "From a phone").
+        Open http://127.0.0.1:4100 in the tablet's browser. For a phone: switch on the tablet's Mobile Hotspot (Settings > Network & Internet > Mobile hotspot),
         join the phone to it and open the "From a phone" address printed by start-core.cmd (normally http://192.168.137.1:4100).
  [ ] 6. First login: user admin, password in C:\FarmPilot-Core\data\initial-admin-password (open it with Notepad; only your Windows user can read it).
  [ ] 7. Settings > DATA POINTS > RS-485 PORTS. Plug the USB-RS485 adapter in first. Choose the COM port from the list (the list shows the driver name).

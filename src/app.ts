@@ -54,7 +54,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
 
   // version, build and build_label come from about/build.ts: the login footer and the About page print the same label.
   app.get("/api/health", async () => ({ ok: true, version: readBuild().version, build: readBuild().build, build_label: readBuild().label, uptime_s: Math.round(process.uptime()), rss_mb: Math.round(process.memoryUsage().rss / 1048576),
-    db_mb: Math.round((statSync(config.dbPath).size) / 1048576 * 10) / 10 }));
+    db_mb: (() => { try { return Math.round((statSync(config.dbPath).size) / 1048576 * 10) / 10; } catch { return null; } })() }));      // 2026-11-17: no database FILE (in-memory test databases) is not a reason for /api/health to fail
 
   app.post<{ Body: { username?: string; password?: string } }>("/api/login", async (req, reply) => {
     const username = String(req.body?.username ?? "").slice(0, 64), password = String(req.body?.password ?? "").slice(0, 200);

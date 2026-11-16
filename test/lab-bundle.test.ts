@@ -78,5 +78,5 @@ test("bundle scripts: top folder FarmPilot-Core\\app, no leftover FarmPilotCore 
 });
 test("README-LAB.txt: numbered first-run checklist with every step asked for, stop / data / logs / sleep, upgrade and rollback", () => {
   const t = readFileSync("deploy/windows/README-LAB.txt", "utf8"); assert.equal((t.match(/^ \[ \] \d+\./gm) ?? []).length, 12);
-  for (const s of ["Unblock and unzip", "check.cmd", "start-core.cmd", "http://127.0.0.1:4100", "First login", "RS-485 PORTS", "TEST PORT", "Replug test", "COM10+ test", "Ctrl+C", "Sleep = Never", "initial-admin-password", "upgrade.cmd /rollback", "C:\\FarmPilot-Core\\logs\\core.log"]) assert.ok(t.includes(s), s);
+  for (const s of ["Unblock and unzip", "check.cmd", "start-core.cmd", "http://127.0.0.1:4100", "First login", "RS-485 PORTS", "TEST PORT", "Replug test", "COM10+ test", "Ctrl+C", "Sleep = Never", "initial-admin-password", "upgrade.cmd /rollback", "C:\\FarmPilot-Core\\logs\\core.log", "BOTH \"Private networks\" AND \"Public networks\"", "ipconfig", "192.168.137.1", "http://<tablet IP>:4100"]) assert.ok(t.includes(s), s);
 });
