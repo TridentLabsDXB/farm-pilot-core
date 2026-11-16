@@ -33,7 +33,7 @@ export function osName(d: HostDeps = {}): string {
 }
 
 /** Virtual, bridge and loopback interfaces that are noise on the About page: lo, docker0, br-*, veth*, virbr*, VM and container adapters, Windows vEthernet / VMware / VirtualBox / Hyper-V / loopback. */
-export const VIRTUAL_IFACE = /^(lo\d*|docker\d*|br-.*|veth.*|virbr.*|vmnet.*|vboxnet.*|cni.*|flannel.*|cali.*|kube.*|vEthernet.*|.*VMware.*|.*VirtualBox.*|.*Hyper-V.*|Loopback.*)$/i;
+export const VIRTUAL_IFACE = /^(lo\d*|docker.*|br-.*|veth.*|virbr.*|vmnet.*|vboxnet.*|cni.*|flannel.*|cali.*|kube.*|vEthernet.*|.*VMware.*|.*VirtualBox.*|.*Hyper-V.*|Loopback.*)$/i;
 const linkLocal = (a: string) => a.startsWith("169.254.");
 /**
  * Real (non-virtual, non-link-local, non-loopback) IPv4 addresses. os.networkInterfaces() throws EAFNOSUPPORT (error 97) under the systemd unit's address-family restrictions (found on the bench, 2026-11-16),
@@ -44,7 +44,7 @@ export function ipv4Addresses(o: Pick<typeof nodeOs, "networkInterfaces">, read:
   try {
     const out = new Set<string>(); const lines = read("/proc/net/fib_trie").split("\n");
     for (let i = 0; i < lines.length - 1; i++) { const m = /\|-- (\d+\.\d+\.\d+\.\d+)\s*$/.exec(lines[i]); if (m && /\/32 host LOCAL/.test(lines[i + 1]) && !m[1].startsWith("127.") && !linkLocal(m[1])) out.add(m[1]); }
-    const routes: { iface: string; dest: number; mask: number }[] = []; try { for (const l of read("/proc/net/route").split("\n").slice(1)) { const f = l.trim().split(/\s+/); if (f.length > 7 && f[0]) { const le = (h: string) => Number(Buffer.from(h, "hex").readUInt32LE(0)); const mask = le(f[7]); if (mask) routes.push({ iface: f[0], dest: le(f[1]), mask }); } } } catch { /* no route table: keep all */ }
+    const routes: { iface: string; dest: number; mask: number }[] = []; try { for (const l of read("/proc/net/route").split("\n").slice(1)) { const f = l.trim().split(/\s+/); if (f.length > 7 && f[0]) { const le = (h: string) => parseInt(h, 16) >>> 0; /* the kernel prints the native little-endian 32-bit value as hex */ const mask = le(f[7]); if (mask) routes.push({ iface: f[0], dest: le(f[1]), mask }); } } } catch { /* no route table: keep all */ }
     const bytes = (a: string) => Buffer.from(a.split(".").map(Number)).readUInt32LE(0);
     return [...out].filter((a) => { const hit = routes.find((r) => ((bytes(a) & r.mask) >>> 0) === r.dest); return !(hit && VIRTUAL_IFACE.test(hit.iface)); });
   } catch { return []; }

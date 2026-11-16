@@ -122,13 +122,13 @@ test("fault tolerance: one failing source gives null for THAT field only (UI say
   const x = await rig(); closers.push(x.close); const r = await x.call(x.admin, "GET", "/api/about/computer"); assert.equal(r.status, 200);
 });
 test("IP list: docker, bridge, veth, virbr, lo, VM and link-local addresses are hidden (os call and /proc fallback)", () => {
-  for (const n of ["lo", "docker0", "br-3f2a1c", "veth12ab", "virbr0", "vEthernet (Default Switch)", "VMware Network Adapter VMnet8", "VirtualBox Host-Only Network", "Loopback Pseudo-Interface 1", "cni0"]) assert.match(n, VIRTUAL_IFACE, n);
+  for (const n of ["lo", "docker0", "docker_gwbridge", "br-3f2a1c", "veth12ab", "virbr0", "vEthernet (Default Switch)", "VMware Network Adapter VMnet8", "VirtualBox Host-Only Network", "Loopback Pseudo-Interface 1", "cni0"]) assert.match(n, VIRTUAL_IFACE, n);
   for (const n of ["eth0", "ens3", "enp0s31f6", "wlan0", "wg0", "br0", "Ethernet", "Wi-Fi"]) assert.doesNotMatch(n, VIRTUAL_IFACE, n);
   const a = (address: string, internal = false) => ({ family: "IPv4", internal, address });
   const os = { networkInterfaces: () => ({ lo: [a("127.0.0.1", true)], eth0: [a("192.168.1.20"), { family: "IPv6", internal: false, address: "fe80::1" }], docker0: [a("172.17.0.1")], "br-abc": [a("172.18.0.1")], veth1: [a("10.9.9.9")], wlan0: [a("169.254.3.4")], wg0: [a("10.0.0.3")] }) as any };
   assert.deepEqual(ipv4Addresses(os, () => ""), ["192.168.1.20", "10.0.0.3"]);
   const trie = "     |-- 10.0.0.3\n        /32 host LOCAL\n     |-- 172.17.0.1\n        /32 host LOCAL\n     |-- 192.168.1.20\n        /32 host LOCAL\n     |-- 169.254.1.1\n        /32 host LOCAL\n     |-- 127.0.0.1\n        /32 host LOCAL\n";
-  const le = (ip: string) => Buffer.from(ip.split(".").map(Number)).toString("hex").toUpperCase(); const route = `Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n docker0\t${le("172.17.0.0")}\t00000000\t0001\t0\t0\t0\t${le("255.255.0.0")}\n eth0\t${le("192.168.1.0")}\t00000000\t0001\t0\t0\t0\t${le("255.255.255.0")}\n wg0\t${le("10.0.0.0")}\t00000000\t0001\t0\t0\t0\t${le("255.255.255.0")}\n`;
+  const le = (ip: string) => Buffer.from(ip.split(".").map(Number)).readUInt32LE(0).toString(16).toUpperCase().padStart(8, "0"); /* real /proc/net/route format: little-endian u32 as hex (192.168.1.0 -> 0001A8C0) */ const route = `Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n docker0\t${le("172.17.0.0")}\t00000000\t0001\t0\t0\t0\t${le("255.255.0.0")}\n eth0\t${le("192.168.1.0")}\t00000000\t0001\t0\t0\t0\t${le("255.255.255.0")}\n wg0\t${le("10.0.0.0")}\t00000000\t0001\t0\t0\t0\t${le("255.255.255.0")}\n`;
   const boom = { networkInterfaces: () => { throw new Error("97"); } } as any;
   assert.deepEqual(ipv4Addresses(boom, (p) => (p.endsWith("fib_trie") ? trie : route)).sort(), ["10.0.0.3", "192.168.1.20"], "fallback maps addresses to interfaces through /proc/net/route");
 });
