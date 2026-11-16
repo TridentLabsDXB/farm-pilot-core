@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && npm --prefix web run build",
+    "build": "node scripts/gen-notices.mjs && tsc -p tsconfig.json && npm --prefix web run build",
     "build:server": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "sim": "node dist/sim/simulator.js",

@@ -27,7 +27,7 @@ export function useBadges(scada: Scada | null, tab: string | undefined, enabled:
 }
 
 /** Persistent left sidebar: logo and farm name on top, then SCADA, CONTROL, ALARMS and (Admin) the Settings items. Panel: always visible. Tablet: drawer. Phone: hidden (bottom nav). */
-export default function Sidebar({ pub, cur, tab, admin, nAlarms, badges }: { pub: PublicProfile | null; cur: string; tab?: string; admin: boolean; nAlarms: number; badges: Record<string, Badge> }) {
+export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges }: { version: string; pub: PublicProfile | null; cur: string; tab?: string; admin: boolean; nAlarms: number; badges: Record<string, Badge> }) {
   return (
     <nav className="fp-sb" aria-label="Main">
       <div className="fp-sb-brand">{pub?.logo_url && <img src={pub.logo_url} alt="" />}<span>{pub?.farm_name ?? ""}</span></div>
@@ -38,6 +38,10 @@ export default function Sidebar({ pub, cur, tab, admin, nAlarms, badges }: { pub
         <span className="fp-cap fp-sb-group">Settings</span>
         {TABS.map(([k, l]) => <button key={k} className="fp-tab" aria-current={cur === "settings" && tab === k ? "page" : undefined} onClick={() => go("/settings/" + k)}><span>{l}</span>{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.word}</Chip>}</button>)}
       </>}
+      <div className="fp-sb-bottom">
+        <button className="fp-tab" aria-current={cur === "about" ? "page" : undefined} onClick={() => go("/about")}>ABOUT</button>
+        <span className="fp-cap fp-sb-ver">FARM-PILOT CORE{version ? ` · v${version}` : ""}</span>
+      </div>
     </nav>
   );
 }

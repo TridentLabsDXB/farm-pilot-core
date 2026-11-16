@@ -1,0 +1,33 @@
+/* ABOUT page (Option A). All rules scoped under .ab; tokens come from tokens.css. */
+.ab { max-width: 1280px; }
+.ab-head { display: flex; flex-direction: column; gap: 2px; }
+.ab-head h1 { margin: 0; font-family: var(--fp-head); font-size: 28px; letter-spacing: .06em; }
+.ab-back { display: none; align-self: flex-start; min-height: 44px; margin-bottom: 8px; }
+.ab-grid { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 16px; align-items: start; }
+.ab-right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ab-id { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; }
+.ab-id h2 { margin: 0; font-family: var(--fp-head); font-size: 26px; letter-spacing: .06em; }
+.ab-id p { margin: 0; }
+.ab-logo { width: 230px; height: 230px; border-radius: 50%; object-fit: cover; }
+.core[data-theme="dark"] .ab-logo { filter: drop-shadow(0 0 26px rgba(125, 211, 252, .28)); }
+.ab-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; }
+.ab-tile { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--fp-inset); border: 1px solid var(--fp-border); border-radius: var(--fp-radius-panel); text-align: left; min-width: 0; }
+.ab-val { font-family: var(--fp-mono); font-size: 14px; color: var(--fp-text); overflow-wrap: anywhere; }
+.ab-label { margin-top: 2px; }
+.ab-id hr { width: 100%; border: 0; border-top: 1px solid var(--fp-border); margin: 6px 0; }
+.ab-credit { font-size: 14px; color: var(--fp-muted); } .ab-credit strong { color: var(--fp-text); font-weight: 700; }
+.ab-support { font-size: 13px; }
+.ab-btns { justify-content: center; }
+.ab-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 16px; margin: 12px 0; }
+.ab-fields div { display: flex; flex-direction: column; gap: 4px; min-width: 0; } .ab-fields dt, .ab-fields dd { margin: 0; }
+.ab-fields dd { font-size: 16px; color: var(--fp-text); overflow-wrap: anywhere; }
+.ab-dev { grid-column: 1 / -1; } .ab-dev dd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; } .ab-dev code { font-size: 18px; letter-spacing: .06em; }
+.ab-usages { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.ab-usage { display: flex; flex-direction: column; gap: 6px; }
+.ab-bar { height: 12px; background: var(--fp-inset); border: 1px solid var(--fp-border); border-radius: 6px; overflow: hidden; } .ab-bar i { display: block; height: 100%; background: var(--fp-ok); }
+.ab-usage[data-over="1"] .ab-bar i { background: var(--fp-warn); }
+.ab-comp { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.ab-folder { display: flex; flex-direction: column; gap: 4px; margin: 12px 0 4px; } .ab-folder code { overflow-wrap: anywhere; }
+.ab-text { max-height: 60vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--fp-mono); font-size: 12px; background: var(--fp-inset); border: 1px solid var(--fp-border); border-radius: var(--fp-radius-panel); padding: 12px; margin: 12px 0 0; }
+@media (max-width: 1023px) { .ab-grid { grid-template-columns: minmax(0, 1fr); } .ab-id { flex-direction: column; } .ab-comp { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 767px) { .ab-back { display: inline-flex; } .ab-comp { grid-template-columns: minmax(0, 1fr); } .ab .fp-btn { min-height: 44px; } .ab-logo { width: 180px; height: 180px; } }

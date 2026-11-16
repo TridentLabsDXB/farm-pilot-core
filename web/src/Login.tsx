@@ -13,7 +13,7 @@ export default function Login({ onLogin, theme, onToggleTheme }: { onLogin: (m: 
   const timer = useRef<number>(0);
   useEffect(() => {
     fetch("/api/branding").then((r) => (r.ok ? r.json() : null)).then((b) => b?.farm_name && setFarm(String(b.farm_name))).catch(() => {});
-    fetch("/api/health").then((r) => (r.ok ? r.json() : null)).then((h) => h && setVersion([h.version && `v${h.version}`, h.build && h.build !== "unknown" && `build ${h.build}`].filter(Boolean).join(" · "))).catch(() => {});
+    fetch("/api/health").then((r) => (r.ok ? r.json() : null)).then((h) => h && setVersion(String(h.build_label ?? ""))).catch(() => {});
   }, []);
   useEffect(() => { if (wait <= 0) return; timer.current = window.setTimeout(() => setWait((w) => w - 1), 1000); return () => clearTimeout(timer.current); }, [wait]);
   const caps_ = (e: React.KeyboardEvent) => setCaps(e.getModifierState?.("CapsLock") ?? false);

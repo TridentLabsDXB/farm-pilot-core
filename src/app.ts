@@ -22,10 +22,10 @@ import { ProfileService } from "./gateway/profile.js";
 import { HttpError } from "./gateway/registry.js";
 import type { PortManager } from "./ports/manager.js";
 import { registerPortRoutes } from "./ports/routes.js";
+import { registerAboutRoutes } from "./about/routes.js";
+import { readBuild } from "./about/build.js";
 
 const COOKIE = "core_session";
-const version = () => { try { return String(JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")).version ?? ""); } catch { return ""; } };
-const buildStamp = () => { try { return readFileSync(join(dirname(fileURLToPath(import.meta.url)), "BUILD"), "utf8").trim(); } catch { return "unknown"; } };
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
 export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null) {
@@ -48,7 +48,8 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   const lastActiveAdmin = (id: number) => { const u = db.prepare("SELECT role,active FROM users WHERE id=?").get(id) as { role: string; active: number } | undefined; if (!u || u.role !== "admin" || !u.active) return false; return (db.prepare("SELECT COUNT(*) c FROM users WHERE role='admin' AND active=1 AND id<>?").get(id) as { c: number }).c === 0; };
   const admin = async (req: any, reply: any) => { if (req.user?.role !== "admin") return reply.code(403).send({ error: "admin only" }); };
 
-  app.get("/api/health", async () => ({ ok: true, version: version(), build: buildStamp(), uptime_s: Math.round(process.uptime()), rss_mb: Math.round(process.memoryUsage().rss / 1048576),
+  // version, build and build_label come from about/build.ts: the login footer and the About page print the same label.
+  app.get("/api/health", async () => ({ ok: true, version: readBuild().version, build: readBuild().build, build_label: readBuild().label, uptime_s: Math.round(process.uptime()), rss_mb: Math.round(process.memoryUsage().rss / 1048576),
     db_mb: Math.round((statSync(config.dbPath).size) / 1048576 * 10) / 10 }));
 
   app.post<{ Body: { username?: string; password?: string } }>("/api/login", async (req, reply) => {
@@ -119,6 +120,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
     reply.header("cache-control", "public, max-age=60"); return { farm_name: prof.farmName() };
   });
   registerProfileRoutes(app, prof, admin, () => send({ type: "scada" }));
+  registerAboutRoutes(app, { db, admin, prof });
   if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof, ports); gw.on("update", () => send({ type: "scada" })); }
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
   if (ports) registerPortRoutes(app, ports, admin, () => send({ type: "ports" }));
