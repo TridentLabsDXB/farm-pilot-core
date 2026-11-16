@@ -3,7 +3,7 @@ import { api, type Scada } from "./api";
 import { Chip, dt, errText, hhmm } from "./ui";
 
 interface Ev { id: number; kind: string; source: string; severity: string; text: string; raised_at: number; cleared_at: number | null; acked_by: string | null; acked_at: number | null; clear_reason: string | null; last_data_at: number | null; unknown?: boolean; }
-const REASON: Record<string, string> = { recovered: "RECOVERED", sensor_removed: "SENSOR REMOVED", other: "OTHER" };
+const REASON: Record<string, string> = { recovered: "RECOVERED", sensor_removed: "SENSOR REMOVED", not_sent: "RESET TO NOT SENT", no_data: "NO DATA", ended: "CONDITION ENDED", other: "CONDITION ENDED" };
 const KIND: Record<string, string> = { gateway_offline: "GATEWAY OFFLINE", no_update: "NO UPDATE", low_battery: "LOW BATTERY", calibration_due: "CALIBRATION DUE" };
 const span = (a: number, b: number) => { const m = Math.max(0, Math.round((b - a) / 60000)); return m < 60 ? `${m} min` : m < 2880 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.round(m / 1440)} d`; };
 

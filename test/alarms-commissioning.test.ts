@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { test } from "node:test"; import assert from "node:assert/strict";
 import { openDb } from "../src/db.js"; import { loadRegMap } from "../src/drivers/modbus/regmap.js";
 import { Registry, COMMISSIONING_MS, HttpError } from "../src/gateway/registry.js"; import { AlarmTracker } from "../src/gateway/alarms.js"; import type { Alarm } from "../src/gateway/health.js";
@@ -48,16 +49,29 @@ test("freeze: while the gateway is offline sensor alarms are neither raised nor 
   h = t.history(10, true); assert.equal(h.filter((r) => r.kind === "no_update").length, 1); assert.equal(h.find((r) => r.kind === "no_update")!.cleared_at, null); assert.equal(h.find((r) => r.kind === "no_update")!.unknown, false);
   assert.equal(h.find((r) => r.kind === "gateway_offline")!.cleared_at, 3000); assert.equal(h.find((r) => r.kind === "gateway_offline")!.clear_reason, "recovered");
 });
-test("clear_reason: recovered / sensor_removed / other; NO UPDATE records the time of the sensor's last data", () => {
+test("clear_reason: recovered / sensor_removed / not_sent; NO UPDATE records the time of the sensor's last data", () => {
   const db = openDb(":memory:"); const t = new AlarmTracker(db, null as any, null as any);
   t.sync([noUp("S1"), noUp("S2"), noUp("S3")], 1000, world(true, { S1: { status: "no_update", lastChange: 123 }, S2: { status: "no_update", lastChange: 456 }, S3: { status: "no_update", lastChange: 789 } }));
   assert.deepEqual((db.prepare("SELECT source,last_data_at FROM alarm_events ORDER BY source").all() as any[]).map((r) => [r.source, r.last_data_at]), [["S1", 123], ["S2", 456], ["S3", 789]]);
   t.sync([], 2000, world(true, { S1: { status: "ok" }, S3: { status: "not_sent" } }));                         // S1 is healthy again, S2 was removed, S3 was reset to NOT SENT
-  const r = Object.fromEntries((db.prepare("SELECT source,clear_reason FROM alarm_events").all() as any[]).map((x) => [x.source, x.clear_reason])); assert.deepEqual(r, { S1: "recovered", S2: "sensor_removed", S3: "other" });
+  const r = Object.fromEntries((db.prepare("SELECT source,clear_reason FROM alarm_events").all() as any[]).map((x) => [x.source, x.clear_reason])); assert.deepEqual(r, { S1: "recovered", S2: "sensor_removed", S3: "not_sent" });
   t.sync([{ kind: "calibration_due", severity: "warning", text: "c", serial: "S1" }], 3000, world(true, { S1: { status: "ok", calDue: true } })); t.sync([], 4000, world(true, { S1: { status: "ok", calDue: false } }));
   assert.equal(row(db, "calibration_due").clear_reason, "recovered"); assert.equal(row(db, "calibration_due").last_data_at, null);
 });
 test("a sensor removed while the gateway is offline is cleared as sensor_removed (the alarm would be about nothing)", () => {
   const db = openDb(":memory:"); const t = new AlarmTracker(db, null as any, null as any); t.sync([noUp("S1")], 1000, world(true, { S1: { status: "no_update" } }));
   t.sync([gwOff], 2000, world(false, {})); assert.equal(row(db, "no_update").clear_reason, "sensor_removed");
+});
+
+test("2026-11-16 clear reasons have real labels (RESET TO NOT SENT, NO DATA, CONDITION ENDED) and no NO UPDATE alarm is raised while settling after a restart or a gateway sync", () => {
+  const db = openDb(":memory:"); const t = new AlarmTracker(db, null as any, null as any);
+  const w = (st: string, settling = false): SyncContext => ({ gatewayOnline: true, settling, sensor: () => ({ status: st, calDue: false, lastChange: 0 }) });
+  t.sync([noUp("S1")], 1000, w("no_update")); t.sync([], 2000, w("not_sent")); assert.equal(row(db, "no_update").clear_reason, "not_sent");
+  t.sync([noUp("S1")], 3000, w("no_update")); t.sync([], 4000, w("no_data")); assert.equal(row(db, "no_update").clear_reason, "no_data");
+  t.sync([noUp("S1")], 5000, w("no_update")); t.sync([], 6000, w("unknown")); assert.equal(row(db, "no_update").clear_reason, "ended");
+  t.sync([noUp("S1")], 7000, w("no_update")); t.sync([], 8000, w("ok")); assert.equal(row(db, "no_update").clear_reason, "recovered");
+  const n = (db.prepare("SELECT COUNT(*) c FROM alarm_events").get() as any).c;
+  t.sync([noUp("S1")], 9000, w("no_update", true)); assert.equal((db.prepare("SELECT COUNT(*) c FROM alarm_events").get() as any).c, n, "settling: nothing raised");
+  t.sync([noUp("S1")], 10000, w("no_update", false)); assert.equal((db.prepare("SELECT COUNT(*) c FROM alarm_events").get() as any).c, n + 1, "after settling it is raised if still true");
+  assert.ok(!/OTHER"/.test(readFileSync("web/src/Alarms.tsx", "utf8")) || /CONDITION ENDED/.test(readFileSync("web/src/Alarms.tsx", "utf8")));
 });

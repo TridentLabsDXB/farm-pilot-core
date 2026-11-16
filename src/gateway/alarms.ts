@@ -8,10 +8,13 @@ import { HttpError, type Registry } from "./registry.js";
 import type { GatewayService } from "./service.js";
 
 export interface AlarmEvent { id: number; kind: string; source: string; severity: string; text: string; raised_at: number; cleared_at: number | null; acked_by: string | null; acked_at: number | null; clear_reason: string | null; last_data_at: number | null; unknown?: boolean; }
-export type ClearReason = "recovered" | "sensor_removed" | "other";
+// 2026-11-16 -- "other" used to hide three different things. Reasons now: recovered | sensor_removed | not_sent (sensor reset to NOT SENT by a re-sync / config change)
+// | no_data (sensor sends nothing at all, so it is no longer "no update") | ended (the condition went away and none of the above applies; shown as CONDITION ENDED).
+// Old rows keep the stored value "other"; the web app shows it with the same CONDITION ENDED label.
+export type ClearReason = "recovered" | "sensor_removed" | "not_sent" | "no_data" | "ended" | "other";
 export interface SensorFacts { status: string; calDue: boolean; lastChange: number | null; }
 /** What the tracker needs to know about the world. Default (tests): gateway online, no sensor information. */
-export interface SyncContext { gatewayOnline: boolean; sensor: (serial: string) => SensorFacts | null | undefined; }
+export interface SyncContext { gatewayOnline: boolean; settling?: boolean; sensor: (serial: string) => SensorFacts | null | undefined; }
 export const alarmSource = (a: Alarm) => a.serial ?? "gateway";
 const NO_CONTEXT: SyncContext = { gatewayOnline: true, sensor: () => undefined };
 
@@ -19,17 +22,24 @@ const NO_CONTEXT: SyncContext = { gatewayOnline: true, sensor: () => undefined }
 export function clearReason(kind: string, facts: SensorFacts | null | undefined, known: boolean): ClearReason {
   if (kind === "gateway_offline") return "recovered";
   if (known && !facts) return "sensor_removed";
-  if (!facts) return "other";
-  if (kind === "calibration_due") return facts.calDue ? "other" : "recovered";
-  return facts.status === "ok" ? "recovered" : "other";
+  if (!facts) return "ended";
+  if (kind === "calibration_due") return facts.calDue ? "ended" : "recovered";
+  if (facts.status === "not_sent") return "not_sent"; if (facts.status === "no_data") return "no_data";
+  return facts.status === "ok" || (kind === "low_battery" && facts.status !== "low_battery") ? "recovered" : "ended";
 }
 
+/** After a runtime restart, and after a gateway Send / re-sync, the polling has been paused or has not delivered a fresh frame yet, so "no update" would be measured against old data. */
+export const SETTLE_MS = 120_000;
 export class AlarmTracker {
+  private startedAt = Date.now(); private lastSyncSeen = 0;
   constructor(private db: Db, private reg: Registry, private svc: GatewayService) {}
   private context(now: number): { alarms: Alarm[]; ctx: SyncContext } {
     const view = buildView(this.db, this.reg, this.svc, false, now, true); const list = this.reg.list(); const facts = new Map<string, SensorFacts>();
     list.forEach((s, i) => facts.set(s.serial, { status: view.sensors[i].status, calDue: view.sensors[i].calDue, lastChange: s.last_change }));
-    return { alarms: view.alarms, ctx: { gatewayOnline: !view.gateway.enabled || view.gateway.online, sensor: (serial) => facts.get(serial) ?? null } };
+    if (this.svc?.syncing) this.lastSyncSeen = now;
+    // 2026-11-16 -- no NO UPDATE alarm is RAISED while settling (first SETTLE_MS after start, during a gateway sync, SETTLE_MS after one). One that is still true afterwards is raised then.
+    const settling = now - this.startedAt < SETTLE_MS || !!this.svc?.syncing || now - this.lastSyncSeen < SETTLE_MS;
+    return { alarms: view.alarms, ctx: { settling, gatewayOnline: !view.gateway.enabled || view.gateway.online, sensor: (serial) => facts.get(serial) ?? null } };
   }
   tick(now = Date.now()) { const { alarms, ctx } = this.context(now); this.sync(alarms, now, ctx); }
   sync(alarms: Alarm[], now = Date.now(), ctx: SyncContext = NO_CONTEXT) {
@@ -44,7 +54,7 @@ export class AlarmTracker {
       }
       const have = new Set(open.map((o) => o.kind + "|" + o.source));
       for (const [k, a] of live) {
-        if (have.has(k)) continue; if (a.kind !== "gateway_offline" && !ctx.gatewayOnline) continue;                                // never raise a sensor alarm from stale data
+        if (have.has(k)) continue; if (a.kind !== "gateway_offline" && !ctx.gatewayOnline) continue; if (a.kind === "no_update" && ctx.settling) continue;                                // never raise a sensor alarm from stale data
         const last = a.kind === "no_update" ? (ctx.sensor(alarmSource(a))?.lastChange ?? a.since ?? null) : null;
         this.db.prepare("INSERT INTO alarm_events(kind,source,severity,text,raised_at,last_data_at) VALUES(?,?,?,?,?,?)").run(a.kind, alarmSource(a), a.severity, a.text, now, last);   // raised_at = when CORE detected it
       }
