@@ -7,3 +7,5 @@ web/dist/
 *.db-shm
 .env
 *.tsbuildinfo
+web/public/THIRD-PARTY-NOTICES.txt
+web/public/CHANGELOG.md

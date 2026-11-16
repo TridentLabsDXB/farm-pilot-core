@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // Farm Profile and contacts: validation, threshold precedence, permissions, logo, backup round trip, timing without restart.
 import { test, after } from "node:test"; import assert from "node:assert/strict";
 import Fastify from "fastify"; import type { AddressInfo } from "node:net";

@@ -1,0 +1,7 @@
+# FARM-PILOT CORE branding strings (About page). Read at start; a missing file or key falls back to the built-in default,
+# so a white-label build only has to change this file. Plain text only: no HTML, no links are rendered.
+product_name: FARM-PILOT CORE
+tagline: Greenhouse and farm control
+credit_line: Engineered in the UAE by Trident Labs
+# Shown on the About page. Placeholder until Trident Labs sets the real contact (open question 4 of the About spec).
+support_contact: "Support contact not set yet. Ask your installer or Trident Labs."

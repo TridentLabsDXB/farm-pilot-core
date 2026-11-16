@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // RS-485 Ports: validation, migration of the old gateway link into Port 1, per-port queue isolation, and the manager end to end on TWO simulator TCP targets
 // (gateway sim = Port 1, WN90LP sim = Port 2): move a device between ports, TEST PORT per device, stop one simulator, wrong settings + REVERT, audit, backup round trip.
 import { test, after } from "node:test"; import assert from "node:assert/strict";

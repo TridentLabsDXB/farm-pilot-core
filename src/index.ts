@@ -5,7 +5,7 @@ import { AedesBroker } from "./broker.js";
 import { Ingest } from "./ingest.js";
 import { Commands, ackTopic, PUMPS } from "./commands.js";
 import { ensureAdmin, purgeFails, purgeSessions } from "./auth.js";
-import { runRetention, runRollup } from "./retention.js";
+import { runLicenceRetention, runRollup } from "./retention.js";
 import { buildApp } from "./app.js";
 import { loadRegMap } from "./drivers/modbus/regmap.js";
 import { Registry } from "./gateway/registry.js";
@@ -13,7 +13,10 @@ import { GatewayService } from "./gateway/service.js";
 import { PortStore } from "./ports/store.js";
 import { PortManager } from "./ports/manager.js";
 import { isWin, shutdownSignals } from "./platform.js";
+import { installLogCapture } from "./about/logbuf.js";
+import { LicenceService } from "./licence/service.js";
 
+installLogCapture();                       // keeps a sanitised copy of the last log lines for diagnostics (about/logbuf.ts)
 const db = openDb(config.dbPath);
 ensureAdmin(db);
 const broker = new AedesBroker(config.mqttPort, config.mqttHost);
@@ -50,16 +53,18 @@ if (portStore.migrateFromEnv({ transport: config.gwTransport, host: config.gwHos
   console.log("RS-485 ports: migrated the gateway link settings from the environment into Port 1");
 const ports = new PortManager(db, portStore, map, gw);
 await ports.start();
-const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError, ports);
+const lic = new LicenceService(db);       // FREE until a licence is installed; re-read now and every 24 h (expiry is also checked live on every use)
+const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError, ports, lic);
 pushTelemetry = pt; pushCommand = pc;
 await app.listen({ host: config.host, port: config.port });
 
 const timers = [
   setInterval(() => commands.sweep(), 1000),
+  setInterval(() => { try { lic.refresh(); } catch (e) { console.error("licence check", e); } }, 24 * 3600_000),
   setInterval(() => { try { runRollup(db); purgeSessions(db); purgeFails(db); } catch (e) { console.error("rollup", e); } }, 10 * 60_000),
-  setInterval(() => { runRetention(db, config.retentionDays).then((n) => n && console.log(`retention removed ${n} raw rows`)).catch((e) => console.error("retention", e)); }, 6 * 3600_000),
+  setInterval(() => { runLicenceRetention(db, lic).then((n) => n && console.log(`retention removed ${n} history rows`)).catch((e) => console.error("retention", e)); }, 6 * 3600_000),
 ];
-setTimeout(() => runRetention(db, config.retentionDays).catch((e) => console.error("retention", e)), 30_000);
+setTimeout(() => runLicenceRetention(db, lic).catch((e) => console.error("retention", e)), 30_000);
 
 let stopping = false;
 async function shutdown() {

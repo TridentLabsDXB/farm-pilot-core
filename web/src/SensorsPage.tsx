@@ -1,20 +1,32 @@
-import { useCallback, useState } from "react";
-import { api, type Scada, type AdminSensor, type TypeInfo } from "./api";
+import { useCallback, useEffect, useState } from "react";
+import { api, type AboutInfo, type LicenceInfo, type Scada, type AdminSensor, type TypeInfo } from "./api";
 import { go } from "./App";
 import Scan, { scanSupported } from "./Scan";
+import { atOrOver, licWord, limitWord, wouldExceed } from "./licence";
 import { Battery, Chip, CommissioningBanner, Modal, Signal, SYNC, StatusChip, dur, mdur, errText } from "./ui";
 import { ConfirmModal, SendBar, useSync } from "./Sync";
 
+/** Mirrors the server wording (licence/service.ts) for the pre-check in the Add dialog; the server decides. */
+const limitText = (l: LicenceInfo) => `${l.state === "LICENSED" ? `Licence ${l.type}` : "Free licence"} allows ${limitWord(l.limits.sensors)} sensors in total. Upload a licence on the About page.`;
+
 export default function SensorsPage({ scada, reload }: { scada: Scada | null; reload: () => void }) {
-  const S = useSync(scada, reload); const { list, gw, load, ok, fail } = S; const [adding, setAdding] = useState(false);
+  const S = useSync(scada, reload); const { list, gw, load, ok, fail } = S; const [adding, setAdding] = useState(false); const [lic, setLic] = useState<LicenceInfo | null>(null); const [customFor, setCustomFor] = useState<string | null>(null);
+  const nSensors = list?.sensors.length;
+  useEffect(() => { api<AboutInfo>("/about").then((a) => setLic(a.licence)).catch(() => {}); }, [nSensors, adding]);          // usage line: refreshed after every add or remove
   if (!list || !gw) return <section className="fp-card"><p className="fp-msg">Loading...</p></section>;
   const th = list.types.find((t) => t.key === "th"); const sensors = list.sensors;
   // Intervals are in the gateway's unit (minutes for T/H, 5..240). Presets are offered; a custom whole number inside min..max is accepted too. The server validates.
   const setInterval_ = async (s: AdminSensor, v: string) => { try { await api(`/sensors/${s.serial}`, { method: "PATCH", json: { interval: Number(v) } }); load(); } catch (e) { fail(e); } };
   const presets = (s: AdminSensor) => { const t = list.types.find((x) => x.key === s.type)!; return [...new Set([...t.presets, s.interval])].sort((a, b) => a - b); };   // a stored value that is no longer allowed is still shown, and flagged
   const setCommissioning = async (on: boolean) => { try { await api("/gateway/settings", { method: "PUT", json: { commissioning: on } }); load(); } catch (e) { fail(e); } };
-  const interval = (s: AdminSensor) => (
-    <span className="stack"><select className="fp-input" aria-label={`Interval for ${s.label}`} value={s.interval} onChange={(e) => setInterval_(s, e.target.value)}>{presets(s).map((p) => <option key={p} value={p}>{mdur(p)}{s.intervalOk || p !== s.interval ? "" : " (not allowed)"}</option>)}</select><input className="fp-input" style={{ width: 72 }} type="number" inputMode="numeric" aria-label={`Custom interval in minutes for ${s.label}`} placeholder="custom" min={list.types.find((x) => x.key === s.type)?.min} max={list.types.find((x) => x.key === s.type)?.max} onKeyDown={(e) => { if (e.key === "Enter" && (e.target as HTMLInputElement).value) { setInterval_(s, (e.target as HTMLInputElement).value); (e.target as HTMLInputElement).value = ""; } }} />{!s.intervalOk && <Chip tone="warn" title="This stored value is outside the allowed range. Choose an allowed interval.">NOT ALLOWED</Chip>}{s.applying && <Chip tone="info">APPLYING</Chip>}</span>);
+  // 2026-11-17 -- the custom field used to sit under every dropdown and was cut off ("cust"). It is now hidden until "Custom..." is chosen, then it fills the cell; Enter applies, Esc or an empty blur cancels.
+  const interval = (s: AdminSensor) => { const ty = list.types.find((x) => x.key === s.type); const editing = customFor === s.serial;
+    const apply = (el: HTMLInputElement) => { if (el.value) setInterval_(s, el.value); setCustomFor(null); };
+    return (
+    <span className="stack" style={{ width: "100%" }}><select className="fp-input" style={{ width: "100%" }} aria-label={`Interval for ${s.label}`} value={editing ? "custom" : s.interval} onChange={(e) => (e.target.value === "custom" ? setCustomFor(s.serial) : (setCustomFor(null), setInterval_(s, e.target.value)))}>{presets(s).map((p) => <option key={p} value={p}>{mdur(p)}{s.intervalOk || p !== s.interval ? "" : " (not allowed)"}</option>)}<option value="custom">Custom...</option></select>
+      {editing && <input className="fp-input" style={{ width: "100%", minWidth: 0 }} autoFocus type="number" inputMode="numeric" aria-label={`Custom interval in minutes for ${s.label}`} placeholder={ty ? `${ty.min}-${ty.max}` : "min"} title={ty ? `Whole minutes, ${ty.min} to ${ty.max}` : undefined} min={ty?.min} max={ty?.max}
+        onKeyDown={(e) => { if (e.key === "Enter") apply(e.currentTarget); else if (e.key === "Escape") setCustomFor(null); }} onBlur={(e) => apply(e.currentTarget)} />}
+      {!s.intervalOk && <Chip tone="warn" title="This stored value is outside the allowed range. Choose an allowed interval.">NOT ALLOWED</Chip>}{s.applying && <Chip tone="info">APPLYING</Chip>}</span>); };
   return (<>
     {!!th?.commissioningPresets.length && th?.commissioning && <CommissioningBanner until={scada?.commissioning?.until ?? null} onOff={() => setCommissioning(false)} />}
     <section className="fp-card">
@@ -22,7 +34,7 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
       <SendBar s={S} />
     </section>
     <section className="fp-card">
-      <div className="fp-row fp-spread"><h3>Sensors</h3><div className="fp-row"><button className="fp-btn" onClick={() => setAdding(true)}>Add sensors</button>{scanSupported() && <button className="fp-btn" onClick={() => setAdding(true)}>Scan QR</button>}</div></div>
+      <div className="fp-row fp-spread"><h3>Sensors</h3>{lic && <span className="fp-row" data-testid="usage-line"><span className="fp-cap">SENSORS {lic.usage.sensors} of {limitWord(lic.limits.sensors)} · {licWord(lic)}</span>{atOrOver(lic.usage.sensors, lic.limits.sensors) && <Chip tone="warn">{lic.over_limit ? "OVER LIMIT" : "LIMIT REACHED"}</Chip>}<button className="fp-btn small" onClick={() => go("/about")}>ABOUT</button></span>}<div className="fp-row"><button className="fp-btn" onClick={() => setAdding(true)}>Add sensors</button>{scanSupported() && <button className="fp-btn" onClick={() => setAdding(true)}>Scan QR</button>}</div></div>
       <span className="fp-hint">Click a row to open the sensor: label, zone, calibration, replace and remove are all on its page.</span>
       {!!th?.commissioningPresets.length ? <label className="fp-row fp-cap" style={{ textTransform: "none", letterSpacing: ".02em" }}><input type="checkbox" checked={!!th?.commissioning} onChange={(e) => setCommissioning(e.target.checked)} /> Commissioning mode (switches off by itself after 8 hours): also allow {th.commissioningPresets.map(mdur).join(", ")} (short intervals reduce battery life).</label>
         : <span className="fp-cap" style={{ textTransform: "none", letterSpacing: ".02em" }}>Reporting interval: {th ? `${th.min} to ${th.max} ${th.unit}` : ""}, default {th ? mdur(th.defaultInterval) : ""}. A short interval reduces battery life. 30 s and 1 min are not possible on this gateway.</span>}
@@ -46,15 +58,16 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
           <span className="m" onClick={(e) => e.stopPropagation()}><button className="fp-btn small" onClick={() => go(`/settings/sensors/${s.serial}/calibrate`)}>Calibrate</button><button className="fp-btn small" onClick={() => go(`/settings/sensors/${s.serial}`)}>Details</button></span></div>))}</div>
       {!sensors.length && <p className="fp-msg fp-muted">No sensors yet. Press ADD SENSORS and type or paste the serials.</p>}
     </section>
-    {adding && <AddModal types={list.types} pattern={list.pattern} existing={sensors.map((s) => s.serial)} onClose={() => setAdding(false)} onDone={(n) => { setAdding(false); ok(`${n} sensor(s) added. Press SEND TO GATEWAY to push them.`); load(); reload(); }} />}
+    {adding && <AddModal lic={lic} types={list.types} pattern={list.pattern} existing={sensors.map((s) => s.serial)} onClose={() => setAdding(false)} onDone={(n) => { setAdding(false); ok(`${n} sensor(s) added. Press SEND TO GATEWAY to push them.`); load(); reload(); }} />}
     <ConfirmModal s={S} />
   </>);
 }
 
-function AddModal({ types, pattern, existing, onClose, onDone }: { types: TypeInfo[]; pattern: string; existing: string[]; onClose: () => void; onDone: (n: number) => void }) {
+function AddModal({ lic, types, pattern, existing, onClose, onDone }: { lic: LicenceInfo | null; types: TypeInfo[]; pattern: string; existing: string[]; onClose: () => void; onDone: (n: number) => void }) {
   const [type, setType] = useState(types[0]?.key ?? "th"); const [text, setText] = useState(""); const [err, setErr] = useState(""); const [scan, setScan] = useState(false);
   const t = types.find((x) => x.key === type)!; const serials = text.split(/[\s,;]+/).filter(Boolean); const re = new RegExp(pattern);
   const badOnes = serials.filter((s) => !re.test(s) || /^0/.test(s) || Number(s) > 0xfffffffe); const dup = serials.length !== new Set(serials).size; const already = [...new Set(serials.filter((s) => existing.includes(s)))];
+  const overLic = !!lic && serials.length > 0 && wouldExceed(lic.usage.sensors, serials.length, lic.limits.sensors);          // licence: only ADDING is blocked
   const onCode = useCallback((c: string) => setText((x) => (x.toUpperCase().includes(c.trim().toUpperCase()) ? x : (x ? x + "\n" : "") + c.trim())), []);
   return (
     <Modal title="Add sensors" onClose={onClose}>
@@ -63,8 +76,9 @@ function AddModal({ types, pattern, existing, onClose, onDone }: { types: TypeIn
       {scanSupported() ? (scan ? <Scan onCode={onCode} onClose={() => setScan(false)} /> : <button className="fp-btn" onClick={() => setScan(true)}>Scan QR / barcode</button>) : <span className="fp-cap" style={{ textTransform: "none" }}>Camera scan is not available in this browser: type or paste the serials.</span>}
       <span className="fp-num">{t.label}: {t.used} of {t.groups} slots used, adding {serials.length}</span>
       {badOnes.length > 0 && <p className="fp-msg err">Not a valid serial (the plain decimal number printed on the label, 7 to 10 digits): {badOnes.slice(0, 3).join(", ")}{badOnes.length > 3 ? "..." : ""}</p>}{dup && <p className="fp-msg err">The list contains duplicates.</p>}{already.length > 0 && <p className="fp-msg err">Already in CORE: {already.slice(0, 3).join(", ")}{already.length > 3 ? "..." : ""}</p>}
-      {t.used + serials.length > t.groups && <p className="fp-msg err">This would exceed {t.groups} slots.</p>}{err && <p className="fp-msg err" role="alert">{err}</p>}
-      <div className="fp-row"><button className="fp-btn primary" disabled={!serials.length || badOnes.length > 0 || dup || already.length > 0 || t.used + serials.length > t.groups} onClick={() => api("/sensors", { method: "POST", json: { type, serials } }).then(() => onDone(serials.length)).catch((e) => setErr(errText(e)))}>Add {serials.length || ""} sensor{serials.length === 1 ? "" : "s"}</button><button className="fp-btn" onClick={onClose}>Cancel</button></div>
+      {t.used + serials.length > t.groups && <p className="fp-msg err">This would exceed {t.groups} slots.</p>}
+      {overLic && <p className="fp-msg err" role="alert" data-testid="limit-msg">{limitText(lic!)} <button className="fp-btn small" onClick={() => go("/about")}>OPEN ABOUT</button></p>}{err && <p className="fp-msg err" role="alert">{err}{/About page/.test(err) && <> <button className="fp-btn small" onClick={() => go("/about")}>OPEN ABOUT</button></>}</p>}
+      <div className="fp-row"><button className="fp-btn primary" disabled={!serials.length || badOnes.length > 0 || dup || already.length > 0 || t.used + serials.length > t.groups || overLic} onClick={() => api("/sensors", { method: "POST", json: { type, serials } }).then(() => onDone(serials.length)).catch((e) => setErr(errText(e)))}>Add {serials.length || ""} sensor{serials.length === 1 ? "" : "s"}</button><button className="fp-btn" onClick={onClose}>Cancel</button></div>
     </Modal>
   );
 }

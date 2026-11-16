@@ -10,6 +10,7 @@ import FarmProfilePage from "./FarmProfilePage";
 import { Chip, Modal, dt, errText } from "./ui";
 import { LEGACY, TABS, type Badge } from "./Sidebar";
 
+const Redirect = ({ to }: { to: string }) => { useEffect(() => { go(to); }, [to]); return null; };
 const useMedia = (q: string) => { const [m, setM] = useState(() => window.matchMedia(q).matches); useEffect(() => { const l = window.matchMedia(q); const f = () => setM(l.matches); l.addEventListener("change", f); return () => l.removeEventListener("change", f); }, [q]); return m; };
 
 export default function Settings({ tab, serial, focus, scada, reload, onProfile, badges }: { tab?: string; serial?: string; focus?: string; scada: Scada | null; reload: () => void; onProfile: () => void; badges: Record<string, Badge> }) {
@@ -18,11 +19,10 @@ export default function Settings({ tab, serial, focus, scada, reload, onProfile,
   const t = known ? tab! : undefined;
   const body = t === "sensors" ? (serial ? <SensorDetail serial={serial} focus={focus} scada={scada} reload={reload} /> : <SensorsPage scada={scada} reload={reload} />)
     : t === "farm-structure" ? <StructurePage reload={reload} /> : t === "rs485-ports" ? <PortsPage reload={reload} /> : t === "sensors-gateway" ? <GatewayPage scada={scada} reload={reload} /> : t === "farm-profile" ? <FarmProfilePage onChanged={onProfile} /> : t === "users" ? <UsersPage /> : t === "backup" ? <BackupPage reload={reload} /> : null;
-  const label = (k: string, l: string) => <>{l}{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.word}</Chip>}</>;
-  if (phone && !t) return (<main className="fp-page"><h2 style={{ fontFamily: "var(--fp-head)", margin: 0 }}>Settings</h2><ul className="fp-list">{TABS.map(([k, l]) => <li key={k} style={{ padding: 0 }}><button className="fp-tab" style={{ width: "100%", minHeight: 56, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => go("/settings/" + k)}>{label(k, l)}<span aria-hidden>›</span></button></li>)}</ul></main>);
+  if (phone && !t) return <Redirect to="/more" />;                                  // the phone list of Settings items is now the MORE sheet (grouped)
   return (
     <main className="fp-page"><div className="fp-settings">
-      <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>{phone && <button className="fp-btn" style={{ alignSelf: "flex-start", minHeight: 44 }} onClick={() => go(serial ? "/settings/sensors" : "/settings")} aria-label="Back">← {serial ? "Sensors" : "Settings"}</button>}{body}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>{phone && <button className="fp-btn" style={{ alignSelf: "flex-start", minHeight: 44 }} onClick={() => go(serial ? "/settings/sensors" : "/more")} aria-label="Back">← {serial ? "Sensors" : "More"}</button>}{body}</div>
     </div></main>
   );
 }
@@ -55,7 +55,7 @@ function BackupPage({ reload }: { reload: () => void }) {
   const exp = async () => { try { const r = await fetch("/api/backup", { credentials: "same-origin" }); if (!r.ok) throw new Error("export failed"); const url = URL.createObjectURL(await r.blob()); const a = document.createElement("a"); a.href = url; a.download = `farmpilot-core-backup-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url); setMsg("Backup downloaded."); } catch (e) { setMsg(errText(e)); } };
   const pick = async (f: File | undefined) => { if (!f) return; try { setPending(JSON.parse(await f.text())); setMsg(""); } catch { setMsg("That file is not valid JSON."); } };
   return (<>
-    <section className="fp-card"><h3>Backup</h3><p className="fp-msg">Exports sensors (with slots and intervals), calibrations, farm structure, the Farm Profile (with logo and contacts) and settings. History is not included.</p><div className="fp-row"><button className="fp-btn primary" onClick={exp}>Download backup</button></div></section>
+    <section className="fp-card"><h3>Backup</h3><p className="fp-msg">Exports sensors (with slots and intervals), calibrations, farm structure, the Farm Profile (with logo and contacts) and settings. History is not included. The licence is not included. Upload it again on About.</p><div className="fp-row"><button className="fp-btn primary" onClick={exp}>Download backup</button></div></section>
     <section className="fp-card"><h3>Restore</h3><p className="fp-msg">Replaces the sensor list, calibrations, structure, Farm Profile and contacts on this box. Afterwards confirm the time zone in Farm Profile. After a restore every sensor shows NOT SENT: press SEND TO GATEWAY (Settings, Sensors) to push the groups and intervals to a new or factory-reset gateway.</p>
       <input type="file" className="fp-file" accept="application/json,.json" aria-label="Backup file" onChange={(e) => pick(e.target.files?.[0])} /></section>
     {msg && <p className="fp-msg" role="status">{msg}</p>}

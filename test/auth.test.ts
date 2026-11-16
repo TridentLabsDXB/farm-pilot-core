@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 import { test } from "node:test"; import assert from "node:assert/strict";
 import { openDb } from "../src/db.js"; import { noteFail, throttled, clearFails } from "../src/auth.js";
 const mk = () => openDb(":memory:");

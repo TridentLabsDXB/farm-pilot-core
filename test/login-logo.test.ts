@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // 2026-11-16 -- login page uses the Farm Pilot CORE badge: assets exist, alt text kept, no separate title, sizes 220 / 180 px, behaviours still wired.
 import { test } from "node:test"; import assert from "node:assert/strict"; import { readFileSync, statSync } from "node:fs";
 const login = readFileSync("web/src/Login.tsx", "utf8"), css = readFileSync("web/src/core.css", "utf8");

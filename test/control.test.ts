@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // 2026-11-16 -- CONTROL section (phase 1): the pump command works from CONTROL for an Operator and an Admin, the SCADA pump card is gone, the SCADA status line
 // (deviceState, same state as CONTROL) shows ON / OFF / UNKNOWN and follows a command, and an Operator still gets 403 on every Settings route.
 import { test, after } from "node:test"; import assert from "node:assert/strict"; import { readFileSync } from "node:fs";
@@ -56,8 +57,10 @@ test("the SCADA pump card is gone and CONTROL, the status line and the nav exist
   const scada = readFileSync("web/src/ScadaView.tsx", "utf8"); assert.ok(!/PumpCard|Start pump|\/commands/.test(scada), "ScadaView must not contain the pump card or send commands"); assert.match(scada, /ControlStatusLine/);
   assert.match(readFileSync("web/src/ControlCard.tsx", "utf8"), /The PLC keeps its own logic; this panel only sends commands\./);
   assert.match(readFileSync("web/src/ControlPage.tsx", "utf8"), /Fans, valves and other actuators will appear here when they are configured/);
-  const app = readFileSync("web/src/App.tsx", "utf8"), sb = readFileSync("web/src/Sidebar.tsx", "utf8"); assert.match(app, /go\("\/control"\)[\s\S]*ALARMS/); assert.ok(sb.indexOf('go("/scada")') < sb.indexOf('go("/control")') && sb.indexOf('go("/control")') < sb.indexOf('go("/alarms")'));
-  assert.ok(app.indexOf('go("/scada")') < app.indexOf('go("/control")') && app.indexOf('go("/control")') < app.indexOf('go("/alarms")') && app.indexOf('go("/alarms")') < app.indexOf('go("/settings")'), "bottom nav order SCADA, CONTROL, ALARMS, SETTINGS");
+  // Menu order since the MONITORING rename (2026-11-16): ALARMS, MONITORING, CONTROL, then the Admin groups (menu structure of 2026-11-17: SETTINGS, DATA POINTS, SYSTEM; REPORTS joins with the Reports page).
+  const app = readFileSync("web/src/App.tsx", "utf8"), sb = readFileSync("web/src/Sidebar.tsx", "utf8");
+  assert.ok(sb.indexOf('go("/alarms")') < sb.indexOf('go("/monitoring")') && sb.indexOf('go("/monitoring")') < sb.indexOf('go("/control")'));
+  assert.ok(app.indexOf('() => go("/alarms")') < app.indexOf('() => go("/monitoring")') && app.indexOf('() => go("/monitoring")') < app.indexOf('() => go("/control")') && app.indexOf('() => go("/control")') < app.indexOf('() => go("/more")'), "bottom nav order ALARMS, MONITORING, CONTROL, MORE");
   assert.ok(!/ControlStatusLine[\s\S]*api\(/.test(readFileSync("web/src/ControlStatusLine.tsx", "utf8")), "the status line makes no request of its own");
 });
 

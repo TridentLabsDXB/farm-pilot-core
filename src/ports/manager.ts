@@ -168,8 +168,11 @@ export class PortManager extends EventEmitter {
     if (!keys.length) return { ok: true, results: [], pending: null, unchanged: true };
     return this.change(a, "ports.update", { ports: [merged], devices: [] }, { port: id, old: Object.fromEntries(keys.map((k) => [k, old[k]])), new: Object.fromEntries(keys.map((k) => [k, merged[k]])) });
   }
+  /** Licence limit on gateways (LicenceService, wired in app.ts). Only called when a gateway device is being switched ON. */
+  limiter: { checkGatewayAdd(n?: number): void } | null = null;
   async applyDevice(a: Actor, id: number, patch: Record<string, any>) {
     const old = this.store.device(id); if (!old) throw new HttpError(404, "device not found"); const merged = mergeDevice(old, patch ?? {}); const ports = this.store.ports();
+    if (merged.kind === "lora_gateway" && merged.enabled && !old.enabled) this.limiter?.checkGatewayAdd(1);
     const errs = [...validateDevice(merged, ports), ...validateAssignment(this.store.devices().map((d) => (d.id === id ? merged : d)))]; if (errs.length) throw new HttpError(400, errs.join("; "), { errors: errs });
     const keys = (Object.keys(merged) as (keyof DeviceRow)[]).filter((k) => old[k] !== merged[k]); if (!keys.length) return { ok: true, results: [], pending: null, unchanged: true };
     return this.change(a, "devices.update", { ports: [], devices: [merged] }, { device: old.kind, old: Object.fromEntries(keys.map((k) => [k, old[k]])), new: Object.fromEntries(keys.map((k) => [k, merged[k]])) });

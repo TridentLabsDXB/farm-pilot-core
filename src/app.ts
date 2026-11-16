@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
 import fstatic from "@fastify/static";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -22,13 +22,17 @@ import { ProfileService } from "./gateway/profile.js";
 import { HttpError } from "./gateway/registry.js";
 import type { PortManager } from "./ports/manager.js";
 import { registerPortRoutes } from "./ports/routes.js";
+import { registerAboutRoutes } from "./about/routes.js";
+import { LicenceService } from "./licence/service.js";
+import { registerLicenceRoutes } from "./licence/routes.js";
+import { registerSupportRoutes } from "./about/support.js";
+import { readBuild } from "./about/build.js";
+import { registerHistoryRoutes } from "./history/routes.js";
 
 const COOKIE = "core_session";
-const version = () => { try { return String(JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")).version ?? ""); } catch { return ""; } };
-const buildStamp = () => { try { return readFileSync(join(dirname(fileURLToPath(import.meta.url)), "BUILD"), "utf8").trim(); } catch { return "unknown"; } };
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
-export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null) {
+export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null) {
   const app = Fastify({ logger: { level: "info" }, trustProxy: config.trustProxy, bodyLimit: 64 * 1024 });
   // Every registered route is recorded, so tests can call ALL of them as an Operator (test/operator-access.test.ts).
   const routes: { method: string; url: string }[] = []; app.addHook("onRoute", (r) => { for (const m of [r.method].flat()) routes.push({ method: String(m), url: r.url }); });
@@ -48,7 +52,8 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   const lastActiveAdmin = (id: number) => { const u = db.prepare("SELECT role,active FROM users WHERE id=?").get(id) as { role: string; active: number } | undefined; if (!u || u.role !== "admin" || !u.active) return false; return (db.prepare("SELECT COUNT(*) c FROM users WHERE role='admin' AND active=1 AND id<>?").get(id) as { c: number }).c === 0; };
   const admin = async (req: any, reply: any) => { if (req.user?.role !== "admin") return reply.code(403).send({ error: "admin only" }); };
 
-  app.get("/api/health", async () => ({ ok: true, version: version(), build: buildStamp(), uptime_s: Math.round(process.uptime()), rss_mb: Math.round(process.memoryUsage().rss / 1048576),
+  // version, build and build_label come from about/build.ts: the login footer and the About page print the same label.
+  app.get("/api/health", async () => ({ ok: true, version: readBuild().version, build: readBuild().build, build_label: readBuild().label, uptime_s: Math.round(process.uptime()), rss_mb: Math.round(process.memoryUsage().rss / 1048576),
     db_mb: Math.round((statSync(config.dbPath).size) / 1048576 * 10) / 10 }));
 
   app.post<{ Body: { username?: string; password?: string } }>("/api/login", async (req, reply) => {
@@ -119,7 +124,11 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
     reply.header("cache-control", "public, max-age=60"); return { farm_name: prof.farmName() };
   });
   registerProfileRoutes(app, prof, admin, () => send({ type: "scada" }));
-  if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof, ports); gw.on("update", () => send({ type: "scada" })); }
+  // Licence: FREE until a licence file is installed. It only limits ADDING sensors and gateways (see licence/service.ts); nothing here can stop polling, alarms or commands.
+  const licence = lic ?? new LicenceService(db); if (reg) reg.limiter = licence; if (ports) ports.limiter = licence;
+  registerAboutRoutes(app, { db, admin, prof, licence: () => licence.summary() }); registerLicenceRoutes(app, licence, admin, () => send({ type: "scada" }));
+  registerSupportRoutes(app, { db, admin, prof, licence: () => licence.summary(), ports, gw });
+  if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof, ports); gw.on("update", () => send({ type: "scada" })); registerHistoryRoutes(app, { db, reg, svc: gw, prof, licence }); }
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
   if (ports) registerPortRoutes(app, ports, admin, () => send({ type: "ports" }));
 
