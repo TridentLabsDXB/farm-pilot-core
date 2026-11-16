@@ -2,6 +2,13 @@
 
 Windows 10/11 x64, Node 22. Linux stays the primary platform; everything here is gated on `win32` and changes nothing on Linux.
 
+## Test bundle (manual test on a tablet or PC)
+
+1. Unzip `FarmPilotCore-windows-*.zip`. Put the `FarmPilotCore` folder anywhere (Desktop, USB stick, or `C:\FarmPilot-Core\app`). Data never goes next to the program.
+2. Double-click **`check.cmd`** first. It prints the Node version, loads `better-sqlite3` and `serialport`, lists the COM ports and proves the data folder is writable. Every line must say PASS.
+3. Double-click **`start-core.cmd`**, then open http://127.0.0.1:4100 in a browser. The login password is in `C:\FarmPilot-Core\data\initial-admin-password`.
+4. Windows Defender SmartScreen or a firewall prompt: allow `node.exe` on private networks only if you need other devices to reach CORE (default is this PC only).
+
 ## Folders
 
 ```
