@@ -13,7 +13,7 @@ import { errorText, listSerial, listSerialWin, refreshSerialCache, serialPresent
 import { serialOpenPath } from "./serialPath.js";
 import { isWin } from "../platform.js";
 import { PortStore } from "./store.js";
-import { mergeDevice, mergePort, sharedPorts, SHARED_BUS_RULES, validateAssignment, validateDevice, validatePort, validatePorts, type DeviceRow, type PortRow } from "./validate.js";
+import { mergeDevice, mergePort, sharedPorts, SHARED_BUS_RULES, serialPathValid, PATH_INVALID_HERE, validateAssignment, validateDevice, validatePort, validatePorts, type DeviceRow, type PortRow } from "./validate.js";
 
 export type TestResult = { deviceId: number; model: string; address: number; result: "ok" | "no_answer" | "crc_error" | "error" | "not_connected"; ms: number | null; detail?: string };
 export type DeviceState = "online" | "offline" | "not_connected" | "unknown";
@@ -106,7 +106,7 @@ export class PortManager extends EventEmitter {
   }
   portView(p: PortRow) {
     const q = this.queues.get(p.id), st = q?.stats; let status: "OPEN" | "CLOSED" | "ERROR" | "NOT FOUND" = "OPEN"; let lastError = st?.lastError ? errorText(st.lastError, p) : null;
-    if (!p.enabled) status = "CLOSED";
+    if (!p.enabled) { status = "CLOSED"; if (p.transport === "serial" && p.device_path && !serialPathValid(p.device_path)) lastError = PATH_INVALID_HERE + ` (${p.device_path})`; }
     else if (p.transport === "serial" && (!p.device_path || !serialPresent(p.device_path))) { status = "NOT FOUND"; lastError = p.device_path ? errorText(new Error("ENOENT"), p) : "No serial device chosen."; }
     else if (st?.lastErrorKind === "io" && (st.lastOk === null || st.lastOk < st.lastErrAt!)) status = "ERROR";
     return { ...p, status, lastError, counters: { requests: st?.requests ?? 0, errors: st?.errors ?? 0, lastOk: st?.lastOk ?? null }, devices: this.store.devices().filter((d) => d.port_id === p.id).length, pending: q?.pending() ?? 0 };
@@ -198,16 +198,27 @@ export class PortManager extends EventEmitter {
 
   // ---------- backup ----------
   exportParts() { const e = this.store.exportAll(); return { ports: e.ports, devices: e.devices }; }
-  checkBackup(b: any) {
-    if (b?.ports === undefined && b?.devices === undefined) return; const ports = b.ports as PortRow[], devices = b.devices as DeviceRow[];
+  /**
+   * Validates the ports/devices part of a backup and returns warnings (empty list when there is nothing to say).
+   * Cross-platform restore (W1 follow-up): an ENABLED serial port whose device path cannot exist on this platform (a /dev path on Windows, a COM name on
+   * Linux) must not fail the whole restore. It is switched to DISABLED inside `b` (the same object restoreParts then stores), its path is kept so the Admin
+   * can see what it was, and a warning says to reassign it. Every other validation problem still refuses the restore.
+   */
+  checkBackup(b: any, platform = process.platform): string[] {
+    if (b?.ports === undefined && b?.devices === undefined) return []; const ports = b.ports as PortRow[], devices = b.devices as DeviceRow[];
     if (!Array.isArray(ports) || !Array.isArray(devices)) throw new HttpError(400, "backup: ports and devices must be lists");
-    const errs = [...ports.flatMap((p) => validatePort({ ...p, enabled: !!p.enabled })), ...validatePorts(ports), ...devices.flatMap((d) => validateDevice(d, ports)), ...validateAssignment(devices)];
+    const warnings: string[] = [];
+    for (const p of ports) if (p && p.transport === "serial" && p.enabled && typeof p.device_path === "string" && p.device_path && !serialPathValid(p.device_path, platform)) {
+      p.enabled = false; warnings.push(`Port ${p.id}${p.label ? ` (${p.label})` : ""} was disabled: ${PATH_INVALID_HERE} (was ${p.device_path}).`);
+    }
+    const errs = [...ports.flatMap((p) => validatePort({ ...p, enabled: !!p.enabled }, platform)), ...validatePorts(ports, platform), ...devices.flatMap((d) => validateDevice(d, ports)), ...validateAssignment(devices)];
     if (errs.length) throw new HttpError(400, "backup: " + errs.join("; "));
+    return warnings;
   }
   /** After a restore on a new box the device path may differ: the port then shows NOT FOUND until the Admin picks the device again. */
-  async restoreParts(a: Actor, b: any) {
+  async restoreParts(a: Actor, b: any, warnings: string[] = []) {
     if (b?.ports === undefined && b?.devices === undefined) return; this.store.replaceAll(b.ports, b.devices, a.username);
     this.stopPollers(); for (const p of this.store.ports()) await this.build(p); this.masters.clear(); this.drv = null; await this.bind(); this.startPollers();
-    audit(this.db, a.username, a.role, "ports.restore", { ports: b.ports.length, devices: b.devices.length }); this.emit("update");
+    audit(this.db, a.username, a.role, "ports.restore", { ports: b.ports.length, devices: b.devices.length, ...(warnings?.length ? { warnings } : {}) }); this.emit("update");
   }
 }

@@ -170,3 +170,41 @@ test("errorText: Windows wording for access denied / not found / in use and no d
   const lin = { ...p, device_path: "/dev/ttyUSB0" }; assert.match(errorText(Object.assign(new Error("x"), { code: "EACCES" }), lin, "linux"), /dialout/); assert.match(errorText(new Error("ENOENT"), lin, "linux"), /not found: unplugged/);
   assert.match(errorText(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }), { ...p, transport: "tcp", tcp_host: "h", tcp_port: 1 }, "win32"), /Connection refused/);
 });
+
+// ---------- Cross-platform restore: a port path that cannot exist on this platform is restored DISABLED with a warning, not refused ----------
+const audits2 = (db: any, a: string) => db.prepare("SELECT detail FROM audit_log WHERE action=?").all(a) as { detail: string }[];
+test("restore on Windows of a Linux backup: enabled /dev port comes back DISABLED with a warning, path kept, everything else restored", async () => {
+  const { mgr, store, db } = await rig(); const b = JSON.parse(JSON.stringify(mgr.exportParts()));
+  b.ports[1] = { ...b.ports[1], enabled: true, transport: "serial", device_path: "/dev/serial/by-id/usb-FTDI-if00", label: "Weather" };
+  const w = mgr.checkBackup(b, "win32");
+  assert.equal(w.length, 1); assert.match(w[0], /Port 2 \(Weather\) was disabled: port path not valid on this platform, please reassign \(was \/dev\/serial\/by-id\/usb-FTDI-if00\)/);
+  await mgr.restoreParts(A, b, w); const p2 = store.port(2)!; assert.equal(!!p2.enabled, false); assert.equal(p2.device_path, "/dev/serial/by-id/usb-FTDI-if00"); assert.equal(store.devices().length, 2);
+  assert.equal(JSON.parse(audits2(db, "ports.restore").at(-1)!.detail).warnings.length, 1);
+});
+test("restore on Linux of a Windows backup: COM port comes back DISABLED with a warning; a valid port, a disabled port and a TCP port are left alone", async () => {
+  const { mgr } = await rig(); const b = JSON.parse(JSON.stringify(mgr.exportParts())); const tcp = b.ports[0];
+  b.ports[1] = { ...b.ports[1], enabled: true, transport: "serial", device_path: "COM3" };
+  assert.equal(mgr.checkBackup(b, "linux").length, 1); assert.equal(b.ports[1].enabled, false); assert.equal(b.ports[0], tcp);
+  const ok = { ...b, ports: [{ ...b.ports[0] }, { ...b.ports[1], enabled: true, device_path: "/dev/ttyUSB3" }] }; assert.deepEqual(mgr.checkBackup(ok, "linux"), []); assert.equal(ok.ports[1].enabled, true);
+  const off = { ...b, ports: [{ ...b.ports[0] }, { ...b.ports[1], enabled: false, device_path: "COM3" }] }; assert.deepEqual(mgr.checkBackup(off, "linux"), []);
+  const win = { ...b, ports: [{ ...b.ports[0] }, { ...b.ports[1], enabled: true, device_path: "\\\\.\\COM12" }] }; assert.deepEqual(mgr.checkBackup(win, "win32"), []); assert.equal(win.ports[1].enabled, true);
+});
+test("restore: other port problems still refuse the whole restore, an empty enabled serial path is still an error", async () => {
+  const { mgr } = await rig(); const b = JSON.parse(JSON.stringify(mgr.exportParts()));
+  assert.throws(() => mgr.checkBackup({ ...b, ports: [{ ...b.ports[0], baud: 1 }, { ...b.ports[1], enabled: true, transport: "serial", device_path: "COM3" }] }, "linux"), /baud/);
+  assert.throws(() => mgr.checkBackup({ ...b, ports: [b.ports[0], { ...b.ports[1], enabled: true, transport: "serial", device_path: "" }] }, "linux"), /choose a serial device/);
+});
+test("a restored-disabled port shows CLOSED with the reassign hint on the Ports page", async () => {
+  const { mgr, store } = await rig(); const b = JSON.parse(JSON.stringify(mgr.exportParts())); const foreign = process.platform === "win32" ? "/dev/ttyUSB0" : "COM3";
+  b.ports[1] = { ...b.ports[1], enabled: true, transport: "serial", device_path: foreign }; const w = mgr.checkBackup(b); await mgr.restoreParts(A, b, w);
+  const v = mgr.view().ports[1]; assert.equal(v.status, "CLOSED"); assert.match(v.lastError!, /please reassign/); assert.equal(store.port(2)!.device_path, foreign);
+});
+test("API: POST /api/backup/restore of a foreign-platform port answers 200 with warnings and the port ends up disabled", async () => {
+  const { db, mgr, gw, store } = await rig(); const reg = new Registry(db, map);
+  const { app } = await buildApp(db, new Ingest(db), new Commands(db, { publish() {} } as any, () => {}), reg, gw, null, mgr); await app.listen({ port: 0, host: "127.0.0.1" }); closers.push(() => void app.close());
+  const port = (app.server.address() as AddressInfo).port; const id = Number(db.prepare("INSERT INTO users(username,pass_hash,role,created_at) VALUES(?,?,?,?)").run("adm", hashPassword("x".repeat(10)), "admin", 1).lastInsertRowid); const cookie = "core_session=" + createSession(db, id);
+  const bk: any = await (await fetch(`http://127.0.0.1:${port}/api/backup`, { headers: { cookie } })).json(); const foreign = process.platform === "win32" ? "/dev/ttyUSB0" : "COM3";
+  bk.ports[1] = { ...bk.ports[1], enabled: true, transport: "serial", device_path: foreign };
+  const r = await fetch(`http://127.0.0.1:${port}/api/backup/restore`, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(bk) }); const j: any = await r.json();
+  assert.equal(r.status, 200, JSON.stringify(j)); assert.equal(j.ok, true); assert.equal(j.warnings.length, 1); assert.match(j.warnings[0], /please reassign/); assert.equal(!!store.port(2)!.enabled, false);
+});

@@ -23,6 +23,10 @@ const HOST = /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.[A-Za-z0-9]
 /** Only real device nodes under /dev: no relative paths, no "..", no spaces. */
 export const DEVICE_PATH = /^\/dev\/[A-Za-z0-9_.:@+-]+(?:\/[A-Za-z0-9_.:@+-]+)*$/;
 
+/** Is this a serial device name for the given platform? Linux: a node under /dev. Windows: COMn. Used by validatePort and by the cross-platform restore. */
+export const serialPathValid = (path: string, platform: Platform = process.platform): boolean => (isWin(platform) ? !!canonicalSerialPath(path, platform) : DEVICE_PATH.test(path) && !path.split("/").includes(".."));
+export const PATH_INVALID_HERE = "port path not valid on this platform, please reassign";
+
 export function validatePort(p: PortRow, platform: Platform = process.platform): string[] {
   const e: string[] = [];
   if (![1, 2].includes(p.id) && !(Number.isInteger(p.id) && p.id > 0 && p.id < 10)) e.push("port id must be 1 to 9");
