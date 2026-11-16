@@ -6,30 +6,14 @@ import SensorDetail from "./SensorDetail";
 import StructurePage from "./StructurePage";
 import GatewayPage from "./GatewayPage";
 import FarmProfilePage from "./FarmProfilePage";
-import { Chip, Modal, dt, errText, type Tone } from "./ui";
+import { Chip, Modal, dt, errText } from "./ui";
+import { LEGACY, TABS, type Badge } from "./Sidebar";
 
-// Settings menu (Admin only), in this order. Old paths (#/settings/gateway, /structure) redirect to the new ones.
-const TABS: [string, string][] = [["farm-profile", "FARM PROFILE"], ["farm-structure", "FARM STRUCTURE"], ["sensors-gateway", "SENSORS GATEWAY"], ["sensors", "SENSORS"], ["users", "USERS"], ["backup", "BACKUP"]];
-const LEGACY: Record<string, string> = { gateway: "sensors-gateway", structure: "farm-structure", profile: "farm-profile" };
 const useMedia = (q: string) => { const [m, setM] = useState(() => window.matchMedia(q).matches); useEffect(() => { const l = window.matchMedia(q); const f = () => setM(l.matches); l.addEventListener("change", f); return () => l.removeEventListener("change", f); }, [q]); return m; };
-type Badge = { tone: Tone; word: string } | undefined;
 
-export default function Settings({ tab, serial, focus, scada, reload, onProfile }: { tab?: string; serial?: string; focus?: string; scada: Scada | null; reload: () => void; onProfile: () => void }) {
+export default function Settings({ tab, serial, focus, scada, reload, onProfile, badges }: { tab?: string; serial?: string; focus?: string; scada: Scada | null; reload: () => void; onProfile: () => void; badges: Record<string, Badge> }) {
   const phone = useMedia("(max-width: 767px)"); const redirect = tab ? LEGACY[tab] : undefined; const known = TABS.some(([k]) => k === tab);
-  const [badges, setBadges] = useState<Record<string, Badge>>({});
   useEffect(() => { if (redirect) go("/settings/" + redirect); else if ((!tab && !phone) || (tab && !known)) go("/settings/farm-profile"); }, [redirect, tab, phone, known]);
-  useEffect(() => {
-    let live = true;
-    Promise.all([api<any>("/gateway").catch(() => null), api<{ lastExportAt: number | null; warnDays: number }>("/backup/status").catch(() => null), api<any>("/farm-profile").catch(() => null)]).then(([gw, bk, pr]) => {
-      if (!live) return; const b: Record<string, Badge> = {};
-      if (gw?.enabled && !gw.online) b["sensors-gateway"] = { tone: "alarm", word: "OFFLINE" }; else if (gw?.lastSync && !gw.lastSync.ok) b["sensors-gateway"] = { tone: "alarm", word: "SYNC FAILED" };
-      if (gw?.unsent) b.sensors = { tone: "warn", word: `${gw.unsent} NOT SENT` };
-      if (bk && (!bk.lastExportAt || Date.now() - bk.lastExportAt > bk.warnDays * 86400000)) b.backup = { tone: "warn", word: bk.lastExportAt ? "OLD" : "NONE YET" };
-      if (pr?.placeholder || pr?.timezone_confirm_needed) b["farm-profile"] = { tone: "warn", word: pr.timezone_confirm_needed ? "CHECK ZONE" : "SET UP" };
-      setBadges(b);
-    });
-    return () => { live = false; };
-  }, [scada, tab]);
   const t = known ? tab! : undefined;
   const body = t === "sensors" ? (serial ? <SensorDetail serial={serial} focus={focus} scada={scada} reload={reload} /> : <SensorsPage scada={scada} reload={reload} />)
     : t === "farm-structure" ? <StructurePage reload={reload} /> : t === "sensors-gateway" ? <GatewayPage scada={scada} reload={reload} /> : t === "farm-profile" ? <FarmProfilePage onChanged={onProfile} /> : t === "users" ? <UsersPage /> : t === "backup" ? <BackupPage reload={reload} /> : null;
@@ -37,7 +21,6 @@ export default function Settings({ tab, serial, focus, scada, reload, onProfile 
   if (phone && !t) return (<main className="fp-page"><h2 style={{ fontFamily: "var(--fp-head)", margin: 0 }}>Settings</h2><ul className="fp-list">{TABS.map(([k, l]) => <li key={k} style={{ padding: 0 }}><button className="fp-tab" style={{ width: "100%", minHeight: 56, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => go("/settings/" + k)}>{label(k, l)}<span aria-hidden>›</span></button></li>)}</ul></main>);
   return (
     <main className="fp-page"><div className="fp-settings">
-      <nav className="fp-side" aria-label="Settings">{TABS.map(([k, l]) => <button key={k} className="fp-tab" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }} aria-current={t === k ? "page" : undefined} onClick={() => go("/settings/" + k)}>{label(k, l)}</button>)}</nav>
       <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>{phone && <button className="fp-btn" style={{ alignSelf: "flex-start", minHeight: 44 }} onClick={() => go(serial ? "/settings/sensors" : "/settings")} aria-label="Back">← {serial ? "Sensors" : "Settings"}</button>}{body}</div>
     </div></main>
   );

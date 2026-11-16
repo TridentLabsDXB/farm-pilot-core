@@ -21,6 +21,7 @@ import { ProfileService } from "./gateway/profile.js";
 import { HttpError } from "./gateway/registry.js";
 
 const COOKIE = "core_session";
+const version = () => { try { return String(JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")).version ?? ""); } catch { return ""; } };
 const buildStamp = () => { try { return readFileSync(join(dirname(fileURLToPath(import.meta.url)), "BUILD"), "utf8").trim(); } catch { return "unknown"; } };
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
@@ -35,7 +36,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   const secureFor = (proto: string) => config.cookieSecure === "true" ? true : config.cookieSecure === "false" ? false : proto === "https";
 
   app.addHook("preHandler", async (req, reply) => {
-    if (!req.url.startsWith("/api/") || req.url.startsWith("/api/login") || req.url.startsWith("/api/health")) return;
+    if (!req.url.startsWith("/api/") || req.url.startsWith("/api/login") || req.url.startsWith("/api/health") || req.url.startsWith("/api/branding")) return;
     const u = userFromToken(db, req.cookies[COOKIE]);
     if (!u) return reply.code(401).send({ error: "login required" });
     req.user = u;
@@ -44,7 +45,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   const lastActiveAdmin = (id: number) => { const u = db.prepare("SELECT role,active FROM users WHERE id=?").get(id) as { role: string; active: number } | undefined; if (!u || u.role !== "admin" || !u.active) return false; return (db.prepare("SELECT COUNT(*) c FROM users WHERE role='admin' AND active=1 AND id<>?").get(id) as { c: number }).c === 0; };
   const admin = async (req: any, reply: any) => { if (req.user?.role !== "admin") return reply.code(403).send({ error: "admin only" }); };
 
-  app.get("/api/health", async () => ({ ok: true, build: buildStamp(), uptime_s: Math.round(process.uptime()), rss_mb: Math.round(process.memoryUsage().rss / 1048576),
+  app.get("/api/health", async () => ({ ok: true, version: version(), build: buildStamp(), uptime_s: Math.round(process.uptime()), rss_mb: Math.round(process.memoryUsage().rss / 1048576),
     db_mb: Math.round((statSync(config.dbPath).size) / 1048576 * 10) / 10 }));
 
   app.post<{ Body: { username?: string; password?: string } }>("/api/login", async (req, reply) => {
@@ -103,7 +104,15 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   });
 
   app.setErrorHandler((err: any, _req, reply) => { if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message, ...(err.extra as object) }); reply.send(err); });
-  const prof = new ProfileService(db, reg?.map ?? null); registerProfileRoutes(app, prof, admin, () => send({ type: "scada" }));
+  const prof = new ProfileService(db, reg?.map ?? null);
+  // Public (the login page needs it): ONLY the farm name, cached for a minute, at most 30 calls per minute and address. No logo, no site name, nothing else.
+  const brandHits = new Map<string, { n: number; t: number }>();
+  app.get("/api/branding", async (req, reply) => {
+    const now = Date.now(), h = brandHits.get(req.ip); if (!h || now - h.t > 60_000) brandHits.set(req.ip, { n: 1, t: now }); else if (++h.n > 30) return reply.code(429).header("retry-after", "60").send({ error: "slow down" });
+    if (brandHits.size > 1000) for (const [k, v] of brandHits) if (now - v.t > 60_000) brandHits.delete(k);
+    reply.header("cache-control", "public, max-age=60"); return { farm_name: prof.farmName() };
+  });
+  registerProfileRoutes(app, prof, admin, () => send({ type: "scada" }));
   if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof); gw.on("update", () => send({ type: "scada" })); }
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
 

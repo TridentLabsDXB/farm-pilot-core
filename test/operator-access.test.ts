@@ -14,7 +14,7 @@ const map = loadRegMap("config/gateway-thingsend.yaml"); const A = { username: "
 const SERIALS = ["112600310", "112600311", "112600312"];
 
 // Routes an Operator legitimately uses. Everything else must refuse.
-const OPERATOR_OK = new Set(["GET /api/me", "GET /api/state", "GET /api/scada", "GET /api/alarms", "GET /api/alarms/history", "GET /api/gateway/status", "GET /api/farm-profile/public", "GET /api/farm-profile/logo", "GET /api/farm-contacts/alarm-view", "POST /api/commands", "POST /api/alarms/:id/ack", "POST /api/logout"]);
+const OPERATOR_OK = new Set(["GET /api/me", "GET /api/state", "GET /api/scada", "GET /api/alarms", "GET /api/alarms/history", "GET /api/gateway/status", "GET /api/farm-profile/public", "GET /api/branding", "GET /api/farm-profile/logo", "GET /api/farm-contacts/alarm-view", "POST /api/commands", "POST /api/alarms/:id/ack", "POST /api/logout"]);
 const PUBLIC = new Set(["POST /api/login", "GET /api/health"]);
 // Keys that may never appear in an Operator response, at any depth.
 const FORBIDDEN_KEYS = new Set(["serial", "slot", "raw", "temperature_raw", "humidity_raw", "offset", "gain", "calibratedBy", "calibratedAt", "calDueAt", "calibrated", "calibrated_by", "intervalSec", "offlineAfterSec", "lowVoltage", "intervalOk", "applying",

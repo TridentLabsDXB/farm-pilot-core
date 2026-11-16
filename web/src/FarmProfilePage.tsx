@@ -47,7 +47,7 @@ export default function FarmProfilePage({ onChanged }: { onChanged: () => void }
       <button className="fp-btn primary" onClick={() => api("/farm-profile", { method: "PUT", json: { timezone: d.timezone || p.timezone } }).then(() => { load(); onChanged(); }).catch((e) => setMsg({ ...msg, loc: { t: "err", s: errText(e) } }))}>Confirm {d.timezone || p.timezone}</button></div></section>}
     <div style={grid}>
       <section className="fp-card">{head("Identity", ID_KEYS)}
-        <div className="fp-form">{fld("farm_name", "Farm name (shown in the header)")}{fld("site_name", "Site name (root of the Farm Structure tree)", { hint: "Empty = the farm name." })}{fld("owner_name", "Owner / operator")}
+        <div className="fp-form">{fld("farm_name", "Farm name (shown under the logo in the sidebar)")}{fld("site_name", "Site name (root of the Farm Structure tree)", { hint: "Empty = the farm name." })}{fld("owner_name", "Owner / operator")}
           <div className="fp-field wide"><span className="fp-cap">Logo (PNG or SVG, up to 256 KB)</span><div className="fp-row">{p.logo_url ? <img src={p.logo_url} alt="Farm logo" style={{ maxHeight: 56, maxWidth: 160 }} /> : <span className="fp-muted">No logo</span>}
             <label className="fp-btn small" style={{ cursor: "pointer" }}>Upload<input type="file" accept="image/png,image/svg+xml" style={{ display: "none" }} onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ""; }} /></label>
             {p.has_logo && <button className="fp-btn small" onClick={() => api<Profile>("/farm-profile/logo", { method: "DELETE" }).then((x) => { setP(x); onChanged(); }).catch((e) => setMsg({ ...msg, id: { t: "err", s: errText(e) } }))}>Remove</button>}</div></div>
