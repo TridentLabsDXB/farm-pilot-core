@@ -73,8 +73,7 @@ export default function App() {
     <button className={`fp-navbtn ${cls}`} aria-current={cur === "alarms" ? "page" : undefined} onClick={() => go("/alarms")}>ALARMS{nAlarms > 0 && <span className="fp-badge">{nAlarms}</span>}</button>
     <button className={`fp-navbtn ${cls}`} aria-current={cur === "monitoring" ? "page" : undefined} onClick={() => go("/monitoring")}>MONITORING</button>
     <button className={`fp-navbtn ${cls}`} aria-current={cur === "control" ? "page" : undefined} onClick={() => go("/control")}>CONTROL</button>
-    {admin ? <button className={`fp-navbtn ${cls}`} aria-current={cur === "settings" || cur === "about" ? "page" : undefined} onClick={() => go("/settings")}>SETTINGS</button>
-      : <button className={`fp-navbtn ${cls}`} aria-current={cur === "more" || cur === "about" ? "page" : undefined} onClick={() => go("/more")}>MORE</button>}
+    <button className={`fp-navbtn ${cls}`} aria-current={cur === "more" || cur === "about" || cur === "settings" ? "page" : undefined} onClick={() => go("/more")}>MORE</button>
   </>);
   return (
     <div className="core" data-theme={theme} data-drawer={drawer ? "open" : "closed"}>
@@ -93,7 +92,7 @@ export default function App() {
           <button className="fp-btn small" onClick={() => api("/logout", { method: "POST" }).finally(() => setMe(null))}>Logout</button>
         </header>
         {cur === "settings" ? <Settings tab={rest[0]} serial={rest[1]} focus={rest[2]} scada={scada} reload={() => { load(); loadScada(); }} onProfile={loadPub} badges={badges} />
-          : cur === "about" ? <About admin={admin} from={admin ? "/settings" : "/more"} /> : cur === "more" ? <MorePage />
+          : cur === "about" ? <About admin={admin} from="/more" /> : cur === "more" ? <MorePage admin={admin} badges={badges} />
           : cur === "alarms" ? <Alarms scada={scada} /> : cur === "control" ? <ControlPage devices={control} error={controlErr} onRetry={loadControl} state={state} scada={scada} reload={() => { load(); loadScada(); }} /> : <ScadaView state={state} scada={scada} control={control} controlError={controlErr} onRetry={loadControl} query={hquery} />}
         <nav className="fp-bottom" aria-label="Main">{nav()}</nav>
       </div>

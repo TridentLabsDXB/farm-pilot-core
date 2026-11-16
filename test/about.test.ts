@@ -90,10 +90,10 @@ test("bundled notices: generated from production dependencies only, CHANGELOG ex
   assert.match(n, /MIT/); assert.match(readFileSync("CHANGELOG.md", "utf8"), /^# FARM-PILOT CORE release notes/);
 });
 
-test("UI wiring (source): ABOUT in the sidebar above the version caption, route /about, MORE row for Operators on the phone, ABOUT row in the Admin SETTINGS list, same build label as the login footer, three breakpoints", () => {
+test("UI wiring (source): ABOUT in the sidebar above the version caption, route /about, MORE sheet on the phone (ABOUT row for everyone, after the Admin groups), same build label as the login footer, three breakpoints", () => {
   const sb = readFileSync("web/src/Sidebar.tsx", "utf8"), app = readFileSync("web/src/App.tsx", "utf8"), st = readFileSync("web/src/Settings.tsx", "utf8"), ab = readFileSync("web/src/About.tsx", "utf8"), css = readFileSync("web/src/about.css", "utf8"), login = readFileSync("web/src/Login.tsx", "utf8");
   assert.ok(sb.indexOf(">ABOUT</button>") > 0 && sb.indexOf(">ABOUT</button>") < sb.indexOf("fp-sb-ver"), "ABOUT above the caption"); assert.match(sb, /FARM-PILOT CORE\{version \? ` · v\$\{version\}` : ""\}/);
-  assert.match(app, /page === "about" \? "about"/); assert.match(app, />MORE<\/button>/); assert.match(st, /go\("\/about"\)\}>ABOUT</);
+  assert.match(app, /page === "about" \? "about"/); assert.match(app, />MORE<\/button>/); assert.match(ab, /row\("about", "ABOUT", "\/about"\)/); assert.ok(!/ABOUT/.test(st), "Settings no longer carries an ABOUT row");
   assert.match(ab, /alt="Farm Pilot CORE logo"/); assert.match(ab, /farm-pilot-core-logo-512\.png/); for (const k of ["RELEASE NOTES", "NOTICES", "VERSION", "BUILD", "RELEASED", "LICENCE", "THIS COMPUTER", "COMPUTER NAME", "OPERATING SYSTEM", "DISK FREE", "SERIAL PORTS", "DATA FOLDER", "refreshed", "OVER LIMIT", "Not activated", "No expiry"]) assert.ok(ab.includes(k), k);
   assert.match(ab, /setInterval\(load, 10_000\)/); assert.ok(!/build-label|info\.label/.test(ab), "no duplicate build label line under the tiles"); assert.match(login, /h\.build_label/);
   assert.match(css, /max-width: 1023px/); assert.match(css, /max-width: 767px/); assert.match(css, /grid-template-columns: 380px/); assert.match(css, /\.ab-logo \{ width: 230px/); assert.match(css, /data-theme="dark"\] \.ab-logo \{ filter: drop-shadow/);

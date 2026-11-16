@@ -3,8 +3,14 @@ import { api, type PublicProfile, type Scada } from "./api";
 import { go } from "./App";
 import { Chip, type Tone } from "./ui";
 
-// Settings items (Admin only), in this order. Old paths (#/settings/gateway, /structure) redirect to the new ones.
-export const TABS: [string, string][] = [["farm-profile", "FARM PROFILE"], ["farm-structure", "FARM STRUCTURE"], ["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["sensors", "SENSORS"], ["users", "USERS"], ["backup", "BACKUP"]];
+// Menu groups (Admin only), decided 2026-11-17: SETTINGS describes the farm, DATA POINTS says where data comes from, SYSTEM is about the box itself.
+// Only the grouping in the menu changed; every route (#/settings/<key>) and API path is the same as before.
+export const GROUPS: { title: string; tabs: [string, string][] }[] = [
+  { title: "Settings", tabs: [["farm-profile", "FARM PROFILE"], ["farm-structure", "FARM STRUCTURE"]] },
+  { title: "Data points", tabs: [["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["sensors", "SENSORS"]] },
+  { title: "System", tabs: [["users", "USERS"], ["backup", "BACKUP"]] },
+];
+export const TABS: [string, string][] = GROUPS.flatMap((g) => g.tabs);
 export const LEGACY: Record<string, string> = { gateway: "sensors-gateway", structure: "farm-structure", profile: "farm-profile" };
 export type Badge = { tone: Tone; word: string } | undefined;
 
@@ -26,7 +32,7 @@ export function useBadges(scada: Scada | null, tab: string | undefined, enabled:
   return badges;
 }
 
-/** Persistent left sidebar: logo and farm name on top, then ALARMS, MONITORING, CONTROL and (Admin) the Settings items. Panel: always visible. Tablet: drawer. Phone: hidden (bottom nav). */
+/** Persistent left sidebar: logo and farm name on top, then ALARMS, MONITORING, CONTROL and (Admin) the groups SETTINGS, DATA POINTS and SYSTEM. Panel: always visible. Tablet: drawer. Phone: hidden (bottom nav). */
 export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges }: { version: string; pub: PublicProfile | null; cur: string; tab?: string; admin: boolean; nAlarms: number; badges: Record<string, Badge> }) {
   return (
     <nav className="fp-sb" aria-label="Main">
@@ -34,10 +40,10 @@ export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges
       <button className="fp-tab" aria-current={cur === "alarms" ? "page" : undefined} onClick={() => go("/alarms")}><span>ALARMS</span>{nAlarms > 0 && <span className="fp-badge">{nAlarms}</span>}</button>
       <button className="fp-tab" aria-current={cur === "monitoring" ? "page" : undefined} onClick={() => go("/monitoring")}>MONITORING</button>
       <button className="fp-tab" aria-current={cur === "control" ? "page" : undefined} onClick={() => go("/control")}>CONTROL</button>
-      {admin && <>
-        <span className="fp-cap fp-sb-group">Settings</span>
-        {TABS.map(([k, l]) => <button key={k} className="fp-tab" aria-current={cur === "settings" && tab === k ? "page" : undefined} onClick={() => go("/settings/" + k)}><span>{l}</span>{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.word}</Chip>}</button>)}
-      </>}
+      {admin && GROUPS.filter((g) => g.tabs.length > 0).map((g) => <div key={g.title} className="fp-sb-grp" role="group" aria-label={g.title}>
+        <span className="fp-cap fp-sb-group">{g.title}</span>
+        {g.tabs.map(([k, l]) => <button key={k} className="fp-tab" aria-current={cur === "settings" && tab === k ? "page" : undefined} onClick={() => go("/settings/" + k)}><span>{l}</span>{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.word}</Chip>}</button>)}
+      </div>)}
       <div className="fp-sb-bottom">
         <button className="fp-tab" aria-current={cur === "about" ? "page" : undefined} onClick={() => go("/about")}>ABOUT</button>
         <span className="fp-cap fp-sb-ver">FARM-PILOT CORE{version ? ` · v${version}` : ""}</span>

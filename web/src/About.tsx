@@ -3,6 +3,7 @@ import { ENGINEERING, licWord, limitWord } from "./licence";
 import { api, type AboutInfo, type ComputerInfo, type LicenceInfo } from "./api";
 import { go } from "./App";
 import { Chip, Modal, errText, type Tone } from "./ui";
+import { GROUPS, type Badge } from "./Sidebar";
 import "./about.css";
 
 // 2026-11-16 -- ABOUT page, Option A (Identity card): left identity card, right LICENCE card above THIS COMPUTER (Admin). Every status is a lamp plus a word.
@@ -77,7 +78,7 @@ export default function About({ admin, from }: { admin: boolean; from: string })
   return (
     <main className="fp-page ab">
       <header className="ab-head">
-        <button className="fp-btn ab-back" onClick={() => go(from)} aria-label="Back">← {from === "/more" ? "More" : "Settings"}</button>
+        <button className="fp-btn ab-back" onClick={() => go(from)} aria-label="Back">← More</button>
         <span className="fp-cap">{info.product}</span><h1>ABOUT</h1>
       </header>
       <div className="ab-grid">
@@ -127,7 +128,10 @@ export default function About({ admin, from }: { admin: boolean; from: string })
   );
 }
 
-/** Phone, Operator: the MORE list of the 4-item bottom navigation. */
-export function MorePage() {
-  return <main className="fp-page"><h2 style={{ fontFamily: "var(--fp-head)", margin: 0 }}>More</h2><ul className="fp-list"><li style={{ padding: 0 }}><button className="fp-tab" style={{ width: "100%", minHeight: 56, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => go("/about")}>ABOUT<span aria-hidden>›</span></button></li></ul></main>;
+/** Phone: the MORE sheet of the 4-item bottom navigation. Admin: the same three groups as the sidebar (SETTINGS, DATA POINTS, SYSTEM) with their badges, then ABOUT for everyone. */
+export function MorePage({ admin, badges }: { admin: boolean; badges: Record<string, Badge> }) {
+  const row = (k: string, l: string, to: string, b?: Badge) => <li key={k} style={{ padding: 0 }}><button className="fp-tab" style={{ width: "100%", minHeight: 56, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => go(to)}><span>{l}</span><span style={{ display: "flex", gap: 8, alignItems: "center" }}>{b && <Chip tone={b.tone}>{b.word}</Chip>}<span aria-hidden>›</span></span></button></li>;
+  return <main className="fp-page"><h2 style={{ fontFamily: "var(--fp-head)", margin: 0 }}>More</h2>
+    {admin && GROUPS.filter((g) => g.tabs.length > 0).map((g) => <section key={g.title} role="group" aria-label={g.title}><span className="fp-cap fp-sb-group" style={{ display: "block", margin: "14px 0 4px" }}>{g.title}</span><ul className="fp-list">{g.tabs.map(([k, l]) => row(k, l, "/settings/" + k, badges[k]))}</ul></section>)}
+    <ul className="fp-list" style={{ marginTop: admin ? 14 : undefined }}>{row("about", "ABOUT", "/about")}</ul></main>;
 }
