@@ -12,6 +12,7 @@ import { audit, getSetting, setSetting, type Db } from "./db.js";
 import { clearFails, createSession, destroySession, hashPassword, noteFail, throttled, userFromToken, verifyPassword, type AuthUser } from "./auth.js";
 import type { Commands, CommandRow } from "./commands.js";
 import { PUMPS } from "./commands.js";
+import { controlView } from "./control.js";
 import type { Ingest, LiveTopic } from "./ingest.js";
 import type { Registry } from "./gateway/registry.js";
 import type { GatewayService } from "./gateway/service.js";
@@ -67,6 +68,9 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   app.get("/api/me", async (req) => req.user);
 
   app.get("/api/state", async () => ({ farm: config.farm, now: Date.now(), topics: ingest.snapshot(), commands: commands.recent(10), commandTimeoutSec: Number(getSetting(db, "command_timeout_sec", String(config.commandTimeoutSec))) }));
+
+  // CONTROL device list (Operator and Admin). The live state comes from /api/state + the WebSocket; the web app derives it once for CONTROL and the SCADA status line.
+  app.get("/api/control", async () => controlView());
 
   app.post<{ Body: { pump?: string; action?: string } }>("/api/commands", async (req, reply) => {
     const { pump, action } = req.body ?? {};

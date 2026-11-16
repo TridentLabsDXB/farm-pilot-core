@@ -54,6 +54,10 @@ textarea.fp-input { padding: 10px 12px; min-height: 120px; width: 100%; }
 .fp-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 18px; border-radius: var(--fp-radius-panel); border: 1px solid; font-family: var(--fp-mono); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
 .fp-banner[data-tone="ok"] { color: var(--fp-ok); background: var(--fp-ok-bg); border-color: var(--fp-ok-bd); } .fp-banner[data-tone="warn"] { color: var(--fp-warn-text); background: var(--fp-warn-bg); border-color: var(--fp-warn-bd); } .fp-banner[data-tone="alarm"] { color: var(--fp-alarm); background: var(--fp-alarm-bg); border-color: var(--fp-alarm-bd); }
 /* ---- SCADA ---- */
+/* 2026-11-16 -- SCADA zone cards: auto-fit collapses empty tracks, so the cards fill the full width now the pump card is gone (still fluid) */
+.fp-grid.fp-grid-fill { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.fp-ctl-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 10px 16px; border: 1px solid var(--fp-border); border-radius: var(--fp-radius-panel); background: var(--fp-card); }
+.fp-ctl-item { display: inline-flex; align-items: center; gap: 8px; } .fp-ctl-link { margin-left: auto; min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; font-size: 13px; color: var(--fp-accent); }
 .fp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px; align-items: start; }
 .fp-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .fp-tile { background: var(--fp-inset); border-radius: var(--fp-radius-panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -113,7 +117,7 @@ textarea.fp-input { padding: 10px 12px; min-height: 120px; width: 100%; }
 @media (max-width: 767px) {
   .fp-top { height: 60px; padding: 0 12px; gap: 8px; } .fp-top .hide-phone { display: none; }
   .core { grid-template-columns: minmax(0, 1fr); } .fp-sidebar { display: none; } .fp-phone-title { display: block; font-size: 18px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .fp-bottom { display: grid; grid-template-columns: repeat(3, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; height: 64px; background: var(--fp-card); border-top: 1px solid var(--fp-border); }
+  .fp-bottom { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; height: 64px; background: var(--fp-card); border-top: 1px solid var(--fp-border); }
   .fp-bottom .fp-navbtn { height: 64px; border-radius: 0; font-size: 14px; } .fp-page { padding: 14px 12px 84px; }
   .fp-gt { display: none; } .fp-cards { display: flex; } .fp-form { grid-template-columns: 1fr; } .fp-grid { grid-template-columns: 1fr; } .fp-big { font-size: 28px; }
 }

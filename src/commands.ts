@@ -2,10 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { MqttClient } from "mqtt";
 import { audit, getSetting, type Db } from "./db.js";
 import { config } from "./config.js";
+import { commandable } from "./control.js";
 
 export type CmdStatus = "sent" | "confirmed" | "timeout";
 export interface CommandRow { id: string; pump: string; action: "on" | "off"; status: CmdStatus; username: string; role: string; created_at: number; resolved_at: number | null; note: string | null; }
-export const PUMPS = ["pump1"];
+// 2026-11-16 -- the list of commandable devices now comes from control_devices (src/control.ts); PUMPS stays as the exported name for existing callers.
+export const PUMPS = commandable();
 
 export const cmdTopic = (pump: string) => `farmpilot/${config.farm}/cmd/${pump}`;
 export const ackTopic = (pump: string) => `farmpilot/${config.farm}/ack/${pump}`;

@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { api, type Cmd, type Scada, type SensorView, type State, type ZoneView } from "./api";
+import { type Scada, type SensorView, type State, type ZoneView } from "./api";
+import ControlStatusLine from "./ControlStatusLine";
+import type { ControlDevice } from "./control";
 import { Battery, Chip, CommissioningBanner, Modal, Signal, StatusChip, ago, fmt, tempUnit, tempVal, useNow, type Tone } from "./ui";
 
 const ZONE_STATUS = (z: ZoneView): [Tone, string] => z.status === "unknown" ? ["off", "UNKNOWN"] : z.status === "empty" ? ["off", "NO SENSORS"] : z.noUpdate ? ["warn", `${z.noUpdate} NO UPDATE`] : z.lowBattery ? ["warn", "LOW BATTERY"] : ["ok", "ONLINE"];
@@ -30,46 +31,23 @@ function Zone({ z, now }: { z: ZoneView; now: number }) {
   );
 }
 
-const CMD_WORD: Record<Cmd["status"], string> = { sent: "SENT", confirmed: "CONFIRMED", timeout: "TIMEOUT" };
-function PumpCard({ state, now, reload }: { state: State; now: number; reload: () => void }) {
-  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [ask, setAsk] = useState<"on" | "off" | null>(null);
-  const t = state.topics.find((x) => x.topic === `farmpilot/${state.farm}/water`); const st = t?.sensors.find((x) => x.key === "WPump1")?.readings.status;
-  const fresh = !!t && now - t.ts <= 30_000; const look = !fresh || (st !== 0 && st !== 1) ? "nodata" : st === 1 ? "run" : "stopped";
-  const last = state.commands.find((c) => c.pump === "pump1"); const pending = last?.status === "sent";
-  const send = async (action: "on" | "off") => { setErr(""); setBusy(true); try { await api("/commands", { method: "POST", json: { pump: "pump1", action } }); } catch (e: any) { setErr(e.message); } finally { setBusy(false); reload(); } };
-  const tone: Tone = last?.status === "confirmed" ? "ok" : last?.status === "timeout" ? "alarm" : last?.status === "sent" ? "info" : "off";
-  return (
-    <section className="fp-card" aria-label="Pump 1">
-      <div className="fp-row fp-spread"><h3>Pump 1</h3><Chip tone={look === "run" ? "ok" : "off"}>{look === "run" ? "PUMP ON" : look === "stopped" ? "PUMP OFF" : "NO DATA"}</Chip></div>
-      <div className="fp-row"><button className="fp-btn go" style={{ flex: 1 }} disabled={busy || pending} aria-label="Start pump 1" onClick={() => setAsk("on")}>Start</button>
-        <button className="fp-btn stop" style={{ flex: 1 }} disabled={busy || pending} aria-label="Stop pump 1" onClick={() => setAsk("off")}>Stop</button></div>
-      <div className="fp-inset" aria-live="polite"><div className="fp-cap">Last command</div>
-        {last ? <div className="fp-row" style={{ marginTop: 6 }}><Chip tone={tone}>{CMD_WORD[last.status]}</Chip><span className="fp-num" style={{ fontSize: 13 }}>{last.action.toUpperCase()} · {last.username} · {ago(last.created_at, now)}</span></div> : <div className="fp-num">--</div>}
-        {last?.status === "timeout" && <p className="fp-msg">No acknowledgement from the controller{last.note ? ` (${last.note})` : ""}.</p>}
-        {last?.status === "sent" && <p className="fp-msg">Waiting for the controller, up to {state.commandTimeoutSec} s.</p>}</div>
-      {err && <p className="fp-msg err" role="alert">{err}</p>}
-      {ask && <Modal title={ask === "on" ? "Start Pump 1?" : "Stop Pump 1?"} onClose={() => setAsk(null)}>
-        <p className="fp-msg">{ask === "on" ? "This sends a START command to the controller." : "This sends a STOP command to the controller."} It is logged with your name.</p>
-        <div className="fp-row"><button className={`fp-btn ${ask === "on" ? "go" : "stop"}`} style={{ flex: 1 }} onClick={() => { const a = ask; setAsk(null); send(a); }}>{ask === "on" ? "Yes, start pump" : "Yes, stop pump"}</button><button className="fp-btn" style={{ flex: 1, minHeight: 56 }} onClick={() => setAsk(null)}>Cancel</button></div></Modal>}
-      <span className="fp-cap" style={{ textTransform: "none" }}>The PLC keeps its own logic; this panel only sends commands.</span>
-    </section>
-  );
-}
-
-export default function ScadaView({ state, scada, reload }: { state: State | null; scada: Scada | null; reload: () => void }) {
+export default function ScadaView({ state, scada, control, controlError, onRetry }: { state: State | null; scada: Scada | null; control: ControlDevice[] | null; controlError: string | null; onRetry: () => void }) {
   const now = useNow(1000);
   if (!state || !scada) return <main className="fp-page"><p className="fp-msg">Loading...</p></main>;
+  // 2026-11-16 -- a zone card is a sensor view: a zone that is not a climate zone and has no sensors (e.g. "VFD Section # 1", type custom, made in Farm Structure for equipment) is not drawn.
+  // The zone itself stays in the database and in Settings; it can still be given to a control device. Climate zones always show, even with no sensors yet.
+  const zones = scada.zones.filter((z) => z.type === "climate" || z.total > 0);
   const worst = scada.alarms.slice(0, 2).map((a) => a.text).join(" · ");
   const tone = !scada.alarms.length ? "ok" : scada.alarms.some((a) => a.severity === "alarm") ? "alarm" : "warn";
   return (
     <main className="fp-page">
       {scada.commissioning?.on && <CommissioningBanner until={scada.commissioning.until} />}
       <div className="fp-banner" data-tone={tone} role="status">{!scada.alarms.length ? <><span className="fp-lamp" style={{ width: 10, height: 10, background: "currentColor", borderRadius: "50%" }} />NO ACTIVE ALARMS</> : <><b>{scada.alarms.length} ACTIVE ALARM{scada.alarms.length > 1 ? "S" : ""}</b><span>{worst}</span></>}</div>
-      <div className="fp-grid">
-        {scada.zones.map((z) => <Zone key={z.id} z={z} now={now} />)}
-        <PumpCard state={state} now={now} reload={reload} />
+      <ControlStatusLine devices={control} state={state} now={now} error={controlError} onRetry={onRetry} />
+      <div className="fp-grid fp-grid-fill">
+        {zones.map((z) => <Zone key={z.id} z={z} now={now} />)}
       </div>
-      {!scada.zones.length && <p className="fp-msg fp-muted">No zones yet. An Admin defines the farm structure in Settings.</p>}
+      {!zones.length && <p className="fp-msg fp-muted">No zones yet. An Admin defines the farm structure in Settings.</p>}
     </main>
   );
 }
