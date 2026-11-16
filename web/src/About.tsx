@@ -8,6 +8,8 @@ import "./about.css";
 
 // 2026-11-16 -- ABOUT page, Option A (Identity card): left identity card, right LICENCE card above THIS COMPUTER (Admin). Every status is a lamp plus a word.
 // Operators get the identity card and the licence summary with usage (read-only); the server sends them no Device ID and no host details at all.
+// The FREE history limit (src/licence/free.ts). The grace notice and the REMOVE dialog always speak about THIS number, never about the licence being removed (a PRO may keep 365 days).
+const FREE_RETENTION_DAYS = 90;
 const LIC_TONE: Record<LicenceInfo["state"], Tone> = { FREE: "info", LICENSED: "ok", EXPIRED: "warn", INVALID: "alarm" };
 const bytes = (n: number | null | undefined) => (n === null || n === undefined ? "--" : n >= 1e12 ? `${(n / 1e12).toFixed(1)} TB` : n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(0, Math.round(n / 1e3))} KB`);
 export const upFor = (s: number) => { const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60); return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`; };
@@ -63,7 +65,7 @@ function Upload({ lic, onDone }: { lic: LicenceInfo; onDone: () => void }) {
       {lic.state !== "FREE" && <button className="fp-btn danger" onClick={() => setRm(true)}>REMOVE LICENCE</button>}
     </div>
     <p className="fp-cap ab-note">Admin only. One licence file works on one box. Every licence change is written to the audit log.</p>
-    {rm && <Modal title="Remove licence" onClose={() => setRm(false)}><p><strong>Back to FREE limits. History older than {lic.retention_days ?? 90} days is kept for 30 days, then deleted.</strong></p><p>Sensors that are already added keep running; only adding more is blocked while the box is over the limit.</p>
+    {rm && <Modal title="Remove licence" onClose={() => setRm(false)}><p><strong>Back to FREE limits. History older than {FREE_RETENTION_DAYS} days is kept for 30 days, then deleted.</strong></p><p>Sensors that are already added keep running; only adding more is blocked while the box is over the limit.</p>
       <div className="fp-row"><button className="fp-btn danger" onClick={() => api("/licence", { method: "DELETE" }).then(() => { setRm(false); window.dispatchEvent(new Event("core-licence")); onDone(); }).catch((e) => setMsg({ ok: false, text: errText(e) }))}>REMOVE LICENCE</button><button className="fp-btn" onClick={() => setRm(false)}>Cancel</button></div></Modal>}
   </div>);
 }
@@ -102,7 +104,7 @@ export default function About({ admin, from }: { admin: boolean; from: string })
               {admin && <div className="ab-dev"><dt className="fp-cap">DEVICE ID</dt><dd><code className="fp-num" data-testid="device-id">{info.device_id ?? "--"}</code>{info.device_id && <button className="fp-btn small" onClick={() => flash("dev", info.device_id!)}>COPY</button>}{copied === "dev" && <Chip tone="ok">COPIED</Chip>}{copied === "!dev" && <Chip tone="warn">SELECT AND COPY BY HAND</Chip>}</dd></div>}
             </dl>
             {lic.reason && <p className="fp-msg err" role="status">{lic.reason}</p>}
-            {admin && lic.grace && <div className="ab-notice" role="status" data-testid="grace-notice"><Chip tone="warn">HISTORY NOTICE</Chip><p>History older than {lic.retention_days ?? 90} days will be deleted on <strong>{dateOnly(Date.parse(lic.grace.delete_on))}</strong>. Upload a PRO licence to keep it.</p></div>}
+            {admin && lic.grace && <div className="ab-notice" role="status" data-testid="grace-notice"><Chip tone="warn">HISTORY NOTICE</Chip><p>History older than {FREE_RETENTION_DAYS} days will be deleted on <strong>{dateOnly(Date.parse(lic.grace.delete_on))}</strong>. Upload a PRO licence to keep it.</p></div>}
             {admin && lic.state === "INVALID" && <div className="ab-notice" role="status" data-testid="invalid-notice"><Chip tone="warn">LICENCE PROBLEM</Chip><p>FREE limits apply to adding sensors and gateways. No history is deleted while the licence is invalid. Upload the licence file again.</p></div>}
             {admin && <Upload lic={lic} onDone={load} />}
             <div className="ab-usages"><Bar label="GATEWAYS" n={lic.usage.gateways} max={lic.limits.gateways} /><Bar label="SENSORS (ALL TYPES)" n={lic.usage.sensors} max={lic.limits.sensors} /></div>

@@ -105,8 +105,9 @@ test("wiring (source): the scheduled retention uses the licence-aware runner", (
 
 test("UI (source): Admin-only amber notice with the delete date in the Farm Profile zone, the REMOVE dialog names the consequence, the INVALID notice says nothing is deleted", () => {
   const ab = readFileSync("web/src/About.tsx", "utf8");
-  assert.match(ab, /\{admin && lic\.grace && <div className="ab-notice"/); assert.match(ab, /History older than \{lic\.retention_days \?\? 90\} days will be deleted on <strong>\{dateOnly\(Date\.parse\(lic\.grace\.delete_on\)\)\}<\/strong>\. Upload a PRO licence to keep it\./);
-  assert.match(ab, /Back to FREE limits\. History older than \{lic\.retention_days \?\? 90\} days is kept for 30 days, then deleted\./);
+  assert.match(ab, /\{admin && lic\.grace && <div className="ab-notice"/); assert.match(ab, /History older than \{FREE_RETENTION_DAYS\} days will be deleted on <strong>\{dateOnly\(Date\.parse\(lic\.grace\.delete_on\)\)\}<\/strong>\. Upload a PRO licence to keep it\./);
+  assert.match(ab, /const FREE_RETENTION_DAYS = 90;/); assert.ok(!/lic\.retention_days \?\? 90/.test(ab), "the dialog must not quote the PRO licence's own retention");
+  assert.match(ab, /Back to FREE limits\. History older than \{FREE_RETENTION_DAYS\} days is kept for 30 days, then deleted\./);
   assert.match(ab, /\{admin && lic\.state === "INVALID" && <div className="ab-notice"/); assert.match(ab, /No history is deleted while the licence is invalid/);
   assert.match(readFileSync("web/src/ui.tsx", "utf8"), /export const dateOnly = .*zoneParts/, "dateOnly formats in the Farm Profile time zone");
 });
