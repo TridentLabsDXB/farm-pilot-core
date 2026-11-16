@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type AboutInfo, type ComputerInfo, type LicenceInfo } from "./api";
 import { go } from "./App";
 import { Chip, Modal, errText, type Tone } from "./ui";
@@ -28,6 +28,41 @@ function TextDialog({ title, url, onClose }: { title: string; url: string; onClo
   const [txt, setTxt] = useState<string | null>(null);
   useEffect(() => { fetch(url).then((r) => (r.ok && !/html/.test(r.headers.get("content-type") ?? "") ? r.text() : Promise.reject(new Error("not available in this build")))).then(setTxt).catch((e) => setTxt("Not available: " + errText(e))); }, [url]);
   return <Modal title={title} onClose={onClose}><pre className="ab-text" tabIndex={0}>{txt ?? "Loading..."}</pre></Modal>;
+}
+
+
+/** Admin only: drop zone, CHOOSE FILE, APPLY LICENCE (disabled until the chosen file looks like a licence; the server checks everything again) and REMOVE LICENCE. */
+function Upload({ lic, onDone }: { lic: LicenceInfo; onDone: () => void }) {
+  const [file, setFile] = useState<File | null>(null), [look, setLook] = useState<string>(""), [busy, setBusy] = useState(false), [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null), [drag, setDrag] = useState(false), [rm, setRm] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const pick = async (f: File | null) => {
+    setMsg(null); setFile(f); setLook(""); if (!f) return;
+    if (f.size > 16 * 1024) return setLook("This file is larger than 16 KB. It is not a licence file.");
+    try { const j = JSON.parse(await f.text()); if (!j || typeof j !== "object" || !("signature" in j) || !("device_id" in j)) setLook("This does not look like a licence file."); } catch { setLook("This does not look like a licence file."); }
+  };
+  const apply = async () => {
+    if (!file || look || busy) return; setBusy(true); setMsg(null);
+    try { const fd = new FormData(); fd.append("file", file); await api("/licence", { method: "POST", body: fd }); setMsg({ ok: true, text: "LICENCE APPLIED" }); setFile(null); onDone(); }
+    catch (e: any) { setMsg({ ok: false, text: errText(e) }); }
+    setBusy(false);
+  };
+  return (<div className="ab-upload">
+    <div className="ab-drop" data-drag={drag ? 1 : 0} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); void pick(e.dataTransfer.files?.[0] ?? null); }}>
+      <span className="fp-cap">DROP LICENCE FILE HERE</span>
+      <span className="fp-num" data-testid="chosen-file">{file ? `${file.name} (${file.size} bytes)` : "No file chosen"}</span>
+      <input ref={input} type="file" accept=".fplic,application/json" hidden onChange={(e) => void pick(e.target.files?.[0] ?? null)} aria-label="Licence file" />
+      <button className="fp-btn" onClick={() => input.current?.click()}>CHOOSE FILE</button>
+    </div>
+    {look && <p className="fp-msg err" role="status">{look}</p>}
+    {msg && (msg.ok ? <Chip tone="ok">{msg.text}</Chip> : <p className="fp-msg err" role="alert">{msg.text}</p>)}
+    <div className="fp-row">
+      <button className="fp-btn primary ab-apply" disabled={!file || !!look || busy} onClick={apply}>{busy ? "APPLYING..." : "APPLY LICENCE"}</button>
+      {lic.state !== "FREE" && <button className="fp-btn danger" onClick={() => setRm(true)}>REMOVE LICENCE</button>}
+    </div>
+    <p className="fp-cap ab-note">Admin only. One licence file works on one box. Every licence change is written to the audit log.</p>
+    {rm && <Modal title="Remove licence" onClose={() => setRm(false)}><p>The box goes back to the FREE licence. Sensors that are already added keep running; only adding more is blocked while the box is over the limit.</p>
+      <div className="fp-row"><button className="fp-btn danger" onClick={() => api("/licence", { method: "DELETE" }).then(() => { setRm(false); onDone(); }).catch((e) => setMsg({ ok: false, text: errText(e) }))}>REMOVE LICENCE</button><button className="fp-btn" onClick={() => setRm(false)}>Cancel</button></div></Modal>}
+  </div>);
 }
 
 export default function About({ admin, from }: { admin: boolean; from: string }) {
@@ -65,6 +100,7 @@ export default function About({ admin, from }: { admin: boolean; from: string })
               {admin && <div className="ab-dev"><dt className="fp-cap">DEVICE ID</dt><dd><code className="fp-num" data-testid="device-id">{info.device_id ?? "--"}</code>{info.device_id && <button className="fp-btn small" onClick={() => flash("dev", info.device_id!)}>COPY</button>}{copied === "dev" && <Chip tone="ok">COPIED</Chip>}{copied === "!dev" && <Chip tone="warn">SELECT AND COPY BY HAND</Chip>}</dd></div>}
             </dl>
             {lic.reason && <p className="fp-msg err" role="status">{lic.reason}</p>}
+            {admin && <Upload lic={lic} onDone={load} />}
             <div className="ab-usages"><Bar label="GATEWAYS" n={lic.usage.gateways} max={lic.limits.gateways} /><Bar label="SENSORS (ALL TYPES)" n={lic.usage.sensors} max={lic.limits.sensors} /></div>
           </section>
           {admin && c && (

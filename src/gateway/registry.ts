@@ -10,11 +10,14 @@ const bad = (m: string, extra?: unknown) => new HttpError(400, m, extra);
 export interface SensorRow { serial: string; type: string; label: string; zone_id: number | null; slot: number | null; reporting_interval: number; created_at: number; replaced_by: string | null;
   thresholds: string | null; sent_slot: number | null; sent_interval: number | null; interval_changed_at: number | null; interval_confirmed: number; fp: string | null; last_change: number | null; }
 
+/** Licence limits on ADDING (implemented by LicenceService, wired in app.ts). Absent = no limit (unit tests of the registry alone). Only add paths call it, never polling or alarms. */
+export interface SensorLimiter { checkSensorsAdd(n: number): void; checkSensorsTotal(total: number): void; checkSend(total: number, unsent: number): void; }
 export const topicFor = (type: string) => `gateway/${type}`;
 
 export const COMMISSIONING_MS = 8 * 3600_000;
 export class Registry {
   now = () => Date.now();                                  // replaceable clock (tests)
+  limiter: SensorLimiter | null = null;
   constructor(private db: Db, public map: RegMap) {}
   /** Commissioning mode (short T/H intervals allowed). Switches itself off after 8 hours; the automatic switch-off is audited as user "system". Checked on every read, so it holds even if no timer runs. */
   commissioning(): { on: boolean; until: number | null } {
@@ -75,6 +78,7 @@ export class Registry {
     if (uniq.length !== norm.length) throw bad("duplicate serials in the list");
     for (const s of uniq) if (this.get(s)) throw bad(`serial ${s} already exists`);
     const { used } = this.usage(type); if (used + uniq.length > t.groups) throw bad(`${t.label} is full: ${used} of ${t.groups} slots used, cannot add ${uniq.length}`);
+    this.limiter?.checkSensorsAdd(uniq.length);               // licence: manual add, pasted list, scan and the gateway's "add unassigned" all end here
     const taken = this.takenSlots(type, gatewaySeen); const now = Date.now();
     this.db.transaction(() => {
       for (const s of uniq) {
@@ -198,6 +202,7 @@ export class Registry {
       if (!Number.isInteger(s.reporting_interval) || s.reporting_interval < t.config.interval.min || s.reporting_interval > t.config.interval.max) throw bad(`interval out of range for ${s.serial}`);
     }
     for (const s of b.settings) if (typeof s.key !== "string" || !/^(gw|cal)\./.test(s.key) || typeof s.value !== "string") throw bad("backup has an invalid setting");
+    this.limiter?.checkSensorsTotal(b.sensors.filter((s: any) => !s.replaced_by).length);   // licence: a restore (import) must not be a way round the limit
     const d = this.db;
     d.transaction(() => {
       d.prepare("DELETE FROM points").run(); d.prepare("DELETE FROM calibrations").run(); d.prepare("DELETE FROM sensors").run(); d.prepare("DELETE FROM pending_removals").run(); d.prepare("DELETE FROM zones").run();

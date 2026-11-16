@@ -22,6 +22,10 @@
 .ab-fields div { display: flex; flex-direction: column; gap: 4px; min-width: 0; } .ab-fields dt, .ab-fields dd { margin: 0; }
 .ab-fields dd { font-size: 16px; color: var(--fp-text); overflow-wrap: anywhere; }
 .ab-dev { grid-column: 1 / -1; } .ab-dev dd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; } .ab-dev code { font-size: 18px; letter-spacing: .06em; }
+.ab-upload { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.ab-drop { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border: 2px dashed var(--fp-border); border-radius: var(--fp-radius-panel); background: var(--fp-inset); }
+.ab-drop[data-drag="1"] { border-color: var(--fp-accent); background: var(--fp-accent-tint); }
+.ab-apply { min-height: 56px; min-width: 200px; } .ab-note { text-transform: none; letter-spacing: .02em; }
 .ab-usages { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
 .ab-usage { display: flex; flex-direction: column; gap: 6px; }
 .ab-bar { height: 12px; background: var(--fp-inset); border: 1px solid var(--fp-border); border-radius: 6px; overflow: hidden; } .ab-bar i { display: block; height: 100%; background: var(--fp-ok); }

@@ -112,6 +112,7 @@ export class GatewayService extends EventEmitter {
   async preview(type: string) { this.requireOnline(); const gw = await this.drv!.readConfig(type, "write"); this.lastConfig[type] = gw; this.reconcile(type); return this.planFor(type, gw); }
 
   async sync(a: Actor, types: string[], confirm: boolean): Promise<SyncResult[]> {
+    { const all = this.reg.list(); this.reg.limiter?.checkSend(all.length, all.filter((s) => s.sent_slot === null).length); }   // licence: SEND TO GATEWAY must not push sensors beyond the limit
     this.requireOnline(); this.syncing = true; await this.pause(); const results: SyncResult[] = [];
     try {
       for (const type of types) {
