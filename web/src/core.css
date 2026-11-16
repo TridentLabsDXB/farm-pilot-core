@@ -130,7 +130,8 @@ textarea.fp-input { padding: 10px 12px; min-height: 120px; width: 100%; }
 .core[data-theme="dark"] .fp-login { --fp-grid: rgba(125, 211, 252, .05); }
 .fp-login-stack { margin: auto; width: 100%; max-width: 400px; display: flex; flex-direction: column; align-items: center; gap: 22px; }  /* margin:auto = centred, but top-aligned when the viewport is short */
 .fp-login-brand { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; max-width: 100%; }
-.fp-login-logo { width: 160px; height: auto; object-fit: contain; filter: drop-shadow(0 6px 18px rgba(15, 110, 140, .35)); }
+.fp-login-logo { width: 220px; height: auto; aspect-ratio: 1; object-fit: contain; filter: drop-shadow(0 8px 22px rgba(15, 110, 140, .30)); }
+.core[data-theme="dark"] .fp-login-logo { filter: drop-shadow(0 0 26px rgba(56, 189, 248, .32)) drop-shadow(0 6px 14px rgba(0, 0, 0, .5)); }
 .fp-login-brand h1 { margin: 0; font-size: clamp(20px, 7.5vw, 28px); font-weight: 700; letter-spacing: .08em; white-space: nowrap; line-height: 1.1; }
 .fp-login-brand p { margin: 0; font-family: var(--fp-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--fp-muted); overflow-wrap: anywhere; }
 .fp-login-card { width: 100%; background: var(--fp-card); border: 1px solid var(--fp-border); border-radius: var(--fp-radius-card); box-shadow: var(--fp-shadow); padding: 32px; display: flex; flex-direction: column; gap: 16px; }
@@ -147,7 +148,7 @@ textarea.fp-input { padding: 10px 12px; min-height: 120px; width: 100%; }
 .fp-spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; display: inline-block; animation: fp-spin .8s linear infinite; }
 @keyframes fp-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .fp-spin { animation-duration: 2.4s; } }
-@media (max-width: 767px) { .fp-login-logo { width: 120px; } .fp-login-card { padding: 24px 20px; } }
+@media (max-width: 767px) { .fp-login-logo { width: 180px; } .fp-login-card { padding: 24px 20px; } }
 
 /* RS-485 Ports page */
 .fp-ports { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }

@@ -32,8 +32,9 @@ export default function Login({ onLogin, theme, onToggleTheme }: { onLogin: (m: 
     <div className="fp-login">
       <div className="fp-login-stack">
         <header className="fp-login-brand">
-          <picture><source srcSet="/brand/farm-pilot-logo.webp" type="image/webp" /><img className="fp-login-logo" src="/brand/farm-pilot-logo.png" alt="Farm Pilot" width={160} height={152} /></picture>
-          <h1>FARM-PILOT CORE</h1><p>{farm || SUBTITLE}</p>
+          {/* 2026-11-16 -- new round badge: "Farm Pilot" and "CORE" are part of the artwork, so there is no separate title. Transparent outside the circle (checked: 0 opaque white corner pixels), same file on light and dark. */}
+          <picture><source type="image/webp" srcSet="/brand/farm-pilot-core-logo-512.webp 512w, /brand/farm-pilot-core-logo-1024.webp 1024w" sizes="(max-width: 767px) 180px, 220px" /><img className="fp-login-logo" src="/brand/farm-pilot-core-logo-512.png" alt="Farm Pilot CORE" width={220} height={220} /></picture>
+          <p>{farm || SUBTITLE}</p>
         </header>
         <form className="fp-login-card" onSubmit={submit} noValidate>
           <h2 className="fp-cap">Sign in</h2>
