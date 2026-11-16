@@ -11,6 +11,8 @@ export PATH="$PWD/node/bin:$PATH"
 [ -x node/bin/node ] || { echo "Node runtime missing at $PWD/node (see README, 'Node on the bench')." >&2; exit 1; }
 
 for a in "$@"; do [ "$a" = "--release" ] && RELEASE=1; done
+# A release build trusts production licence keys only (dev-1 is ignored by a release stamp), so it needs one: see docs/licence-production-keys.md.
+if [ -n "${RELEASE:-}" ] && ! grep -Eq '^[[:space:]]*"prod-[0-9]+":' src/licence/keys.ts; then echo "!! RELEASE refused: src/licence/keys.ts has no production public key (prod-N). Generate it offline first (docs/licence-production-keys.md)." >&2; exit 1; fi
 if [ "${1:-}" != "--no-pull" ] && [ "${1:-}" != "--release" ]; then echo "==> git pull --ff-only"; git pull --ff-only; fi
 # --ignore-scripts: better-sqlite3 ships a prebuilt binary (prebuilds/linux-x64.node) but npm would still run an implicit "node-gyp rebuild",
 # which fails on this box (no make/g++) after npm ci has already emptied node_modules. Found 2026-11-16 during Milestone 2 deploy.
