@@ -42,3 +42,23 @@ test("a sensor that has NEVER reported (just added, all-zero frames) raises no N
   const late = t0 + 3 * 3600_000; await svc.pollNow(late); const v = buildView(db, reg, svc, true, late);
   const s = v.sensors.find((q: any) => q.serial === "112600317")!; assert.ok(["no_data", "ok"].includes(s.status)); assert.ok(!v.alarms.some((a) => a.serial === "112600317"));
 });
+
+// ---- gateway offline: sensors are UNKNOWN, not silent ----
+test("gateway offline: only GATEWAY OFFLINE is raised (no per-sensor NO UPDATE flood); an open sensor alarm stays open as unknown; when the gateway returns the sensors are evaluated again (still silent -> alarm, reporting -> none)", async () => {
+  const x = await rig(); const { db, sim, reg, svc, t0 } = x; const tr = new AlarmTracker(db, reg, svc); 
+  sim.freeze(POOL[1]); await x.tick(t0 + 40 * MIN); tr.tick(t0 + 40 * MIN);                          // sensor 2 is frozen and past its threshold: one open NO UPDATE
+  assert.deepEqual(events(db).map((e) => [e.source, e.cleared_at]), [[POOL[1], null]]);
+  sim.silent = true;                                                                                // the GATEWAY stops answering (link down)
+  const cycles = reg.settings().offlineCycles; for (let i = 0; i < cycles + 1; i++) await svc.pollNow(t0 + 3 * 3600_000 + i * 30_000); assert.equal(svc.online, false, "gateway is offline");
+  const far = t0 + 6 * 3600_000; tr.tick(far);
+  assert.deepEqual(buildView(db, reg, svc, false, far).alarms.map((a) => a.kind), ["gateway_offline"], "live list: the gateway alarm only, no sensor alarms (their state is unknown)");
+  const h = db.prepare("SELECT kind,source,cleared_at FROM alarm_events ORDER BY id").all() as any[]; assert.equal(h.filter((r) => r.kind === "gateway_offline").length, 1); assert.equal(h.filter((r) => r.kind === "no_update").length, 1, "no new sensor episodes while offline");
+  assert.equal(h.find((r) => r.kind === "no_update").cleared_at, null, "the open sensor alarm is frozen open, not cleared");
+  assert.equal(tr.history(50, false).find((r) => r.kind === "no_update")!.unknown, true, "and reported as unknown");
+  sim.silent = false;                                                                               // the gateway comes back; sensor 2 is still frozen, sensor 1 keeps reporting
+  const back = far + 10 * MIN; await x.tick(back); assert.equal(svc.online, true); tr.tick(back);                 // evaluated on the FIRST tick after the return: the reporting sensor is not flagged by its old last_change
+  assert.ok(!events(db).some((e) => e.source === POOL[0]), "sensor 1 never alarmed"); await x.tick(back + 5 * MIN); tr.tick(back + 5 * MIN);
+  const live = buildView(db, reg, svc, true, back + 5 * MIN).alarms; assert.ok(!live.some((a) => a.kind === "gateway_offline"));
+  assert.deepEqual(live.filter((a) => a.kind === "no_update").map((a) => a.serial), [POOL[1]], "evaluated again: only the sensor that is really silent");
+  assert.equal(events(db).length, 1, "same episode continues, no duplicate"); assert.equal(events(db)[0].cleared_at, null);
+});
