@@ -10,9 +10,9 @@ import { thisDeviceId } from "./device.js";
 import { FREE_LICENCE } from "./free.js";
 import { checkLicence, expiryMs, LicenceError, type KeyMap, type LicenceFile } from "./format.js";
 import { LICENCE_PUBLIC_KEYS } from "./keys.js";
-import { overLimit, type LicenceSummary } from "./summary.js";
+import { over, overLimit, type LicenceSummary } from "./summary.js";
 import { usage } from "./usage.js";
-import { reportsDaysFor } from "./range.js";
+import { reportsDaysFor, retentionDaysFor } from "./range.js";
 
 export const SCHEMA_LICENCE = `CREATE TABLE IF NOT EXISTS licence (id INTEGER PRIMARY KEY, licence_id TEXT NOT NULL, type TEXT NOT NULL, licensed_to TEXT NOT NULL, limits_json TEXT NOT NULL, valid_until TEXT,
   installed_at INTEGER NOT NULL, installed_by TEXT NOT NULL, file_sha256 TEXT NOT NULL);`;
@@ -51,27 +51,32 @@ export class LicenceService {
   }
   /** How many days back charts, CSV export and Reports may reach: 7 on FREE (also EXPIRED and INVALID), null on a valid licence. Read live, so a licence change applies without a restart. */
   reportsDays() { return reportsDaysFor(this.summary()); }
+  /** Days of history to keep (raw and hourly rows); null = never prune. Read at every retention run, so a licence change applies without a restart. */
+  retentionDays() { return retentionDaysFor(this.summary()); }
   /** Effective limits: the licence's own while it is LICENSED, FREE otherwise (expired, invalid, none). */
   limits() { return this.summary().limits; }
   summary(): LicenceSummary {
-    const free = { gateways: FREE_LICENCE.gateways, sensors: FREE_LICENCE.sensors }, u = usage(this.db), L = this.loaded;
+    const free: { gateways: number | null; sensors: number | null } = { gateways: FREE_LICENCE.gateways, sensors: FREE_LICENCE.sensors }, u = usage(this.db), L = this.loaded;
+    const freeNums = { reports_days: FREE_LICENCE.reportsDays as number | null, retention_days: FREE_LICENCE.retentionDays as number | null };
     if (L.kind === "ok") {
-      const f = L.file, expired = this.now() >= expiryMs(f), limits = expired ? free : { ...f.limits };
-      return { type: f.type, licensed_to: f.licensed_to, valid_until: f.valid_until, state: expired ? "EXPIRED" : "LICENSED", limits, usage: u, over_limit: overLimit(u, limits), ...(expired ? { reason: "The licence has expired. Free limits apply until a new licence is installed." } : {}) };
+      const f = L.file, expired = this.now() >= expiryMs(f), limits = expired ? free : { gateways: f.limits.gateways, sensors: f.limits.sensors };
+      // v1 file: no reports_days / retention_days -> reports unlimited inside retention, retention 365 days. v2: as signed (null = unlimited / never prune).
+      const nums = expired ? freeNums : { reports_days: f.limits.reports_days === undefined ? null : f.limits.reports_days, retention_days: f.limits.retention_days === undefined ? 365 : f.limits.retention_days };
+      return { type: f.type, licensed_to: f.licensed_to, valid_until: f.valid_until, state: expired ? "EXPIRED" : "LICENSED", limits, usage: u, over_limit: overLimit(u, limits), ...nums, ...(expired ? { reason: "The licence has expired. Free limits apply until a new licence is installed." } : {}) };
     }
-    return { type: FREE_LICENCE.type, licensed_to: null, valid_until: null, state: L.kind === "invalid" ? "INVALID" : "FREE", limits: free, usage: u, over_limit: overLimit(u, free), ...(L.kind === "invalid" ? { reason: L.reason } : {}) };
+    return { type: FREE_LICENCE.type, licensed_to: null, valid_until: null, state: L.kind === "invalid" ? "INVALID" : "FREE", limits: free, usage: u, over_limit: overLimit(u, free), ...freeNums, ...(L.kind === "invalid" ? { reason: L.reason } : {}) };
   }
   private limitText(what: string) {
     const s = this.summary(), name = s.state === "LICENSED" ? `Licence ${s.type}` : "Free licence"; return `${name} allows ${s.limits[what === "sensor" ? "sensors" : "gateways"]} ${what}${(what === "sensor" ? s.limits.sensors : s.limits.gateways) === 1 ? "" : "s"} in total. Upload a licence on the About page.`;
   }
   private refuse(what: "sensor" | "gateway"): never { throw new HttpError(409, this.limitText(what), { code: "LICENCE_LIMIT", limit: what }); }
   /** ADD paths only. Refuses when `n` more would pass the limit, and always when the box is already over it. */
-  checkSensorsAdd(n: number) { const s = this.summary(); if (s.usage.sensors + n > s.limits.sensors) this.refuse("sensor"); }
+  checkSensorsAdd(n: number) { const s = this.summary(); if (over(s.usage.sensors + n, s.limits.sensors)) this.refuse("sensor"); }
   /** A restore replaces all sensors: refuse a backup that would end above the limit AND hold more than the box has now (a smaller or equal set adds nothing). */
-  checkSensorsTotal(total: number) { const s = this.summary(); if (total > s.limits.sensors && total > s.usage.sensors) this.refuse("sensor"); }
+  checkSensorsTotal(total: number) { const s = this.summary(); if (over(total, s.limits.sensors) && total > s.usage.sensors) this.refuse("sensor"); }
   /** SEND TO GATEWAY: refused when sensors that are not in the gateway yet would be pushed while the registry is above the limit. Interval changes and removals always go through. */
-  checkSend(total: number, unsent: number) { const s = this.summary(); if (unsent > 0 && total > s.limits.sensors) this.refuse("sensor"); }
-  checkGatewayAdd(n = 1) { const s = this.summary(); if (s.usage.gateways + n > s.limits.gateways) this.refuse("gateway"); }
+  checkSend(total: number, unsent: number) { const s = this.summary(); if (unsent > 0 && over(total, s.limits.sensors)) this.refuse("sensor"); }
+  checkGatewayAdd(n = 1) { const s = this.summary(); if (over(s.usage.gateways + n, s.limits.gateways)) this.refuse("gateway"); }
 
   install(a: Actor, buf: Buffer): LicenceSummary {
     const sha = createHash("sha256").update(buf).digest("hex"), prev = this.row();
