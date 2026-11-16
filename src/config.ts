@@ -1,12 +1,15 @@
 // FARM-PILOT CORE -- runtime configuration, all from environment (systemd EnvironmentFile). No file is ever required.
+import { defaultPaths } from "./platform.js";
 const env = process.env;
+const paths = defaultPaths();               // Linux: /var/lib/farmpilot-core. Windows: C:\FarmPilot-Core\{data,logs}. DATA_DIR / DB_PATH override both.
 const int = (k: string, d: number) => { const n = Number(env[k]); return Number.isFinite(n) && env[k] !== undefined && env[k] !== "" ? n : d; };
 
 export const config = {
   host: env.HOST_BIND_IP || "127.0.0.1",
   port: int("PORT", 4100),
-  dbPath: env.DB_PATH || "/var/lib/farmpilot-core/core.db",
-  dataDir: env.DATA_DIR || "/var/lib/farmpilot-core",
+  dbPath: paths.dbPath,
+  dataDir: paths.dataDir,
+  logsDir: paths.logsDir,
   mqttHost: "127.0.0.1",                    // loopback ONLY, never configurable to a public address
   mqttPort: int("MQTT_PORT", 1884),         // 1883 is EMQX on the test bench
   farm: env.FARM_SLUG || "demo-farm",
@@ -20,7 +23,7 @@ export const config = {
   sessionHours: int("SESSION_HOURS", 12),
   // Milestone 2 gateway (XZ-DS-MUS2). GW_TRANSPORT unset or "off" = no gateway polling (the runtime behaves as in Milestone 1).
   gwTransport: (env.GW_TRANSPORT || "off") as "off" | "tcp" | "rtu-tcp" | "rtu-serial",
-  gwHost: env.GW_HOST || "127.0.0.1", gwPort: int("GW_PORT", 5020), gwSerialPath: env.GW_SERIAL_PATH || "/dev/ttyUSB0", gwBaud: int("GW_BAUD", 9600),
+  gwHost: env.GW_HOST || "127.0.0.1", gwPort: int("GW_PORT", 5020), gwSerialPath: env.GW_SERIAL_PATH || paths.serialPath, gwBaud: int("GW_BAUD", 9600),
   gwParity: (env.GW_PARITY || "none") as "none" | "even" | "odd", gwAddress: int("GW_ADDRESS", 0), gwTimeoutMs: int("GW_TIMEOUT_MS", 1500), gwRetries: int("GW_RETRIES", 2),
   gwRegmap: env.GW_REGMAP || "config/gateway-thingsend.yaml",
 };

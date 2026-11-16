@@ -1,9 +1,10 @@
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Db } from "./db.js";
 import { audit } from "./db.js";
 import { config } from "./config.js";
+import { isWin, restrictToCurrentUser, type Platform } from "./platform.js";
 
 export type Role = "operator" | "admin";
 export interface AuthUser { id: number; username: string; role: Role; }
@@ -19,12 +20,25 @@ export function verifyPassword(pw: string, stored: string): boolean {
 }
 const sha = (t: string) => createHash("sha256").update(t).digest("hex");
 
+/**
+ * Linux: written with mode 0o600, exactly as before. Windows (W1): the mode is ignored by the OS, so the empty file is created first, restricted to the
+ * current user with icacls, and only then filled. If icacls fails the file is removed and the password is printed once to the console instead:
+ * a world-readable password file is worse than none.
+ */
+export function writeInitialPassword(file: string, text: string, platform: Platform = process.platform, restrict = restrictToCurrentUser) {
+  if (!isWin(platform)) { writeFileSync(file, text, { mode: 0o600 }); return; }
+  writeFileSync(file, "", { mode: 0o600 });
+  if (restrict(file, platform)) { writeFileSync(file, text); return; }
+  rmSync(file, { force: true });
+  console.error(`WARNING: could not restrict ${file} to the current user (icacls failed), so it was not written. Initial login, shown once: ${text.trim()}`);
+}
+
 // First boot only: create the Admin. Password from CORE_ADMIN_PASSWORD, else random, written ONCE to <dataDir>/initial-admin-password (mode 600).
 export function ensureAdmin(db: Db) {
   const n = (db.prepare("SELECT COUNT(*) c FROM users").get() as { c: number }).c; if (n > 0) return;
   const pw = process.env.CORE_ADMIN_PASSWORD || randomBytes(9).toString("base64url");
   db.prepare("INSERT INTO users(username,pass_hash,role,created_at) VALUES('admin',?,'admin',?)").run(hashPassword(pw), Date.now());
-  if (!process.env.CORE_ADMIN_PASSWORD) writeFileSync(join(config.dataDir, "initial-admin-password"), `admin / ${pw}\n`, { mode: 0o600 });
+  if (!process.env.CORE_ADMIN_PASSWORD) writeInitialPassword(join(config.dataDir, "initial-admin-password"), `admin / ${pw}\n`);
   audit(db, "system", "system", "user.bootstrap", { username: "admin" });
 }
 
