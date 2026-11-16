@@ -95,3 +95,10 @@ Source of truth: manual "XZ-DS-MUS2 manual V20". Everything the manual does not 
 
 ## Out of scope
 Wi-Fi hotspot, licence flag, EDGE uplink, fleet menu, USB backups, Arabic UI; soil, light, gas/CO2, door/smoke types (Milestone 2b), LoRa actuator control, rules engine.
+
+## RS-485 Ports (Settings > RS-485 PORTS, Admin only)
+Port 1 and Port 2, the device-to-port assignment and the line settings live in the database (`serial_ports`, `bus_devices`), are audited and are part of Backup. On the first start after this change, the old `GW_*` environment values are migrated into Port 1 + the "LoRa Sensor Gateway" device (they are only initial defaults afterwards); Port 2 and the "Weather Station" (WN90LP, address 144) are created switched off.
+- One request queue per port (`PortQueue`), writes before polls, ports independent. Changes apply without a restart: polling pauses, the port reopens, TEST runs, polling resumes. A device that was online and is silent afterwards leaves a 30 s window: KEEP THESE SETTINGS or REVERT (automatic otherwise).
+- Bench: gateway simulator on 5020 (MBAP) / 5021 (RTU) = Port 1; WN90LP simulator on 5040 / 5041 (control 5050, `deploy/farmpilot-wn90lp-sim.service`, installed by `deploy/install-gateway-sim.sh`) = Port 2. In Settings choose connection type TCP, host 127.0.0.1, framing "Modbus TCP (bench simulator)".
+- The WN90LP register layout is NOT verified (manual not in the project): the weather station only gets a liveness poll (status read) until the PDF is supplied.
+- Linux: the service user needs the `dialout` group to open `/dev/ttyUSB*`; the page shows this message when the open fails.

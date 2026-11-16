@@ -5,6 +5,7 @@ import SensorsPage from "./SensorsPage";
 import SensorDetail from "./SensorDetail";
 import StructurePage from "./StructurePage";
 import GatewayPage from "./GatewayPage";
+import PortsPage from "./PortsPage";
 import FarmProfilePage from "./FarmProfilePage";
 import { Chip, Modal, dt, errText } from "./ui";
 import { LEGACY, TABS, type Badge } from "./Sidebar";
@@ -16,7 +17,7 @@ export default function Settings({ tab, serial, focus, scada, reload, onProfile,
   useEffect(() => { if (redirect) go("/settings/" + redirect); else if ((!tab && !phone) || (tab && !known)) go("/settings/farm-profile"); }, [redirect, tab, phone, known]);
   const t = known ? tab! : undefined;
   const body = t === "sensors" ? (serial ? <SensorDetail serial={serial} focus={focus} scada={scada} reload={reload} /> : <SensorsPage scada={scada} reload={reload} />)
-    : t === "farm-structure" ? <StructurePage reload={reload} /> : t === "sensors-gateway" ? <GatewayPage scada={scada} reload={reload} /> : t === "farm-profile" ? <FarmProfilePage onChanged={onProfile} /> : t === "users" ? <UsersPage /> : t === "backup" ? <BackupPage reload={reload} /> : null;
+    : t === "farm-structure" ? <StructurePage reload={reload} /> : t === "rs485-ports" ? <PortsPage reload={reload} /> : t === "sensors-gateway" ? <GatewayPage scada={scada} reload={reload} /> : t === "farm-profile" ? <FarmProfilePage onChanged={onProfile} /> : t === "users" ? <UsersPage /> : t === "backup" ? <BackupPage reload={reload} /> : null;
   const label = (k: string, l: string) => <>{l}{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.word}</Chip>}</>;
   if (phone && !t) return (<main className="fp-page"><h2 style={{ fontFamily: "var(--fp-head)", margin: 0 }}>Settings</h2><ul className="fp-list">{TABS.map(([k, l]) => <li key={k} style={{ padding: 0 }}><button className="fp-tab" style={{ width: "100%", minHeight: 56, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => go("/settings/" + k)}>{label(k, l)}<span aria-hidden>›</span></button></li>)}</ul></main>);
   return (

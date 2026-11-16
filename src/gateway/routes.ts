@@ -9,6 +9,7 @@ import { buildView, type AdminSensorView } from "./health.js";
 import { HttpError, type Registry } from "./registry.js";
 import type { GatewayService } from "./service.js";
 import { ProfileService } from "./profile.js";
+import type { PortManager } from "../ports/manager.js";
 
 const TEMPLATES = [
   { key: "greenhouse", label: "Greenhouse", name: "Greenhouse", type: "climate", roles: ["Air temperature", "Air humidity"] },
@@ -16,7 +17,7 @@ const TEMPLATES = [
   { key: "water", label: "Water storage", name: "Water storage", type: "water_storage", roles: ["Air temperature", "Air humidity"] },
 ];
 
-export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registry, svc: GatewayService, admin: any, push: () => void, prof: ProfileService = new ProfileService(db, reg.map)) {
+export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registry, svc: GatewayService, admin: any, push: () => void, prof: ProfileService = new ProfileService(db, reg.map), ports: PortManager | null = null) {
   const A = (req: any) => ({ username: req.user.username as string, role: req.user.role as string });
   app.setErrorHandler((err: any, _req, reply) => { if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message, ...(err.extra as object) }); reply.send(err); });
   const guard = <T>(f: () => T) => { const r = f(); push(); return r; };
@@ -35,7 +36,8 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   app.get("/api/gateway", { preHandler: admin }, async () => {
     const pend = (db.prepare("SELECT COUNT(*) c FROM sensors WHERE replaced_by IS NULL AND (sent_slot IS NULL OR sent_slot IS NOT slot OR sent_interval IS NOT reporting_interval)").get() as { c: number }).c
       + (db.prepare("SELECT COUNT(*) c FROM pending_removals").get() as { c: number }).c;
-    const link = config.gwTransport === "off" ? null : { transport: config.gwTransport, host: config.gwHost, port: config.gwPort, serialPath: config.gwSerialPath, baud: config.gwBaud, parity: config.gwParity, dataBits: 8, stopBits: 1,
+    // The link settings now live in the RS-485 Ports page (database). This is the read-only summary; without a manager (tests) the old environment values are shown.
+    const link = ports ? ports.gatewayLink() : config.gwTransport === "off" ? null : { transport: config.gwTransport, host: config.gwHost, port: config.gwPort, serialPath: config.gwSerialPath, baud: config.gwBaud, parity: config.gwParity, dataBits: 8, stopBits: 1,
       address: config.gwAddress || reg.map.default_gateway_address, timeoutMs: config.gwTimeoutMs, retries: config.gwRetries };
     return { enabled: svc.enabled, online: svc.online, lastOk: svc.lastOk, lastError: svc.lastError, link, model: reg.map.gateway_model, manual: reg.map.manual_version, mapVersion: reg.map.map_version, info: svc.info,
       types: typesInfo(), unsent: pend, pending: db.prepare("SELECT type,serial,slot FROM pending_removals").all(), lastSync: svc.lastSync(), unassigned: svc.unassigned(), syncing: svc.syncing, settings: reg.settings() };
@@ -51,7 +53,7 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   app.post<{ Body: { address?: number; confirmText?: string } }>("/api/gateway/set-address", { preHandler: admin }, async (req) => {
     const n = Number(req.body?.address), bad = !Number.isInteger(n) || n < 1 || n > 254 || n === 123 || n === 160;
     if (bad || req.body?.confirmText !== prof.farmName()) { audit(db, A(req).username, A(req).role, "gateway.set_address.refused", { address: req.body?.address ?? null, reason: bad ? "address not allowed" : "confirmation text did not match" }); throw new HttpError(400, bad ? "address must be 1 to 254 and never 123 or 160" : `type the farm name "${prof.farmName()}" to confirm`); }
-    await svc.setAddress(A(req), n); push(); return { ok: true, address: n };
+    await svc.setAddress(A(req), n); ports?.syncGatewayAddress(n); push(); return { ok: true, address: n };
   });
   app.post<{ Body: { serial: string } }>("/api/gateway/unassigned/ignore", { preHandler: admin }, async (req) => { svc.ignore(A(req), String(req.body?.serial ?? "")); push(); return { ok: true }; });
   app.post<{ Body: { serial: string } }>("/api/gateway/unassigned/add", { preHandler: admin }, async (req) => guard(() => {
@@ -98,7 +100,7 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   app.patch<{ Params: { id: string }; Body: { role: string } }>("/api/points/:id", { preHandler: admin }, async (req) => guard(() => { reg.setPointRole(A(req), Number(req.params.id), req.body?.role); return { ok: true }; }));
 
   // ---- backup ----
-  app.get("/api/backup", { preHandler: admin }, async (req, reply) => { audit(db, (req as any).user.username, "admin", "backup.export", {}); reply.header("content-disposition", 'attachment; filename="farmpilot-core-backup.json"'); return { ...reg.exportAll(), ...prof.exportParts() }; });
+  app.get("/api/backup", { preHandler: admin }, async (req, reply) => { audit(db, (req as any).user.username, "admin", "backup.export", {}); reply.header("content-disposition", 'attachment; filename="farmpilot-core-backup.json"'); return { ...reg.exportAll(), ...prof.exportParts(), ...(ports ? ports.exportParts() : {}) }; });
   app.get("/api/backup/status", { preHandler: admin }, async () => { const r = db.prepare("SELECT MAX(ts) t FROM audit_log WHERE action='backup.export'").get() as { t: number | null }; return { lastExportAt: r?.t ?? null, warnDays: Number(getSetting(db, "backup.warn_days", "7")) }; });
-  app.post("/api/backup/restore", { preHandler: admin, bodyLimit: 2 * 1024 * 1024 }, async (req) => guard(() => { const b = req.body as any; if (b && typeof b === "object") prof.checkBackup(b); reg.restore(A(req), req.body); prof.restoreParts(A(req), b); return { ok: true }; }));
+  app.post("/api/backup/restore", { preHandler: admin, bodyLimit: 2 * 1024 * 1024 }, async (req) => { const b = req.body as any; if (b && typeof b === "object") { prof.checkBackup(b); ports?.checkBackup(b); } reg.restore(A(req), req.body); prof.restoreParts(A(req), b); await ports?.restoreParts(A(req), b); push(); return { ok: true }; });
 }

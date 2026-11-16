@@ -1,8 +1,9 @@
 import { createServer, type Server, type Socket } from "node:net";
 import { mbapLength, rtuFrameLength, rtuUnwrap, rtuWrap } from "../../drivers/modbus/frames.js";
-import type { GatewaySim } from "./sim.js";
+/** Anything that answers Modbus requests: the gateway simulator and the weather-station simulator. */
+export interface ModbusSlave { handle(unit: number, pdu: Buffer): Buffer | null; }
 
-export function serveSim(sim: GatewaySim, port: number, framing: "mbap" | "rtu", bind = "127.0.0.1"): Server {
+export function serveSim(sim: ModbusSlave, port: number, framing: "mbap" | "rtu", bind = "127.0.0.1"): Server {
   return createServer((s: Socket) => {
     let buf = Buffer.alloc(0); s.on("error", () => {});
     s.on("data", (d: Buffer) => {
@@ -19,5 +20,5 @@ export function serveSim(sim: GatewaySim, port: number, framing: "mbap" | "rtu",
         }
       }
     });
-  }).listen(port, bind, () => console.log(`gateway-sim ${framing} on ${bind}:${port}`));
+  }).listen(port, bind, () => console.log(`modbus-sim ${framing} on ${bind}:${port}`));
 }

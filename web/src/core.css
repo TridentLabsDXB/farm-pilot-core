@@ -144,3 +144,15 @@ textarea.fp-input { padding: 10px 12px; min-height: 120px; width: 100%; }
 @keyframes fp-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .fp-spin { animation-duration: 2.4s; } }
 @media (max-width: 767px) { .fp-login-logo { width: 120px; } .fp-login-card { padding: 24px 20px; } }
+
+/* RS-485 Ports page */
+.fp-ports { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.fp-ports .fp-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.fp-devs { display: grid; grid-template-columns: minmax(180px, 1.4fr) 110px 130px 100px minmax(170px, 1fr) auto; gap: 12px 14px; align-items: center; overflow-x: auto; }
+.fp-devrow { display: contents; } .fp-devhead { display: contents; }
+@media (max-width: 1099px) { .fp-ports { grid-template-columns: 1fr; } }
+@media (max-width: 767px) {
+  .fp-devs { grid-template-columns: 1fr; gap: 8px; } .fp-devhead { display: none; }
+  .fp-devrow { display: grid; grid-template-columns: 1fr; gap: 8px; padding: 12px 0; border-top: 1px solid var(--fp-border); }
+  .fp-ports .fp-form { grid-template-columns: 1fr; } .fp-ports .fp-input, .fp-devs .fp-input, .fp-ports .fp-btn, .fp-devs .fp-btn { min-height: 48px; }
+}

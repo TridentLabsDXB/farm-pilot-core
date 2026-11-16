@@ -3,6 +3,7 @@ import { api } from "./api";
 import { ConfirmModal, SendBar, SyncCards, linkText, useSync } from "./Sync";
 import type { Scada } from "./api";
 import { Chip, Modal, dt, errText } from "./ui";
+import { go } from "./App";
 
 export default function GatewayPage({ scada, reload }: { scada: Scada | null; reload: () => void }) {
   const S = useSync(scada, reload); const th = S.list?.types.find((t) => t.key === "th");
@@ -23,15 +24,11 @@ export default function GatewayPage({ scada, reload }: { scada: Scada | null; re
     <div className="fp-two"><div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
     <section className="fp-card"><div className="fp-row fp-spread"><h3>Gateway</h3>{!g.enabled ? <Chip tone="off">NO GATEWAY</Chip> : g.online ? <Chip tone="ok">ONLINE</Chip> : <Chip tone="alarm">OFFLINE</Chip>}</div>
       <ul className="fp-list"><li><span>Model</span><span>{g.model} (manual {g.manual})</span></li><li><span>Modbus address / PID (group address)</span><span>{g.info.address ?? "--"} / {g.info.groupAddress ?? "--"}</span></li><li><span>Polling interval</span><span>{g.settings.pollSec} s</span></li><li><span>Register map version</span><span>{g.mapVersion}</span></li><li><span>Version register</span><span>{g.info.version == null ? "--" : "0x" + g.info.version.toString(16).toUpperCase().padStart(4, "0")}</span></li><li><span>Last successful poll</span><span>{dt(g.lastOk)}</span></li>{g.lastError && <li><span>Last error</span><span>{g.lastError}</span></li>}</ul></section>
-    <section className="fp-card"><h3>Link</h3>
+    <section className="fp-card"><div className="fp-row fp-spread"><h3>Link</h3>{l && <Chip tone={l.enabled ? "info" : "off"}>{l.portLabel}</Chip>}</div>
       {!l ? <p className="fp-msg fp-muted">No gateway link is configured.</p> : <ul className="fp-list">
-        <li><span>Transport</span><span>{l.transport === "rtu-serial" ? "RTU over serial (RS485)" : l.transport === "tcp" ? "Modbus TCP (bench simulator)" : "RTU over TCP"}</span></li>
-        {l.transport === "rtu-serial" ? <>
-          <li><span>Serial port</span><span>{l.serialPath}</span></li><li><span>Baud rate</span><span>{l.baud}</span></li>
-          <li><span>Data / parity / stop bits</span><span>{l.dataBits}{l.parity === "none" ? "N" : l.parity === "even" ? "E" : "O"}{l.stopBits}</span></li></> : <>
-          <li><span>Host</span><span>{l.host}</span></li><li><span>TCP port</span><span>{l.port}</span></li></>}
-        <li><span>Modbus address</span><span>{l.address}</span></li><li><span>Timeout</span><span>{l.timeoutMs} ms</span></li><li><span>Retries</span><span>{l.retries}</span></li></ul>}
-      <span className="fp-hint">Read-only for now. An Admin screen to change these is planned.</span></section>
+        <li><span>Port</span><span>Port {l.portId}, {l.transport === "serial" ? l.line : l.transport === "tcp" ? `TCP ${l.host}:${l.port}` : ""}{l.enabled ? "" : " (switched off)"}</span></li>
+        <li><span>Modbus address</span><span>{l.address}</span></li><li><span>Timeout / retries</span><span>{l.timeoutMs} ms / {l.retries}</span></li></ul>}
+      <span className="fp-hint">Read-only summary. The line settings, the port and the address of this device are set in <a href="#/settings/rs485-ports" onClick={(e) => { e.preventDefault(); go("/settings/rs485-ports"); }}>RS-485 Ports</a>.</span></section>
     <section className="fp-card"><h3>Timing and calibration limits</h3>
       <div className="fp-form"><span className="fp-cap wide">Timing</span>{fld("pollSec", "Modbus poll (s)", "Shortened to half the shortest sensor interval, minimum 10 s.")}<span />
         <span className="fp-cap wide">Calibration limits</span>{fld("tOff", "Max temperature offset (°C)")}{fld("hOff", "Max humidity offset (%RH)")}</div>

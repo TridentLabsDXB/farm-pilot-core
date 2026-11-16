@@ -21,7 +21,13 @@ export class GatewayService extends EventEmitter {
   }
   get enabled() { return !!this.drv; }
 
-  start() { if (this.drv) { this.started = true; this.schedule(500); } }
+  /** Always starts the loop: with no driver (port off, device off, moved) it idles and checks again, so a driver given later by the Ports page is picked up without a restart. */
+  start() { this.started = true; this.schedule(500); }
+  /** Give the service a driver on another port or address, or none (NOT CONNECTED). Polling state (paused) is preserved; the next poll re-reads system and config. */
+  async rebind(drv: GatewayDriver | null) {
+    const was = this.paused; await this.pause(); this.drv = drv; this.needFull = true; this.failCycles = 0;
+    if (!drv) { this.online = false; this.lastError = null; this.persist(); } if (!was) this.resume(); this.emit("update");
+  }
   async stop() { this.stopped = true; clearTimeout(this.timer); await this.cycle?.catch(() => {}); }
   private period() {
     const st = this.reg.settings(); const iv = this.reg.list().filter((s) => s.sent_slot !== null).map((s) => this.reg.intervalSec(s.type, s.reporting_interval));
@@ -32,7 +38,7 @@ export class GatewayService extends EventEmitter {
   }
   private schedule(ms: number) { if (this.stopped || !this.started) return; clearTimeout(this.timer); this.timer = setTimeout(() => void this.run(), ms); }
   private async run() {
-    if (this.paused) return this.schedule(1000);
+    if (this.paused || !this.drv) return this.schedule(1000);
     this.cycle = this.pollOnce().then(() => this.ok(), (e) => this.fail(e)).finally(() => { this.cycle = null; this.emit("update"); });
     await this.cycle; this.schedule(this.period());
   }

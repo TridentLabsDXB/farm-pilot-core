@@ -8,11 +8,10 @@ import { ensureAdmin, purgeFails, purgeSessions } from "./auth.js";
 import { runRetention, runRollup } from "./retention.js";
 import { buildApp } from "./app.js";
 import { loadRegMap } from "./drivers/modbus/regmap.js";
-import { createTransport } from "./drivers/modbus/transport.js";
-import { ModbusMaster } from "./drivers/modbus/master.js";
-import { GatewayDriver } from "./drivers/modbus/driver.js";
 import { Registry } from "./gateway/registry.js";
 import { GatewayService } from "./gateway/service.js";
+import { PortStore } from "./ports/store.js";
+import { PortManager } from "./ports/manager.js";
 
 const db = openDb(config.dbPath);
 ensureAdmin(db);
@@ -36,19 +35,21 @@ client.on("message", (topic, payload) => {
 });
 
 // Gateway: an invalid register map refuses to start polling (clear error) but never takes the rest of the runtime down.
-let reg: Registry | null = null, gw: GatewayService | null = null, gwError: string | null = null;
+// The serial link is no longer built from the environment file: Port 1 / Port 2 and the device assignment live in the database (Settings > RS-485 Ports).
+// On the FIRST start the old GW_* values are migrated into Port 1 + the LoRa Sensor Gateway device, so a running box changes nothing.
+let reg: Registry | null = null, gw: GatewayService | null = null, gwError: string | null = null, map: ReturnType<typeof loadRegMap> | null = null;
 try {
-  const map = loadRegMap(config.gwRegmap);
+  map = loadRegMap(config.gwRegmap);
   reg = new Registry(db, map);
-  let drv: GatewayDriver | null = null;
-  if (config.gwTransport !== "off") {
-    const tr = createTransport({ type: config.gwTransport, host: config.gwHost, port: config.gwPort, path: config.gwSerialPath, baud: config.gwBaud, parity: config.gwParity });
-    drv = new GatewayDriver(new ModbusMaster(tr, { unit: config.gwAddress || map.default_gateway_address, timeoutMs: config.gwTimeoutMs, retries: config.gwRetries }), map);
-  }
-  gw = new GatewayService(db, reg, ingest, drv);
+  gw = new GatewayService(db, reg, ingest, null);
   gw.start();
 } catch (e: any) { gwError = String(e?.message ?? e); reg = null; gw = null; console.error("GATEWAY DISABLED, register map problem:", gwError); }
-const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError);
+const portStore = new PortStore(db);
+if (portStore.migrateFromEnv({ transport: config.gwTransport, host: config.gwHost, port: config.gwPort, serialPath: config.gwSerialPath, baud: config.gwBaud, parity: config.gwParity, address: config.gwAddress, timeoutMs: config.gwTimeoutMs, retries: config.gwRetries }, map?.default_gateway_address ?? 1))
+  console.log("RS-485 ports: migrated the gateway link settings from the environment into Port 1");
+const ports = new PortManager(db, portStore, map, gw);
+await ports.start();
+const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError, ports);
 pushTelemetry = pt; pushCommand = pc;
 await app.listen({ host: config.host, port: config.port });
 
@@ -62,7 +63,7 @@ setTimeout(() => runRetention(db, config.retentionDays).catch((e) => console.err
 let stopping = false;
 async function shutdown() {
   if (stopping) return; stopping = true; timers.forEach(clearInterval);
-  await gw?.stop(); await app.close(); client.end(true); await broker.stop(); db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); process.exit(0);
+  await ports.stop(); await gw?.stop(); await app.close(); client.end(true); await broker.stop(); db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); process.exit(0);
 }
 process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
 void getSetting;

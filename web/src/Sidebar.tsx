@@ -4,7 +4,7 @@ import { go } from "./App";
 import { Chip, type Tone } from "./ui";
 
 // Settings items (Admin only), in this order. Old paths (#/settings/gateway, /structure) redirect to the new ones.
-export const TABS: [string, string][] = [["farm-profile", "FARM PROFILE"], ["farm-structure", "FARM STRUCTURE"], ["sensors-gateway", "SENSORS GATEWAY"], ["sensors", "SENSORS"], ["users", "USERS"], ["backup", "BACKUP"]];
+export const TABS: [string, string][] = [["farm-profile", "FARM PROFILE"], ["farm-structure", "FARM STRUCTURE"], ["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["sensors", "SENSORS"], ["users", "USERS"], ["backup", "BACKUP"]];
 export const LEGACY: Record<string, string> = { gateway: "sensors-gateway", structure: "farm-structure", profile: "farm-profile" };
 export type Badge = { tone: Tone; word: string } | undefined;
 

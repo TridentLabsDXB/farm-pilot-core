@@ -7,6 +7,8 @@ export interface ModbusTransport {
   /** Send a request PDU to a unit and resolve with the response PDU (function code first). */
   request(unit: number, pdu: Buffer, timeoutMs: number): Promise<Buffer>;
   close(): Promise<void>;
+  /** Frames received that were garbage or failed the CRC check (RTU). Lets TEST PORT tell "CRC ERROR" from "NO ANSWER". */
+  badFrames?(): number;
 }
 export interface TransportConfig {
   type: "tcp" | "rtu-tcp" | "rtu-serial";
@@ -54,13 +56,14 @@ class SerialChannel implements Channel {
 
 class Exchange {
   private pending?: { match: (b: Buffer) => Buffer | null | "bad"; resolve: (p: Buffer) => void; timer: NodeJS.Timeout };
+  bad = 0; badFrames() { return this.bad; }
   private buf = Buffer.alloc(0); private chain: Promise<unknown> = Promise.resolve();
   constructor(protected ch: Channel) { ch.onData((d) => this.feed(d)); }
   private feed(d: Buffer) {
     this.buf = Buffer.concat([this.buf, d]); if (this.buf.length > 4096) this.buf = Buffer.alloc(0);
     const p = this.pending; if (!p) { this.buf = Buffer.alloc(0); return; }
     const r = p.match(this.buf); if (r === null) return;
-    this.buf = Buffer.alloc(0); if (r === "bad") return;     // garbage or CRC error: keep waiting until timeout
+    this.buf = Buffer.alloc(0); if (r === "bad") { this.bad++; return; }     // garbage or CRC error: keep waiting until timeout
     clearTimeout(p.timer); this.pending = undefined; p.resolve(r);
   }
   protected exchange(frame: Buffer, match: (b: Buffer) => Buffer | null | "bad", timeoutMs: number): Promise<Buffer> {
