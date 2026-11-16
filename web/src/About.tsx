@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ENGINEERING, licWord, limitWord } from "./licence";
 import { api, type AboutInfo, type ComputerInfo, type LicenceInfo } from "./api";
 import { go } from "./App";
 import { Chip, Modal, errText, type Tone } from "./ui";
@@ -18,11 +19,11 @@ export async function copyText(text: string): Promise<boolean> {
 }
 function Tile({ k, v, nowrap }: { k: string; v: string | null; nowrap?: boolean }) { return <div className="ab-tile" data-nowrap={nowrap ? 1 : 0}><span className="fp-cap">{k}</span><span className="ab-val" data-na={v === null ? 1 : 0}>{v ?? "unavailable"}</span></div>; }
 const na = <T,>(v: T | null | undefined, f: (x: T) => string): string | null => (v === null || v === undefined ? null : f(v));
-function Bar({ label, n, max }: { label: string; n: number; max: number }) {
-  const over = n > max, pct = max > 0 ? Math.min(100, (n / max) * 100) : over ? 100 : 0;
+function Bar({ label, n, max }: { label: string; n: number; max: number | null }) {
+  const over = max !== null && n > max, pct = max === null ? 0 : max > 0 ? Math.min(100, (n / max) * 100) : over ? 100 : 0;       // null = unlimited: never over, empty bar
   return (<div className="ab-usage" data-over={over ? 1 : 0}>
-    <div className="fp-row fp-spread"><span className="fp-cap">{label}</span><span className="fp-num">{n} of {max}{over && <Chip tone="warn">OVER LIMIT</Chip>}</span></div>
-    <div className="ab-bar" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={max} aria-valuenow={n}><i style={{ width: pct + "%" }} /></div>
+    <div className="fp-row fp-spread"><span className="fp-cap">{label}</span><span className="fp-num">{n} of {limitWord(max)}{over && <Chip tone="warn">OVER LIMIT</Chip>}</span></div>
+    <div className="ab-bar" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={max ?? undefined} aria-valuenow={n}><i style={{ width: pct + "%" }} /></div>
   </div>);
 }
 function TextDialog({ title, url, onClose }: { title: string; url: string; onClose: () => void }) {
@@ -43,7 +44,7 @@ function Upload({ lic, onDone }: { lic: LicenceInfo; onDone: () => void }) {
   };
   const apply = async () => {
     if (!file || look || busy) return; setBusy(true); setMsg(null);
-    try { const fd = new FormData(); fd.append("file", file); await api("/licence", { method: "POST", body: fd }); setMsg({ ok: true, text: "LICENCE APPLIED" }); setFile(null); onDone(); }
+    try { const fd = new FormData(); fd.append("file", file); await api("/licence", { method: "POST", body: fd }); setMsg({ ok: true, text: "LICENCE APPLIED" }); setFile(null); window.dispatchEvent(new Event("core-licence")); onDone(); }
     catch (e: any) { setMsg({ ok: false, text: errText(e) }); }
     setBusy(false);
   };
@@ -62,7 +63,7 @@ function Upload({ lic, onDone }: { lic: LicenceInfo; onDone: () => void }) {
     </div>
     <p className="fp-cap ab-note">Admin only. One licence file works on one box. Every licence change is written to the audit log.</p>
     {rm && <Modal title="Remove licence" onClose={() => setRm(false)}><p>The box goes back to the FREE licence. Sensors that are already added keep running; only adding more is blocked while the box is over the limit.</p>
-      <div className="fp-row"><button className="fp-btn danger" onClick={() => api("/licence", { method: "DELETE" }).then(() => { setRm(false); onDone(); }).catch((e) => setMsg({ ok: false, text: errText(e) }))}>REMOVE LICENCE</button><button className="fp-btn" onClick={() => setRm(false)}>Cancel</button></div></Modal>}
+      <div className="fp-row"><button className="fp-btn danger" onClick={() => api("/licence", { method: "DELETE" }).then(() => { setRm(false); window.dispatchEvent(new Event("core-licence")); onDone(); }).catch((e) => setMsg({ ok: false, text: errText(e) }))}>REMOVE LICENCE</button><button className="fp-btn" onClick={() => setRm(false)}>Cancel</button></div></Modal>}
   </div>);
 }
 
@@ -92,9 +93,9 @@ export default function About({ admin, from }: { admin: boolean; from: string })
         </section>
         <div className="ab-right">
           <section className="fp-card" aria-label="Licence">
-            <div className="fp-row fp-spread"><h3>LICENCE</h3><Chip tone={LIC_TONE[lic.state]}>{lic.state === "LICENSED" ? lic.type : lic.state}</Chip></div>
+            <div className="fp-row fp-spread"><h3>LICENCE</h3><Chip tone={LIC_TONE[lic.state]}>{licWord(lic)}</Chip></div>
             <dl className="ab-fields">
-              <div><dt className="fp-cap">TYPE</dt><dd>{lic.type}</dd></div>
+              <div><dt className="fp-cap">TYPE</dt><dd>{lic.type === ENGINEERING ? "ENGINEERING LICENCE" : lic.type}</dd></div>
               <div><dt className="fp-cap">LICENSED TO</dt><dd>{lic.licensed_to ?? "Not activated"}</dd></div>
               <div><dt className="fp-cap">VALID UNTIL</dt><dd>{lic.valid_until ? day(lic.valid_until) : "No expiry"}</dd></div>
               {admin && <div className="ab-dev"><dt className="fp-cap">DEVICE ID</dt><dd><code className="fp-num" data-testid="device-id">{info.device_id ?? "--"}</code>{info.device_id && <button className="fp-btn small" onClick={() => flash("dev", info.device_id!)}>COPY</button>}{copied === "dev" && <Chip tone="ok">COPIED</Chip>}{copied === "!dev" && <Chip tone="warn">SELECT AND COPY BY HAND</Chip>}</dd></div>}

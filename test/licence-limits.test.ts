@@ -54,7 +54,7 @@ test("restore (import) cannot bring in more sensors than the limit; a backup of 
 });
 test("UI wiring (source): Sensors header usage line 'SENSORS n of m · TYPE' with a link to About, OVER LIMIT chip, Add dialog pre-check and OPEN ABOUT", async () => {
   const { readFileSync } = await import("node:fs"); const sp = readFileSync("web/src/SensorsPage.tsx", "utf8"), ab = readFileSync("web/src/About.tsx", "utf8");
-  assert.match(sp, /SENSORS \{lic\.usage\.sensors\} of \{lic\.limits\.sensors\} · \{licWord\(lic\)\}/); assert.match(sp, /go\("\/about"\)\}>ABOUT</); assert.match(sp, /OVER LIMIT/); assert.match(sp, /OPEN ABOUT/); assert.match(sp, /Upload a licence on the About page\./);
+  assert.match(sp, /SENSORS \{lic\.usage\.sensors\} of \{limitWord\(lic\.limits\.sensors\)\} · \{licWord\(lic\)\}/); assert.match(sp, /go\("\/about"\)\}>ABOUT</); assert.match(sp, /OVER LIMIT/); assert.match(sp, /OPEN ABOUT/); assert.match(sp, /Upload a licence on the About page\./);
   for (const k of ["DROP LICENCE FILE HERE", "CHOOSE FILE", "APPLY LICENCE", "REMOVE LICENCE", "Admin only. One licence file works on one box. Every licence change is written to the audit log."]) assert.ok(ab.includes(k), k);
   assert.match(ab, /disabled=\{!file \|\| !!look \|\| busy\}/); assert.match(readFileSync("web/src/about.css", "utf8"), /\.ab-apply \{ min-height: 56px/); assert.match(ab, /\{admin && <Upload/);
 });

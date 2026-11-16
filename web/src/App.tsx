@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Cmd, type Me, type PublicProfile, type Scada, type State, type Topic } from "./api";
+import { api, type AboutInfo, type Cmd, type Me, type PublicProfile, type Scada, type State, type Topic } from "./api";
+import { isEngineering, licWord } from "./licence";
 import Login from "./Login";
 import ScadaView from "./ScadaView";
 import Alarms from "./Alarms";
@@ -19,6 +20,7 @@ export default function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [state, setState] = useState<State | null>(null); const [scada, setScada] = useState<Scada | null>(null);
   const [drawer, setDrawer] = useState(false); const [live, setLive] = useState(false); const [themePref, setThemePref] = useState<"light" | "dark" | null>(getTheme()); const [control, setControl] = useState<ControlDevice[] | null>(null); const [controlErr, setControlErr] = useState<string | null>(null); const [pub, setPub] = useState<PublicProfile | null>(null); const [version, setVersion] = useState("");
+  const [licInfo, setLicInfo] = useState<AboutInfo["licence"] | null>(null);
   const theme = themePref ?? pub?.default_theme ?? "light";          // the Farm Profile default applies until someone picks a theme on this device
   const ws = useRef<WebSocket | null>(null); const hash = useHash(); const now = useNow(1000);
   const [hpath, hquery = ""] = hash.split("?"); const [, page, ...rest] = hpath.split("/");
@@ -28,6 +30,9 @@ export default function App() {
   const load = useCallback(() => api<State>("/state").then(setState).catch((e) => { if (e.status === 401) setMe(null); }), []);
   const loadScada = useCallback(() => api<Scada>("/scada").then(setScada).catch((e) => { if (e.status === 401) setMe(null); }), []);
 
+  // 2026-11-17 -- header chip "ENGINEERING LICENCE" (Trident machines only). Re-read when a licence is applied or removed on About (window event), so it follows without a reload.
+  const loadLic = useCallback(() => api<AboutInfo>("/about").then((a) => setLicInfo(a.licence)).catch(() => {}), []);
+  useEffect(() => { if (!me) return; loadLic(); window.addEventListener("core-licence", loadLic); return () => window.removeEventListener("core-licence", loadLic); }, [me, loadLic]);
   const loadPub = useCallback(() => api<PublicProfile>("/farm-profile/public").then((p) => { setFmtCfg({ tz: p.timezone, dateFormat: p.date_format, timeFormat: p.time_format, tempUnit: p.temperature_unit }); setPub(p); }).catch(() => {}), []);
 
   // 2026-11-16 -- device list: static, loaded once; live state comes from `state`. A failure (404 from an old build, 401, network, 10 s timeout) is SHOWN with RETRY; it used to be swallowed, which left CONTROL on "Loading..." forever.
@@ -80,6 +85,7 @@ export default function App() {
           <button className="fp-btn small fp-menu" aria-label="Open menu" aria-expanded={drawer} aria-controls="fp-sidebar" onClick={() => setDrawer(true)}>☰</button>
           <span className="fp-phone-title">{pub?.farm_name ?? ""}</span>
           <span className="fp-grow" />
+          {isEngineering(licInfo) && <Chip tone="info" title="Licence for Trident Labs machines: no limits, no expiry">{licWord(licInfo!)}</Chip>}
           {gwChip}
           <span className="fp-meta hide-phone" title="Box time">{hhmm(now)}</span>
           <Chip tone="info">{admin ? "ADMIN" : "OPERATOR"}</Chip>

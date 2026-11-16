@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type AboutInfo, type LicenceInfo, type Scada, type AdminSensor, type TypeInfo } from "./api";
 import { go } from "./App";
 import Scan, { scanSupported } from "./Scan";
+import { atOrOver, licWord, limitWord, wouldExceed } from "./licence";
 import { Battery, Chip, CommissioningBanner, Modal, Signal, SYNC, StatusChip, dur, mdur, errText } from "./ui";
 import { ConfirmModal, SendBar, useSync } from "./Sync";
 
 /** Mirrors the server wording (licence/service.ts) for the pre-check in the Add dialog; the server decides. */
-const limitText = (l: LicenceInfo) => `${l.state === "LICENSED" ? `Licence ${l.type}` : "Free licence"} allows ${l.limits.sensors} sensors in total. Upload a licence on the About page.`;
-const licWord = (l: LicenceInfo) => (l.state === "LICENSED" ? l.type : l.state);
+const limitText = (l: LicenceInfo) => `${l.state === "LICENSED" ? `Licence ${l.type}` : "Free licence"} allows ${limitWord(l.limits.sensors)} sensors in total. Upload a licence on the About page.`;
 
 export default function SensorsPage({ scada, reload }: { scada: Scada | null; reload: () => void }) {
   const S = useSync(scada, reload); const { list, gw, load, ok, fail } = S; const [adding, setAdding] = useState(false); const [lic, setLic] = useState<LicenceInfo | null>(null); const [customFor, setCustomFor] = useState<string | null>(null);
@@ -34,7 +34,7 @@ export default function SensorsPage({ scada, reload }: { scada: Scada | null; re
       <SendBar s={S} />
     </section>
     <section className="fp-card">
-      <div className="fp-row fp-spread"><h3>Sensors</h3>{lic && <span className="fp-row" data-testid="usage-line"><span className="fp-cap">SENSORS {lic.usage.sensors} of {lic.limits.sensors} · {licWord(lic)}</span>{lic.usage.sensors >= lic.limits.sensors && <Chip tone="warn">{lic.over_limit ? "OVER LIMIT" : "LIMIT REACHED"}</Chip>}<button className="fp-btn small" onClick={() => go("/about")}>ABOUT</button></span>}<div className="fp-row"><button className="fp-btn" onClick={() => setAdding(true)}>Add sensors</button>{scanSupported() && <button className="fp-btn" onClick={() => setAdding(true)}>Scan QR</button>}</div></div>
+      <div className="fp-row fp-spread"><h3>Sensors</h3>{lic && <span className="fp-row" data-testid="usage-line"><span className="fp-cap">SENSORS {lic.usage.sensors} of {limitWord(lic.limits.sensors)} · {licWord(lic)}</span>{atOrOver(lic.usage.sensors, lic.limits.sensors) && <Chip tone="warn">{lic.over_limit ? "OVER LIMIT" : "LIMIT REACHED"}</Chip>}<button className="fp-btn small" onClick={() => go("/about")}>ABOUT</button></span>}<div className="fp-row"><button className="fp-btn" onClick={() => setAdding(true)}>Add sensors</button>{scanSupported() && <button className="fp-btn" onClick={() => setAdding(true)}>Scan QR</button>}</div></div>
       <span className="fp-hint">Click a row to open the sensor: label, zone, calibration, replace and remove are all on its page.</span>
       {!!th?.commissioningPresets.length ? <label className="fp-row fp-cap" style={{ textTransform: "none", letterSpacing: ".02em" }}><input type="checkbox" checked={!!th?.commissioning} onChange={(e) => setCommissioning(e.target.checked)} /> Commissioning mode (switches off by itself after 8 hours): also allow {th.commissioningPresets.map(mdur).join(", ")} (short intervals reduce battery life).</label>
         : <span className="fp-cap" style={{ textTransform: "none", letterSpacing: ".02em" }}>Reporting interval: {th ? `${th.min} to ${th.max} ${th.unit}` : ""}, default {th ? mdur(th.defaultInterval) : ""}. A short interval reduces battery life. 30 s and 1 min are not possible on this gateway.</span>}
@@ -67,7 +67,7 @@ function AddModal({ lic, types, pattern, existing, onClose, onDone }: { lic: Lic
   const [type, setType] = useState(types[0]?.key ?? "th"); const [text, setText] = useState(""); const [err, setErr] = useState(""); const [scan, setScan] = useState(false);
   const t = types.find((x) => x.key === type)!; const serials = text.split(/[\s,;]+/).filter(Boolean); const re = new RegExp(pattern);
   const badOnes = serials.filter((s) => !re.test(s) || /^0/.test(s) || Number(s) > 0xfffffffe); const dup = serials.length !== new Set(serials).size; const already = [...new Set(serials.filter((s) => existing.includes(s)))];
-  const overLic = !!lic && serials.length > 0 && lic.usage.sensors + serials.length > lic.limits.sensors;          // licence: only ADDING is blocked
+  const overLic = !!lic && serials.length > 0 && wouldExceed(lic.usage.sensors, serials.length, lic.limits.sensors);          // licence: only ADDING is blocked
   const onCode = useCallback((c: string) => setText((x) => (x.toUpperCase().includes(c.trim().toUpperCase()) ? x : (x ? x + "\n" : "") + c.trim())), []);
   return (
     <Modal title="Add sensors" onClose={onClose}>
