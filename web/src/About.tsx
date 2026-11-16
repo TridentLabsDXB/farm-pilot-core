@@ -108,7 +108,7 @@ export default function About({ admin, from }: { admin: boolean; from: string })
               <div className="fp-row fp-spread"><h3>THIS COMPUTER</h3><span className="fp-cap" data-testid="refreshed">refreshed {hms(at)}</span></div>
               <div className="ab-comp">
                 <Tile k="COMPUTER NAME" v={c.computer_name} /><Tile k="OPERATING SYSTEM" v={c.operating_system} /><Tile k="CPU" v={c.cpu} /><Tile k="MEMORY (USED / TOTAL)" v={`${bytes(c.memory_used_bytes)} / ${bytes(c.memory_total_bytes)}`} />
-                <Tile k="DISK FREE (DATA VOLUME)" v={`${bytes(c.disk_free_bytes)}${c.disk_total_bytes ? ` of ${bytes(c.disk_total_bytes)}` : ""}`} /><Tile k="UPTIME" v={upFor(c.uptime_s)} /><Tile k="IP ADDRESS" v={c.ip_addresses.join(", ") || "--"} /><Tile k="TIME ZONE" v={c.time_zone} />
+                <Tile k="DISK FREE (DATA VOLUME)" v={`${bytes(c.disk_free_bytes)}${c.disk_total_bytes ? ` of ${bytes(c.disk_total_bytes)}` : ""}`} /><Tile k="UPTIME" v={upFor(c.uptime_s)} /><Tile k="IP ADDRESS" v={c.ip_addresses.length ? c.ip_addresses.slice(0, 3).join(", ") + (c.ip_addresses.length > 3 ? ` +${c.ip_addresses.length - 3} more` : "") : "--"} /><Tile k="TIME ZONE" v={c.time_zone} />
                 <Tile k="NODE.JS" v={c.node_version} /><Tile k="SQLITE" v={c.sqlite_version || "--"} /><Tile k="DATABASE SIZE" v={bytes(c.database_bytes)} /><Tile k="SERIAL PORTS" v={c.serial_ports.length ? `${c.serial_ports.length}: ${c.serial_ports.slice(0, 4).join(", ")}${c.serial_ports.length > 4 ? "..." : ""}` : "None found"} />
               </div>
               <div className="ab-folder"><span className="fp-cap">DATA FOLDER</span><code className="fp-num">{c.data_folder}</code></div>
