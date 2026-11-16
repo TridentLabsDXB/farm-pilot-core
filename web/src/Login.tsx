@@ -46,6 +46,8 @@ export default function Login({ onLogin, theme, onToggleTheme }: { onLogin: (m: 
           <button className="fp-btn primary fp-login-go" type="submit" disabled={busy || wait > 0 || !u || !p}>{busy ? <><span className="fp-spin" aria-hidden /> SIGNING IN</> : "LOG IN"}</button>
           <div className="fp-login-err" role="alert" aria-live="assertive">{msg && <Chip tone="alarm">{msg}</Chip>}</div>
         </form>
+        {/* 2026-11-16 -- credit line: plain text, no link, no flag emoji (Windows does not draw them), no external request. Build label footer below is unchanged. */}
+        <p className="fp-login-credit">Engineered in the UAE by <strong>Trident Labs</strong></p>
         <footer className="fp-login-foot">FARM-PILOT CORE{version ? ` · ${version}` : ""}</footer>
       </div>
       <button type="button" className="fp-btn small fp-login-theme" onClick={onToggleTheme} aria-label="Toggle dark theme" aria-pressed={theme === "dark"}>{theme === "dark" ? "LIGHT" : "DARK"}</button>

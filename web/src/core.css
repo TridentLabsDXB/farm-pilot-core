@@ -144,6 +144,9 @@ textarea.fp-input { padding: 10px 12px; min-height: 120px; width: 100%; }
 .fp-login-go { width: 100%; min-height: 56px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
 .fp-login-err { min-height: 34px; display: flex; justify-content: center; }
 .fp-login-foot { font-family: var(--fp-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--fp-muted); text-align: center; }
+/* credit line under the card: same mono caption style as the build footer but 13 px and not upper-cased (it is a sentence); the stack gap is 22 px, the negative margin pulls it to ~10 px above the footer */
+.fp-login-credit { margin: 0 0 -12px; max-width: 100%; font-family: var(--fp-mono); font-size: 13px; line-height: 1.4; letter-spacing: .08em; color: var(--fp-muted); text-align: center; text-wrap: balance; overflow-wrap: anywhere; }
+.fp-login-credit strong { font-weight: 700; color: var(--fp-text); }
 .fp-login-theme { position: absolute; top: 12px; right: 12px; min-width: 44px; }
 .fp-spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; display: inline-block; animation: fp-spin .8s linear infinite; }
 @keyframes fp-spin { to { transform: rotate(360deg); } }
