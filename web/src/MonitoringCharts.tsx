@@ -24,10 +24,12 @@ export function nearest(pts: [number, number | null][], t: number, tol: number):
 function ZoneChart({ z, metric, setMetric, range, refreshKey, onExportMsg }: { z: ZoneView; metric: Metric; setMetric: (m: Metric) => void; range: Range; refreshKey: number; onExportMsg: (m: string | null) => void }) {
   const [h, setH] = useState<History | null>(null); const [err, setErr] = useState<string | null>(null);
   const [off, setOff] = useState<Record<string, boolean>>({}); const [cur, setCur] = useState<number | null>(null); const [busy, setBusy] = useState(false);
-  useEffect(() => { let live = true; setErr(null); api<History>(`/history?zone=${z.id}&metric=${metric}&range=${range}`).then((x) => { if (live) { setH(x); setOff((o) => { const n = { ...o }; x.sensors.forEach((s, i) => { if (!(s.key in n)) n[s.key] = i >= MAX_SERIES; }); return n; }); } }).catch((e) => live && setErr(e.message)); return () => { live = false; }; }, [z.id, metric, range, refreshKey]);
+  useEffect(() => { let live = true; setErr(null); api<History>(`/history?zone=${z.id}&metric=${metric}&range=${range}`).then((x) => { if (live) setH(x); }).catch((e) => live && setErr(e.message)); return () => { live = false; }; }, [z.id, metric, range, refreshKey]);
   const svg = useRef<SVGSVGElement>(null);
   const all = h ? [...h.sensors.map((s, i) => ({ id: s.key, label: s.label, status: s.status, pts: s.points, i, avg: false })), { id: "avg", label: "Zone average", status: "ok", pts: h.average.points, i: -1, avg: true }] : [];
-  const shown = all.filter((s) => !off[s.id]);
+  // 2026-11-17 -- visibility is decided in ONE place at draw time: a line is hidden only if the user toggled it, or if it is beyond the 12 series cap. Silent sensors are drawn grey like any other (same in TEMPERATURE and HUMIDITY).
+  const hid = (s: { id: string; i: number }) => off[s.id] ?? s.i >= MAX_SERIES;
+  const shown = all.filter((s) => !hid(s));
   const hasData = all.some((s) => s.pts.some(([, v]) => v !== null));
   const dom = useMemo(() => {
     if (!h) return null; const vs = shown.flatMap((s) => s.pts.filter(([, v]) => v !== null).map(([, v]) => conv(metric, v as number)));
@@ -59,9 +61,9 @@ function ZoneChart({ z, metric, setMetric, range, refreshKey, onExportMsg }: { z
           {cur !== null && <div className="fp-tip" role="status" data-testid="chart-tooltip"><b>{tipTime(range, cur)}</b>{shown.map((s) => { const n = nearest(s.pts, cur, tol); return <span key={s.id}>{s.label}: <b className="fp-num">{n ? `${fmt(conv(metric, n[1]), metric === "humidity" ? 0 : 1)} ${unitText(metric)}` : "--"}</b></span>; })}</div>}
           <div className="fp-legend" role="group" aria-label="Lines">
             {all.map((s) => { const stale = s.status === "no_update" || s.status === "no_data";
-              return <button key={s.id} className="fp-leg" aria-pressed={!off[s.id]} data-stale={stale ? 1 : 0} onClick={() => setOff((o) => ({ ...o, [s.id]: !o[s.id] }))}>
+              return <button key={s.id} className="fp-leg" aria-pressed={!hid(s)} data-stale={stale ? 1 : 0} onClick={() => setOff((o) => ({ ...o, [s.id]: !hid(s) }))}>
                 <svg width="26" height="10" aria-hidden><line x1="0" x2="26" y1="5" y2="5" stroke={s.avg ? "var(--fp-text)" : stale ? "var(--fp-off)" : COLORS[s.i % COLORS.length]} strokeWidth={s.avg ? 3.2 : 1.8} strokeDasharray={s.avg ? undefined : DASH[Math.floor(s.i / COLORS.length) % DASH.length] || undefined} /></svg>
-                {s.label}{stale && <span className="fp-leg-w"> NO UPDATE</span>}{off[s.id] && <span className="fp-leg-w"> HIDDEN</span>}
+                {s.label}{stale && <span className="fp-leg-w"> NO UPDATE</span>}{hid(s) && <span className="fp-leg-w"> HIDDEN</span>}
               </button>; })}
           </div>
         </>}
