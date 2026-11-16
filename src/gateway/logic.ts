@@ -67,10 +67,12 @@ export type Liveness = "ok" | "no_update" | "no_data";
 export interface StalenessDetector { liveness(s: StaleState, now: number, intervalSec: number): Liveness; evaluate(prev: StaleState, obs: FrameObs, now: number, intervalSec: number): { state: StaleState; liveness: Liveness; changed: boolean }; }
 /** Default rule: fingerprint of the WHOLE channel frame (values + voltage + RSSI). Identical for N intervals => "no update". All-zero => "no data". Heuristic until validated on hardware. */
 export class FingerprintDetector implements StalenessDetector {
-  constructor(public multiplier = 3) {}
+  /** `multiplier` may be a function so a Farm Profile change applies without a restart. */
+  constructor(public multiplier: number | (() => number) = 3) {}
+  private get mult() { return typeof this.multiplier === "function" ? this.multiplier() : this.multiplier; }
   liveness(s: StaleState, now: number, intervalSec: number): Liveness {
     if (s.fp === null || s.lastChange === null) return "no_data";
-    return now - s.lastChange > this.multiplier * intervalSec * 1000 ? "no_update" : "ok";
+    return now - s.lastChange > this.mult * intervalSec * 1000 ? "no_update" : "ok";
   }
   evaluate(prev: StaleState, obs: FrameObs, now: number, intervalSec: number) {
     if (obs.allZero) return { state: { fp: null, lastChange: prev.lastChange }, liveness: "no_data" as Liveness, changed: false };

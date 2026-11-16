@@ -12,19 +12,19 @@ export interface SyncResult { type: string; ok: boolean; items: SyncItem[]; at: 
 const reasonOf = (e: unknown) => (e instanceof ModbusException ? "write rejected" : /timeout/i.test(String((e as Error)?.message)) ? "timeout" : "timeout");
 
 export class GatewayService extends EventEmitter {
-  online = false; failCycles = 0; lastOk: number | null = null; lastError: string | null = null; info: { address?: number; version?: number } = {};
+  online = false; failCycles = 0; lastOk: number | null = null; lastError: string | null = null; info: { address?: number; groupAddress?: number; version?: number } = {};
   paused = false; syncing = false; lastConfig: Record<string, Group[]> = {};
   private cycle: Promise<void> | null = null; private timer?: NodeJS.Timeout; private n = 0; private stopped = false; private started = false; private needFull = true; private obs = new Map<string, number[]>();
   detector: StalenessDetector;
   constructor(private db: Db, private reg: Registry, private ingest: Ingest, public drv: GatewayDriver | null) {
-    super(); this.detector = new FingerprintDetector(reg.settings().offlineMultiplier); this.persist();
+    super(); this.detector = new FingerprintDetector(() => reg.settings().staleMultiplier); this.persist();
   }
   get enabled() { return !!this.drv; }
 
   start() { if (this.drv) { this.started = true; this.schedule(500); } }
   async stop() { this.stopped = true; clearTimeout(this.timer); await this.cycle?.catch(() => {}); }
   private period() {
-    const st = this.reg.settings(); const iv = this.reg.list().filter((s) => s.sent_slot !== null).map((s) => s.reporting_interval);
+    const st = this.reg.settings(); const iv = this.reg.list().filter((s) => s.sent_slot !== null).map((s) => this.reg.intervalSec(s.type, s.reporting_interval));
     const base = pollPeriodMs(iv.length ? Math.min(...iv) : null, st.pollSec);
     // Failing but not yet offline: retry every 10 s so "offline after N failed cycles" is quick. Once offline: back off (to 5 min) so a dead bus is not hammered.
     if (this.failCycles > 0 && this.online) return Math.min(base, 10_000);
@@ -56,7 +56,7 @@ export class GatewayService extends EventEmitter {
 
   private async pollOnce(now = Date.now()) {
     const drv = this.drv!; const first = this.needFull || this.n++ % 10 === 0;
-    if (first) { const s = await drv.readSystem(); this.info = { address: s.address, version: s.version }; for (const t of Object.values(drv.map.types)) if (t.enabled) { this.lastConfig[t.key] = await drv.readConfig(t.key); this.reconcile(t.key); } this.needFull = false; }
+    if (first) { const s = await drv.readSystem(); this.info = { address: s.address, groupAddress: s.groupAddress, version: s.version }; for (const t of Object.values(drv.map.types)) if (t.enabled) { this.lastConfig[t.key] = await drv.readConfig(t.key); this.reconcile(t.key); } this.needFull = false; }
     const cals = this.reg.activeCals(); const all = this.reg.list();
     for (const t of Object.values(drv.map.types)) {
       if (!t.enabled) continue; const sensors = all.filter((s) => s.type === t.key && s.sent_slot !== null); if (!sensors.length) continue;
@@ -65,7 +65,7 @@ export class GatewayService extends EventEmitter {
     }
   }
   private process(s: SensorRow, c: { regs: number[]; values: Record<string, number>; allZero: boolean }, cals: Map<string, any>, now: number) {
-    const r = this.detector.evaluate({ fp: s.fp, lastChange: s.last_change }, { regs: c.regs, allZero: c.allZero }, now, s.reporting_interval);
+    const r = this.detector.evaluate({ fp: s.fp, lastChange: s.last_change }, { regs: c.regs, allZero: c.allZero }, now, this.reg.intervalSec(s.type, s.reporting_interval));
     if (r.state.fp !== s.fp || r.state.lastChange !== s.last_change) this.db.prepare("UPDATE sensors SET fp=?,last_change=? WHERE serial=?").run(r.state.fp, r.state.lastChange, s.serial);
     if (!r.changed || c.allZero) return;
     const t = this.reg.map.types[s.type], out: Record<string, number> = {};
@@ -73,7 +73,7 @@ export class GatewayService extends EventEmitter {
     this.ingest.record(topicFor(s.type), s.serial, out, now);
     if (!s.interval_confirmed) {                                                        // "applying": compare the observed update spacing with the new setting
       const o = (this.obs.get(s.serial) ?? []).concat(now).slice(-3); this.obs.set(s.serial, o);
-      if (o.length >= 2) { const sp = o[o.length - 1] - o[o.length - 2], iv = s.reporting_interval * 1000; if (sp >= iv * 0.5 && sp <= iv * 1.6) { this.db.prepare("UPDATE sensors SET interval_confirmed=1 WHERE serial=?").run(s.serial); this.obs.delete(s.serial); } }
+      if (o.length >= 2) { const sp = o[o.length - 1] - o[o.length - 2], iv = this.reg.intervalSec(s.type, s.reporting_interval) * 1000; if (sp >= iv * 0.5 && sp <= iv * 1.6) { this.db.prepare("UPDATE sensors SET interval_confirmed=1 WHERE serial=?").run(s.serial); this.obs.delete(s.serial); } }
     }
   }
 
@@ -146,6 +146,15 @@ export class GatewayService extends EventEmitter {
   }
   lastSync(): SyncResult | null { try { return JSON.parse(getSetting(this.db, "gw.last_sync", "null")); } catch { return null; } }
 
+  /** Explicit Admin tool: FC06 write of the gateway's own Modbus address, sent to its CURRENT address (never broadcast). 0, 255, 123 and 160 are refused by the driver. The runtime then talks to the new address;
+   *  after a restart it uses GW_ADDRESS / the map default again, so the env file must be updated too (the UI says so). */
+  async setAddress(a: Actor, addr: number) {
+    this.requireOnline(); this.syncing = true; await this.pause();
+    audit(this.db, a.username, a.role, "gateway.set_address.request", { from: this.info.address ?? null, to: addr });
+    try { await this.drv!.setAddress(addr); audit(this.db, a.username, a.role, "gateway.set_address", { to: addr }); this.info.address = addr; }
+    catch (e) { audit(this.db, a.username, a.role, "gateway.set_address.failed", { to: addr, error: String((e as Error)?.message ?? e) }); throw e; }
+    finally { this.syncing = false; this.resume(); this.emit("update"); }
+  }
   /** Factory reset of the gateway: FC06 0x0003 = 0. Callers must have an explicit Admin confirmation. */
   async deleteAll(a: Actor) {
     this.requireOnline(); this.syncing = true; await this.pause();

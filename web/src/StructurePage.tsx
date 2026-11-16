@@ -8,6 +8,7 @@ const unitLabel = (u: string) => (u === "C" ? "°C" : u);
 const ZTYPES: [string, string][] = [["climate", "Climate"], ["soil", "Soil"], ["water_storage", "Water storage"], ["irrigation", "Irrigation"], ["custom", "Custom"]];
 
 export default function StructurePage({ reload }: { reload: () => void }) {
+  const [site, setSite] = useState(""); useEffect(() => { api<{ site_name: string }>("/farm-profile/public").then((p) => setSite(p.site_name)).catch(() => {}); }, []);
   const [d, setD] = useState<{ zones: Z[]; points: P[]; sensors: S[]; templates: T[] } | null>(null); const [sel, setSel] = useState<number | "new" | null>(null);
   const [name, setName] = useState(""); const [type, setType] = useState("climate"); const [msg, setMsg] = useState<{ t: string; s: string } | null>(null); const [pick, setPick] = useState(""); const [askT, setAskT] = useState<T | null>(null);
   const load = useCallback(() => api<any>("/structure").then(setD).catch((e) => setMsg({ t: "err", s: errText(e) })), []); useEffect(() => { load(); }, [load]);
@@ -30,7 +31,7 @@ export default function StructurePage({ reload }: { reload: () => void }) {
 
   return (<>
     <div className="fp-struct">
-      <section className="fp-card"><h3>Farm</h3><div className="fp-tree fp-list">{d.zones.map((z) => <li key={z.id}><button className="fp-btn" style={sel === z.id ? { borderColor: "var(--fp-accent)", color: "var(--fp-accent)" } : undefined} aria-pressed={sel === z.id} onClick={() => setSel(z.id)}><span>{z.name}</span><span className="fp-cap">{ZTYPES.find(([k]) => k === z.type)?.[1]} · {count(z.id)} sensor{count(z.id) === 1 ? "" : "s"}</span></button></li>)}</div>
+      <section className="fp-card"><h3>{site || "Farm"}</h3><div className="fp-tree fp-list">{d.zones.map((z) => <li key={z.id}><button className="fp-btn" style={sel === z.id ? { borderColor: "var(--fp-accent)", color: "var(--fp-accent)" } : undefined} aria-pressed={sel === z.id} onClick={() => setSel(z.id)}><span>{z.name}</span><span className="fp-cap">{ZTYPES.find(([k]) => k === z.type)?.[1]} · {count(z.id)} sensor{count(z.id) === 1 ? "" : "s"}</span></button></li>)}</div>
         {!d.zones.length && <p className="fp-msg fp-muted">No zones yet. Start from a template.</p>}
         <button className="fp-btn" onClick={() => { setSel("new"); setName(""); setType("climate"); }}>Add zone</button></section>
       <section className="fp-card"><h3>{zone ? `Zone: ${zone.name}` : "New zone"}</h3>

@@ -11,10 +11,10 @@ import { createTransport } from "../src/drivers/modbus/transport.js"; import { M
 import { Registry } from "../src/gateway/registry.js"; import { GatewayService } from "../src/gateway/service.js";
 
 const map = loadRegMap("config/gateway-thingsend.yaml"); const A = { username: "admin", role: "admin" }; const closers: (() => void)[] = []; after(() => closers.forEach((c) => c()));
-const SERIALS = ["4A01B3F2", "4A01B3F3", "4A01B3F4"];
+const SERIALS = ["112600310", "112600311", "112600312"];
 
 // Routes an Operator legitimately uses. Everything else must refuse.
-const OPERATOR_OK = new Set(["GET /api/me", "GET /api/state", "GET /api/scada", "GET /api/alarms", "GET /api/alarms/history", "GET /api/gateway/status", "POST /api/commands", "POST /api/alarms/:id/ack", "POST /api/logout"]);
+const OPERATOR_OK = new Set(["GET /api/me", "GET /api/state", "GET /api/scada", "GET /api/alarms", "GET /api/alarms/history", "GET /api/gateway/status", "GET /api/farm-profile/public", "GET /api/farm-profile/logo", "GET /api/farm-contacts/alarm-view", "POST /api/commands", "POST /api/alarms/:id/ack", "POST /api/logout"]);
 const PUBLIC = new Set(["POST /api/login", "GET /api/health"]);
 // Keys that may never appear in an Operator response, at any depth.
 const FORBIDDEN_KEYS = new Set(["serial", "slot", "raw", "temperature_raw", "humidity_raw", "offset", "gain", "calibratedBy", "calibratedAt", "calDueAt", "calibrated", "calibrated_by", "intervalSec", "offlineAfterSec", "lowVoltage", "intervalOk", "applying",
@@ -23,7 +23,7 @@ const FORBIDDEN_KEYS = new Set(["serial", "slot", "raw", "temperature_raw", "hum
 async function boot() {
   const db = openDb(":memory:"); const sim = new GatewaySim(map); const srv = serveSim(sim, 0, "mbap"); await new Promise((r) => srv.once("listening", r));
   const tr = createTransport({ type: "tcp", host: "127.0.0.1", port: (srv.address() as AddressInfo).port });
-  const ingest = new Ingest(db); const reg = new Registry(db, map); const gw = new GatewayService(db, reg, ingest, new GatewayDriver(new ModbusMaster(tr, { unit: 1, timeoutMs: 150, retries: 0 }), map));
+  const ingest = new Ingest(db); const reg = new Registry(db, map); const gw = new GatewayService(db, reg, ingest, new GatewayDriver(new ModbusMaster(tr, { unit: map.default_gateway_address, timeoutMs: 150, retries: 0 }), map));
   const commands = new Commands(db, { publish() {} } as any, () => {}); const { app, routes } = await buildApp(db, ingest, commands, reg, gw);
   await app.listen({ port: 0, host: "127.0.0.1" }); closers.push(() => { void app.close(); void tr.close(); srv.close(); });
   const port = (app.server.address() as AddressInfo).port;

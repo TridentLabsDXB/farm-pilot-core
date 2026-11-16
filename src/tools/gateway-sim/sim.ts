@@ -1,23 +1,27 @@
 // XZ-DS-MUS2 gateway simulator (Modbus slave core). Pure logic, no sockets: handle(unit, pdu) -> response PDU or null (= stay silent).
 // It follows the same register map as the runtime. DEV / BENCH ONLY: this models the manual plus the ASSUMED items; the real gateway is validated on the industrial PC.
 import { exceptionPdu, MAX_READ_REGS, readRespPdu } from "../../drivers/modbus/frames.js";
-import { regsToSerial, serialToRegs, type RegMap, type TypeDef } from "../../drivers/modbus/regmap.js";
+import { groupIsEmpty, regsToSerial, serialToRegs, type RegMap, type TypeDef } from "../../drivers/modbus/regmap.js";
 
 export interface Phys { serial: string; temp: number; hum: number; volt: number; rssi: number; frozen: boolean; zeroed: boolean; slot: number | null; type: string; intervalMs: number; nextAt: number; voltOverride?: number; }
 export interface ReplayFrame { t: number; type: string; slot: number; regs: number[]; }
-export const DEFAULT_POOL = ["4A01B3F2", "4A01B3F3", "4A01B3F4", "4A01B3F5", "4A01B3F6", "4A01B3F7", "4A01B3F8", "4A01B3F9"];
+// Serials are the plain decimal of the 32-bit address, as printed on the label (bench example: 0x06B624FD = 112600317).
+export const DEFAULT_POOL = ["112600310", "112600311", "112600312", "112600313", "112600314", "112600315", "112600316", "112600317"];
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 
 export class GatewaySim {
-  address: number; version = 0x0200; groupAddress = 1;                    // version value is a made-up placeholder
+  address: number; version = 0x0200; groupAddress = 300;                   // version value is a made-up placeholder
   cfg = new Map<string, number[]>();                                       // type -> flat config registers
   data = new Map<string, number[]>();                                      // type -> flat data registers
   phys = new Map<string, Phys>();
+  /** Divides every sensor interval (bench speed-up: with 60, a 5 min interval transmits every 5 s). 1 = real time. */
+  timeScale = 1;
   silent = false; rejectAll = false; rejectSerials = new Set<string>(); lenientFc = false;
   private replay: { frames: ReplayFrame[]; loop: boolean; start: number; idx: number } | null = null;
   constructor(public map: RegMap, pool: string[] = DEFAULT_POOL, now = Date.now()) {
     this.address = map.default_gateway_address;
-    for (const t of Object.values(map.types)) { this.cfg.set(t.key, new Array(t.groups * t.config.regs_per_group).fill(0)); this.data.set(t.key, new Array(t.groups * t.data.regs_per_channel).fill(0)); }
+    // unconfigured groups read 0xFFFF like the real gateway (CONFIRMED)
+    for (const t of Object.values(map.types)) { this.cfg.set(t.key, new Array(t.groups * t.config.regs_per_group).fill(map.empty_marker)); this.data.set(t.key, new Array(t.groups * t.data.regs_per_channel).fill(0)); }
     for (const s of pool) this.phys.set(s, { serial: s, temp: rnd(20, 30), hum: rnd(45, 70), volt: 3.6 - rnd(0, 0.2), rssi: -rnd(70, 95), frozen: false, zeroed: false, slot: null, type: "th", intervalMs: 0, nextAt: 0 });
     void now;
   }
@@ -54,7 +58,7 @@ export class GatewaySim {
   private write1(addr: number, val: number, pdu: Buffer): Buffer {
     if (this.rejectAll) return exceptionPdu(6, 4);
     if (addr === this.map.system.address) { if ([0, 123, 160, 255].includes(val)) return exceptionPdu(6, 3); this.address = val; return pdu; }
-    if (addr === this.map.system.delete_all) { if (val !== 0) return exceptionPdu(6, 3); for (const t of Object.values(this.map.types)) { this.cfg.get(t.key)!.fill(0); this.data.get(t.key)!.fill(0); } this.syncPhys(); return pdu; }
+    if (addr === this.map.system.delete_all) { if (val !== 0) return exceptionPdu(6, 3); for (const t of Object.values(this.map.types)) { this.cfg.get(t.key)!.fill(this.map.empty_marker); this.data.get(t.key)!.fill(0); } this.syncPhys(); return pdu; }
     const a = this.area(addr, 1, "cfg"); if (!a) return exceptionPdu(6, 2);
     this.cfg.get(a.t.key)![a.off] = val; this.syncPhys(); return pdu;
   }
@@ -64,7 +68,7 @@ export class GatewaySim {
     if (this.rejectAll) return exceptionPdu(16, 4);
     const vals: number[] = []; for (let i = 0; i < count; i++) vals.push(pdu.readUInt16BE(6 + i * 2));
     const per = a.t.config.regs_per_group;
-    if (this.rejectSerials.size) for (let g = 0; g * per < count; g++) { const r = vals.slice(g * per, (g + 1) * per); if (r.length === per && r.some((x) => x) && this.rejectSerials.has(regsToSerial(r[a.t.config.serial.reg], r[a.t.config.serial.reg + 1], a.t.config.serial.word_order))) return exceptionPdu(16, 4); }
+    if (this.rejectSerials.size) for (let g = 0; g * per < count; g++) { const r = vals.slice(g * per, (g + 1) * per); if (r.length === per && !groupIsEmpty(r, a.t.config, this.map.empty_marker) && this.rejectSerials.has(regsToSerial(r[a.t.config.serial.reg], r[a.t.config.serial.reg + 1], a.t.config.serial.word_order))) return exceptionPdu(16, 4); }
     const dst = this.cfg.get(a.t.key)!; vals.forEach((v, i) => (dst[a.off + i] = v)); this.syncPhys();
     const b = Buffer.alloc(5); b[0] = 16; b.writeUInt16BE(addr, 1); b.writeUInt16BE(count, 3); return b;
   }
@@ -76,10 +80,10 @@ export class GatewaySim {
     for (const t of Object.values(this.map.types)) {
       const c = t.config, cfg = this.cfg.get(t.key)!, data = this.data.get(t.key)!;
       for (let slot = 0; slot < t.groups; slot++) {
-        const g = cfg.slice(slot * c.regs_per_group, (slot + 1) * c.regs_per_group); const empty = g.every((x) => x === 0);
+        const g = cfg.slice(slot * c.regs_per_group, (slot + 1) * c.regs_per_group); const empty = groupIsEmpty(g, c, this.map.empty_marker);
         const serial = empty ? null : regsToSerial(g[c.serial.reg], g[c.serial.reg + 1], c.serial.word_order);
         const p = serial ? this.phys.get(serial) : undefined;
-        if (p && p.type === t.key) { p.slot = slot; p.intervalMs = Math.max(1, g[c.interval.reg]) * 1000; if (was.get(p.serial) !== slot) p.nextAt = now + 3000; }
+        if (p && p.type === t.key) { p.slot = slot; p.intervalMs = Math.max(1, g[c.interval.reg]) * c.interval.unit_sec * 1000 / this.timeScale; if (was.get(p.serial) !== slot) p.nextAt = now + 3000; }
       }
       for (let slot = 0; slot < t.groups; slot++) {
         const fed = [...this.phys.values()].some((p) => p.type === t.key && p.slot === slot);
@@ -116,9 +120,10 @@ export class GatewaySim {
   }
 
   // ---- failure injection and bench setup ----
-  preconfigure(type: string, slot: number, serial: string, intervalSec: number, now = Date.now()) {
+  /** `interval` is in the gateway's unit (minutes for T/H). */
+  preconfigure(type: string, slot: number, serial: string, interval: number, now = Date.now()) {
     const t = this.map.types[type], c = t.config, cfg = this.cfg.get(type)!, [a, b] = serialToRegs(serial, c.serial.word_order);
-    const o = (slot - 1) * c.regs_per_group; cfg[o + c.serial.reg] = a; cfg[o + c.serial.reg + 1] = b; cfg[o + c.interval.reg] = intervalSec; cfg[o + c.control.reg] = c.control.value_on_add; this.syncPhys(now);
+    const o = (slot - 1) * c.regs_per_group; cfg[o + c.serial.reg] = a; cfg[o + c.serial.reg + 1] = b; cfg[o + c.interval.reg] = interval; cfg[o + c.control.reg] = c.control.value_on_add; this.syncPhys(now);
   }
   freeze(serial: string, on = true) { const p = this.phys.get(serial); if (!p) return false; p.frozen = on; return true; }
   zero(serial: string) {                                                  // sensor goes dead AND its registers read zeros
@@ -129,7 +134,7 @@ export class GatewaySim {
   setVoltage(serial: string, v: number | null) { const p = this.phys.get(serial); if (!p) return false; p.voltOverride = v ?? undefined; if (v !== null) p.volt = v; return true; }
   state() {
     return { address: this.address, silent: this.silent, rejectAll: this.rejectAll, rejectSerials: [...this.rejectSerials],
-      sensors: [...this.phys.values()].map((p) => ({ serial: p.serial, slot: p.slot === null ? null : p.slot + 1, intervalSec: p.intervalMs / 1000, frozen: p.frozen, zeroed: p.zeroed, volt: +p.volt.toFixed(3), rssi: p.rssi })),
-      configured: Object.fromEntries([...this.cfg].map(([k, regs]) => { const t = this.map.types[k]; let n = 0; for (let g = 0; g < t.groups; g++) if (regs.slice(g * t.config.regs_per_group, (g + 1) * t.config.regs_per_group).some((x) => x)) n++; return [k, n]; })) };
+      sensors: [...this.phys.values()].map((p) => ({ serial: p.serial, slot: p.slot === null ? null : p.slot + 1, interval: p.slot === null ? null : Math.round(p.intervalMs * this.timeScale / (this.map.types[p.type].config.interval.unit_sec * 1000)), frozen: p.frozen, zeroed: p.zeroed, volt: +p.volt.toFixed(3), rssi: p.rssi })),
+      configured: Object.fromEntries([...this.cfg].map(([k, regs]) => { const t = this.map.types[k]; let n = 0; for (let g = 0; g < t.groups; g++) if (!groupIsEmpty(regs.slice(g * t.config.regs_per_group, (g + 1) * t.config.regs_per_group), t.config, this.map.empty_marker)) n++; return [k, n]; })) };
   }
 }

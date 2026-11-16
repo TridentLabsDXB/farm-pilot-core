@@ -1,6 +1,6 @@
 import { test } from "node:test"; import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { decodeField, loadRegMap, parseRegMap, regsToSerial, serialToRegs, RegMapError } from "../src/drivers/modbus/regmap.js";
+import { decodeChannel, decodeField, groupIsEmpty, loadRegMap, parseRegMap, regsToSerial, serialToRegs, RegMapError } from "../src/drivers/modbus/regmap.js";
 import { crc16, rtuFrameLength, rtuWrap, rtuUnwrap, readPdu } from "../src/drivers/modbus/frames.js";
 const TEXT = readFileSync("config/gateway-thingsend.yaml", "utf8");
 const bad = (edit: (t: string) => string) => { try { parseRegMap(edit(TEXT)); } catch (e) { if (e instanceof RegMapError) return e.problems.join("\n"); throw e; } return ""; };
@@ -14,7 +14,7 @@ test("shipped map loads; th enabled, placeholders disabled; ranges match the man
 test("overlapping ranges are rejected (soil data at 0x4001 collides with door_smoke)", () => assert.match(bad((t) => t.replace("base: 0x5001", "base: 0x4001")), /overlap/));
 test("field offset outside regs_per_channel is rejected", () => assert.match(bad((t) => t.replace("rssi:        { reg: 3, type: i16", "rssi:        { reg: 4, type: i16")), /outside regs_per_channel/));
 test("u32 field must fit with both registers", () => assert.match(bad((t) => t.replace("lux:     { reg: 0, type: u32", "lux:     { reg: 3, type: u32")), /outside regs_per_channel/));
-test("gateway address 123 / 160 refused", () => { for (const a of [123, 160, 0, 255]) assert.match(bad((t) => t.replace("default_gateway_address: 1 ", `default_gateway_address: ${a} `)), /never 123 or 160/); });
+test("gateway address 123 / 160 refused", () => { for (const a of [123, 160, 0, 255]) assert.match(bad((t) => t.replace("default_gateway_address: 7 ", `default_gateway_address: ${a} `)), /never 123 or 160/); });
 test("yaml garbage gives a clear error, not a crash", () => assert.match(bad(() => "types: [unclosed"), /YAML|types/));
 
 test("decode: i16 negative, u16 scale, big-endian values", () => {
@@ -29,9 +29,26 @@ test("decode: u32 word order", () => {
   assert.equal(decodeField([0x0001, 0x0002], f), 65538); assert.equal(decodeField([0x0001, 0x0002], { ...f, word_order: "low_first" }), 0x00020001);
   assert.equal(decodeField([0x0001, 0x0000], { ...f, type: "u32", scale: 0.001 }), 65.536);
 });
-test("serial <-> registers round trip, both word orders, high bit set", () => {
-  for (const o of ["high_first", "low_first"] as const) { const r = serialToRegs("FA01B3F2", o); assert.equal(regsToSerial(r[0], r[1], o), "FA01B3F2"); }
-  assert.deepEqual(serialToRegs("4A01B3F2", "high_first"), [0x4a01, 0xb3f2]);
+test("serial <-> registers: printed serial is the plain decimal of the u32, high word first (bench: 06 b6 24 fd = 112600317, 00 ab 8c fc = 11242748)", () => {
+  assert.deepEqual(serialToRegs("112600317", "high_first"), [0x06b6, 0x24fd]); assert.equal(regsToSerial(0x06b6, 0x24fd, "high_first"), "112600317");
+  assert.equal(regsToSerial(0x00ab, 0x8cfc, "high_first"), "11242748"); assert.deepEqual(serialToRegs("11242748", "high_first"), [0x00ab, 0x8cfc]);   // fewer digits, no padding
+  for (const o of ["high_first", "low_first"] as const) for (const n of ["4294967295", "3000000000", "112600317", "1"]) { const r = serialToRegs(n, o); assert.equal(regsToSerial(r[0], r[1], o), n); }
+  assert.throws(() => serialToRegs("4294967296", "high_first")); assert.throws(() => serialToRegs("4A01B3F2", "high_first"));
+});
+test("bench data frame 010e 01d4 017f ffd9 decodes to 27.0 C, 46.8 %RH, 3.83 V, -39 dBm", () => {
+  const t = loadRegMap("config/gateway-thingsend.yaml").types.th; const v = decodeChannel([0x010e, 0x01d4, 0x017f, 0xffd9], t);
+  assert.deepEqual(v, { temperature: 27, humidity: 46.8, voltage: 3.83, rssi: -39 });
+});
+test("config groups: 0xFFFF slot is empty, [serial_hi, serial_lo, ST, CMD] group is read, zeros also empty, a half-marker group is not", () => {
+  const m = loadRegMap("config/gateway-thingsend.yaml"), c = m.types.th.config;
+  assert.equal(m.empty_marker, 0xffff); assert.equal(groupIsEmpty([0xffff, 0xffff, 0xffff, 0xffff], c, m.empty_marker), true); assert.equal(groupIsEmpty([0, 0, 0, 0], c, m.empty_marker), true);
+  assert.equal(groupIsEmpty([0x06b6, 0x24fd, 5, 0], c, m.empty_marker), false); assert.equal(groupIsEmpty([0x06b6, 0xffff, 5, 0], c, m.empty_marker), false);
+});
+test("interval unit is minutes 5..240 with a seconds multiplier; map v2 carries gateway address 7 and decimal serial pattern", () => {
+  const m = loadRegMap("config/gateway-thingsend.yaml"); const i = m.types.th.config.interval;
+  assert.deepEqual([i.unit, i.unit_sec, i.min, i.max, m.types.th.default_interval, m.types.th.presets], ["minutes", 60, 5, 240, 5, [5, 10, 15, 30]]);
+  assert.equal(m.default_gateway_address, 7); assert.equal(m.serial_pattern.test("112600317"), true); assert.equal(m.serial_pattern.test("4A01B3F2"), false);
+  assert.match(bad((t) => t.replace("unit: minutes, min: 5, max: 240 }             #", "unit: hours, min: 5, max: 240 }             #")), /interval.unit/);
 });
 test("crc16 known vector and RTU frame helpers", () => {
   assert.equal(crc16(Buffer.from([0x01, 0x03, 0x00, 0x00, 0x00, 0x0a])), 0xcdc5);   // standard Modbus example, CRC bytes C5 CD

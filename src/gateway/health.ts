@@ -12,7 +12,7 @@ export interface SensorView {
 }
 /** Admin adds the setup details. */
 export interface AdminSensorView extends SensorView {
-  serial: string; slot: number | null; labelSet: boolean; intervalSec: number; offlineAfterSec: number; lowVoltage: number; raw: { temperature?: number; humidity?: number };
+  serial: string; slot: number | null; labelSet: boolean; interval: number; intervalUnit: string; intervalSec: number; offlineAfterSec: number; lowVoltage: number; raw: { temperature?: number; humidity?: number };
   calibrated: boolean; calDueAt: number | null; calibratedAt: number | null; calibratedBy?: string; applying: boolean; intervalOk: boolean; syncState: "in_gateway" | "not_sent" | "changed"; sentInterval: number | null;
 }
 export interface Alarm { kind: "gateway_offline" | "no_update" | "low_battery" | "calibration_due"; severity: "alarm" | "warning"; text: string; serial?: string; since?: number | null; }
@@ -29,7 +29,7 @@ export function buildView(db: Db, reg: Registry, svc: GatewayService, admin: boo
   const cals = new Map<string, any>(); for (const r of db.prepare("SELECT * FROM calibrations WHERE active=1").all() as any[]) cals.set(`${r.serial}|${r.metric}`, r);
   for (const [idx, s] of (reg.list() as SensorRow[]).entries()) {
     const lt = latest.get(s.type)?.get(s.serial) ?? {}; const lowV = st.types[s.type]?.low_voltage ?? 3.2;
-    const liveness = svc.detector.liveness({ fp: s.fp, lastChange: s.last_change }, now, s.reporting_interval);
+    const liveness = svc.detector.liveness({ fp: s.fp, lastChange: s.last_change }, now, reg.intervalSec(s.type, s.reporting_interval));
     const status = sensorStatus({ gatewayOnline: online, sent: s.sent_slot !== null, liveness: s.sent_slot === null ? null : liveness, voltage: lt.voltage?.v, lowVoltage: lowV });
     const calRows = ["temperature", "humidity"].map((m) => cals.get(`${s.serial}|${m}`)).filter(Boolean);
     const latestCal = calRows.sort((a, b) => b.calibrated_at - a.calibrated_at)[0];
@@ -37,7 +37,7 @@ export function buildView(db: Db, reg: Registry, svc: GatewayService, admin: boo
     const lowBound = lowV - 0.4, level = lt.voltage ? Math.max(0, Math.min(1, (lt.voltage.v - lowBound) / (3.6 - lowBound))) : 0;      // icon bounds are ASSUMED (README)
     const base: SensorView = { label: s.label || (admin ? s.serial : `Sensor ${idx + 1}`), type: s.type, status, zoneId: s.zone_id, temperature: lt.temperature?.v, humidity: lt.humidity?.v, voltage: lt.voltage?.v, rssi: lt.rssi?.v,
       rssiBand: rssiBand(lt.rssi?.v, st.rssiGood, st.rssiPoor), lastChange: s.last_change, calDue: !!calDueRow, checkSensor: calRows.some((c) => c.check_sensor), batteryLevel: level, batteryLow: !!lt.voltage && lt.voltage.v < lowV };
-    const v: SensorView | AdminSensorView = !admin ? base : { ...base, serial: s.serial, slot: s.slot, labelSet: !!s.label, intervalSec: s.reporting_interval, offlineAfterSec: s.reporting_interval * st.offlineMultiplier, lowVoltage: lowV,
+    const v: SensorView | AdminSensorView = !admin ? base : { ...base, serial: s.serial, slot: s.slot, labelSet: !!s.label, interval: s.reporting_interval, intervalUnit: reg.unitName(s.type), intervalSec: reg.intervalSec(s.type, s.reporting_interval), offlineAfterSec: reg.intervalSec(s.type, s.reporting_interval) * st.offlineMultiplier, lowVoltage: lowV,
       raw: { temperature: lt.temperature_raw?.v, humidity: lt.humidity_raw?.v }, calibrated: calRows.length > 0, calDueAt: calDueRow?.due_at ?? latestCal?.due_at ?? null, calibratedAt: latestCal?.calibrated_at ?? null, calibratedBy: latestCal?.calibrated_by,
       applying: s.sent_slot !== null && !s.interval_confirmed, intervalOk: reg.intervalOk(s.type, s.reporting_interval), sentInterval: s.sent_interval,
       syncState: s.sent_slot === null ? "not_sent" : s.sent_slot !== s.slot || s.sent_interval !== s.reporting_interval ? "changed" : "in_gateway" };

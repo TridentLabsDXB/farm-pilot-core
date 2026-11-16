@@ -1,6 +1,6 @@
 // Gateway simulator process: Modbus TCP (MBAP) + RTU-over-TCP listeners and a small loopback HTTP control API for failure injection.
 //   node dist/tools/gateway-sim/main.js [--replay dump.json]
-// Env: SIM_MBAP_PORT (5020) SIM_RTU_PORT (5021) SIM_CTL_PORT (5030) SIM_BIND (127.0.0.1) SIM_MAP (config path) SIM_PRECONFIG (0)
+// Env: SIM_MBAP_PORT (5020) SIM_RTU_PORT (5021) SIM_CTL_PORT (5030) SIM_BIND (127.0.0.1) SIM_MAP (config path) SIM_PRECONFIG (0) SIM_TIMESCALE (1; e.g. 60 makes a 5 min interval transmit every 5 s)
 // Optional virtual serial pair to exercise real RTU framing without hardware (documented, not required):
 //   socat -d -d pty,raw,echo=0,link=/tmp/ttyGW pty,raw,echo=0,link=/tmp/ttyCORE   (then bridge /tmp/ttyGW to SIM_RTU_PORT with: socat tcp:127.0.0.1:5021 /tmp/ttyGW,raw,echo=0)
 import { createServer as createHttp } from "node:http";
@@ -13,8 +13,9 @@ import { serveSim } from "./server.js";
 const bind = process.env.SIM_BIND || "127.0.0.1";
 const map = loadRegMap(process.env.SIM_MAP || fileURLToPath(new URL("../../../config/gateway-thingsend.yaml", import.meta.url)));
 export const sim = new GatewaySim(map);
+sim.timeScale = Math.max(1, Number(process.env.SIM_TIMESCALE || 1));
 const pre = Number(process.env.SIM_PRECONFIG || 0);
-for (let i = 0; i < pre; i++) sim.preconfigure("th", i, [...sim.phys.keys()][i], 300);
+for (let i = 0; i < pre; i++) sim.preconfigure("th", i + 1, [...sim.phys.keys()][i], 5);
 const ra = process.argv.indexOf("--replay"); if (ra > 0) sim.loadReplay(JSON.parse(readFileSync(process.argv[ra + 1], "utf8")));
 
 serveSim(sim, Number(process.env.SIM_MBAP_PORT || 5020), "mbap", bind);
@@ -37,7 +38,7 @@ createHttp((req, res) => {
       case "/stop": sim.silent = true; return ok();
       case "/start": sim.silent = false; return ok();
       case "/reject": { const on = q.get("on") !== "0"; if (serial) { on ? sim.rejectSerials.add(serial) : sim.rejectSerials.delete(serial); } else sim.rejectAll = on; return ok(); }
-      case "/preconfig": try { sim.preconfigure(q.get("type") || "th", Number(q.get("slot")), serial, Number(q.get("interval") || 300)); return ok(); } catch (e: any) { return bad(e.message); }
+      case "/preconfig": try { sim.preconfigure(q.get("type") || "th", Number(q.get("slot")), serial, Number(q.get("interval") || 5)); return ok(); } catch (e: any) { return bad(e.message); }
       case "/replay": try { sim.loadReplay(JSON.parse(body)); return ok(); } catch (e: any) { return bad(e.message); }
       default: res.statusCode = 404; return ok({ error: "not found" });
     }

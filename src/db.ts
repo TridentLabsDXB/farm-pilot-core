@@ -21,6 +21,20 @@ export function openDb(path: string): Database.Database {
     db.exec("UPDATE sensors SET slot = -slot - 1 WHERE slot IS NOT NULL; UPDATE sensors SET slot = -slot WHERE slot < 0; UPDATE sensors SET sent_slot = sent_slot + 1 WHERE sent_slot IS NOT NULL; UPDATE pending_removals SET slot = slot + 1 WHERE slot IS NOT NULL;");
     db.prepare("INSERT INTO settings(key,value) VALUES('slots_1based','1')").run();
   })();
+  // 2026-11-16 (bench capture): the printed serial is the plain DECIMAL of the 32-bit gateway address, and a T/H interval is stored in MINUTES (5..240).
+  // The first Milestone 2 build used 8 hex digits and seconds. One-time conversion of every table that holds a serial; history rows move with their series key.
+  if (!db.prepare("SELECT 1 FROM settings WHERE key='serial_decimal_minutes'").get()) db.transaction(() => {
+    const dec = (h: string) => String(parseInt(h, 16)), isOld = (v: unknown) => typeof v === "string" && /^[0-9A-Fa-f]{8}$/.test(v);
+    for (const [t, c] of [["sensors", "serial"], ["sensors", "replaced_by"], ["pending_removals", "serial"], ["points", "serial"], ["calibrations", "serial"], ["alarm_events", "source"]] as const)
+      for (const r of db.prepare(`SELECT DISTINCT ${c} v FROM ${t} WHERE ${c} IS NOT NULL`).all() as { v: string }[]) if (isOld(r.v)) db.prepare(`UPDATE ${t} SET ${c}=? WHERE ${c}=?`).run(dec(r.v), r.v);
+    for (const r of db.prepare("SELECT id,sensor_key FROM series WHERE topic LIKE 'gateway/%'").all() as { id: number; sensor_key: string }[]) if (isOld(r.sensor_key)) db.prepare("UPDATE series SET sensor_key=? WHERE id=?").run(dec(r.sensor_key), r.id);
+    const ign = db.prepare("SELECT value FROM settings WHERE key='gw.ignored'").get() as { value: string } | undefined;
+    if (ign) { try { db.prepare("UPDATE settings SET value=? WHERE key='gw.ignored'").run(JSON.stringify((JSON.parse(ign.value) as string[]).map((x) => (isOld(x) ? dec(x) : x)))); } catch { /* unreadable list: leave it */ } }
+    const min = (sec: number | null) => (sec === null ? null : Math.min(240, Math.max(5, Math.round(sec / 60))));
+    for (const r of db.prepare("SELECT serial,reporting_interval,sent_interval FROM sensors").all() as { serial: string; reporting_interval: number; sent_interval: number | null }[])
+      db.prepare("UPDATE sensors SET reporting_interval=?, sent_interval=NULL, sent_slot=NULL WHERE serial=?").run(min(r.reporting_interval), r.serial);   // sent_*: the gateway is read again, so "NOT SENT / CHANGED" is derived afresh
+    db.prepare("INSERT INTO settings(key,value) VALUES('serial_decimal_minutes','1')").run();
+  })();
   return db;
 }
 
@@ -104,5 +118,16 @@ CREATE TABLE IF NOT EXISTS alarm_events (
   last_data_at INTEGER);    -- NO UPDATE only: when the sensor's data last changed
 CREATE INDEX IF NOT EXISTS idx_alarm_raised ON alarm_events(raised_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_open ON alarm_events(kind, source) WHERE cleared_at IS NULL;
+-- Farm Profile (one row, id 1) and contacts. Measurements stay in SI (degC); temperature_unit is display only. NULL threshold = use the register-map default.
+CREATE TABLE IF NOT EXISTS farm_profile (id INTEGER PRIMARY KEY CHECK (id=1),
+  farm_name TEXT NOT NULL, site_name TEXT NOT NULL DEFAULT '', owner_name TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
+  logo BLOB, logo_type TEXT, logo_hash TEXT,
+  address TEXT NOT NULL DEFAULT '', latitude REAL, longitude REAL, timezone TEXT NOT NULL, language TEXT NOT NULL DEFAULT 'en', temperature_unit TEXT NOT NULL DEFAULT 'C',
+  date_format TEXT NOT NULL DEFAULT 'D Mon YYYY', time_format TEXT NOT NULL DEFAULT '24',
+  low_voltage_by_type TEXT NOT NULL DEFAULT '{}', rssi_good REAL, rssi_weak REAL, stale_multiplier INTEGER, offline_multiplier INTEGER, calibration_due_days INTEGER,
+  default_theme TEXT NOT NULL DEFAULT 'light', updated_at INTEGER, updated_by TEXT);
+CREATE TABLE IF NOT EXISTS farm_contacts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+  notify_gateway_offline INTEGER NOT NULL DEFAULT 0, notify_no_update INTEGER NOT NULL DEFAULT 0, notify_low_battery INTEGER NOT NULL DEFAULT 0, notify_calibration_due INTEGER NOT NULL DEFAULT 0,
+  sort INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS sync_runs (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, username TEXT NOT NULL, type TEXT NOT NULL, ok INTEGER NOT NULL, result TEXT NOT NULL);
 `;

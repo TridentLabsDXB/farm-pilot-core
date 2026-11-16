@@ -16,6 +16,9 @@ import type { Ingest, LiveTopic } from "./ingest.js";
 import type { Registry } from "./gateway/registry.js";
 import type { GatewayService } from "./gateway/service.js";
 import { registerGatewayRoutes } from "./gateway/routes.js";
+import { registerProfileRoutes } from "./gateway/profile-routes.js";
+import { ProfileService } from "./gateway/profile.js";
+import { HttpError } from "./gateway/registry.js";
 
 const COOKIE = "core_session";
 const buildStamp = () => { try { return readFileSync(join(dirname(fileURLToPath(import.meta.url)), "BUILD"), "utf8").trim(); } catch { return "unknown"; } };
@@ -99,7 +102,9 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
     return { ok: true };
   });
 
-  if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" })); gw.on("update", () => send({ type: "scada" })); }
+  app.setErrorHandler((err: any, _req, reply) => { if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message, ...(err.extra as object) }); reply.send(err); });
+  const prof = new ProfileService(db, reg?.map ?? null); registerProfileRoutes(app, prof, admin, () => send({ type: "scada" }));
+  if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof); gw.on("update", () => send({ type: "scada" })); }
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
 
   app.get("/ws", { websocket: true }, (socket, req) => {

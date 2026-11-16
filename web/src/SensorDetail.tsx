@@ -130,7 +130,7 @@ function Danger({ serial }: { serial: string }) {
     <p className="fp-msg">Replace moves label, zone and thresholds to the new serial. Calibration does NOT transfer: the new sensor starts uncalibrated. History stays on the old serial.</p>
     <div className="fp-row"><button className="fp-btn" onClick={() => setMode("replace")}>Replace sensor</button><button className="fp-btn danger" onClick={() => setMode("remove")}>Remove sensor</button></div>
     {mode && <Modal title={mode === "replace" ? "Replace sensor" : "Remove sensor"} onClose={() => setMode("")}>
-      {mode === "replace" ? <label className="fp-field"><span className="fp-cap">Serial of the new sensor</span><input className="fp-input" value={ns} onChange={(e) => setNs(e.target.value)} placeholder="4A01B3FA" /></label> : <>
+      {mode === "replace" ? <label className="fp-field"><span className="fp-cap">Serial of the new sensor</span><input className="fp-input" value={ns} onChange={(e) => setNs(e.target.value)} placeholder="112600318" /></label> : <>
         <p className="fp-msg"><b>{serial}</b> leaves CORE. Its group is cleared in the gateway on the next SEND TO GATEWAY.</p>
         <ul className="fp-list" style={{ listStyle: "disc", paddingLeft: 20, display: "block" }}>
           <li style={{ display: "list-item", fontFamily: "var(--fp-head)", fontSize: 15 }}><b>Points:</b> {pts === null ? "checking..." : pts.n ? `its ${pts.n} point${pts.n === 1 ? "" : "s"} in ${pts.zone} are removed. The zone itself stays.` : "it has no points in the farm structure."}</li>

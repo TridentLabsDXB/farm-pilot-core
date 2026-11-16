@@ -9,7 +9,7 @@ const map = loadRegMap("config/gateway-thingsend.yaml");
 function rig() {
   const sim = new GatewaySim(map); const sent: Buffer[] = [];
   const tr: ModbusTransport = { async request(unit, pdu) { sent.push(Buffer.from(pdu)); const r = sim.handle(unit, pdu); if (!r) throw new Error("timeout"); return r; }, async close() {} };
-  return { sim, sent, drv: new GatewayDriver(new ModbusMaster(tr, { unit: 1, timeoutMs: 50, retries: 0 }), map) };
+  return { sim, sent, drv: new GatewayDriver(new ModbusMaster(tr, { unit: map.default_gateway_address, timeoutMs: 50, retries: 0 }), map) };
 }
 
 test("T/H: slot 1 = config 0x0100 / data 0x0001, slot 30 = config 0x0174 / data 0x0075", () => {
@@ -28,12 +28,12 @@ test("every type (incl. the disabled placeholders): slot 1 is the first group, s
 });
 test("on the wire: writing slot 1 and slot 30 hits 0x0100 and 0x0174 (FC16), reading config hits 0x0100 (FC04), reading data hits 0x0001 (FC03)", async () => {
   const { drv, sent, sim } = rig();
-  await drv.writeGroup("th", 1, { serial: "4A01B3F2", interval: 60 }); await drv.writeGroup("th", 30, { serial: "4A01B3F3", interval: 60 });
+  await drv.writeGroup("th", 1, { serial: "112600310", interval: 10 }); await drv.writeGroup("th", 30, { serial: "112600311", interval: 10 });
   assert.deepEqual(sent.map((p) => [p[0], p.readUInt16BE(1), p.readUInt16BE(3)]), [[16, 0x0100, 4], [16, 0x0174, 4]]);
   await drv.readConfig("th"); await drv.readData("th", 30);
   assert.deepEqual(sent.slice(2).map((p) => [p[0], p.readUInt16BE(1), p.readUInt16BE(3)]), [[4, 0x0100, 120], [3, 0x0001, 120]]);
-  const cfg = sim.cfg.get("th")!; assert.equal(cfg[0], 0x4a01); assert.equal(cfg[1], 0xb3f2); assert.equal(cfg[0x74], 0x4a01); assert.equal(cfg[0x75], 0xb3f3);   // first and last group of the block
-  assert.equal(cfg.slice(4, 0x74).every((x) => x === 0), true);                                                                                                          // nothing in between
+  const cfg = sim.cfg.get("th")!; assert.equal(cfg[0], 0x06b6); assert.equal(cfg[1], 0x24f6); assert.equal(cfg[0x74], 0x06b6); assert.equal(cfg[0x75], 0x24f7);   // 112600310 = 0x06B624F6, 112600311 = 0x06B624F7   // first and last group of the block
+  assert.equal(cfg.slice(4, 0x74).every((x) => x === 0xffff), true);                                                                                                       // nothing in between
 });
 test("data of slot 1 and slot 30 comes from data 0x0001 and 0x0075", async () => {
   const { drv, sim } = rig(); const d = sim.data.get("th")!;
@@ -43,7 +43,7 @@ test("data of slot 1 and slot 30 comes from data 0x0001 and 0x0075", async () =>
 });
 test("slot 0 and slot 31 are refused BEFORE anything is sent to the gateway", async () => {
   const { drv, sent } = rig();
-  for (const slot of [0, 31, -1, 1.5]) { await assert.rejects(drv.writeGroup("th", slot, { serial: "4A01B3F2", interval: 60 }), /slot out of range/); await assert.rejects(drv.clearGroup("th", slot), /slot out of range/); }
+  for (const slot of [0, 31, -1, 1.5]) { await assert.rejects(drv.writeGroup("th", slot, { serial: "112600310", interval: 10 }), /slot out of range/); await assert.rejects(drv.clearGroup("th", slot), /slot out of range/); }
   await assert.rejects(drv.readData("th", 31), /slot out of range/); assert.throws(() => drv.dataAddr("th", 31), /slot out of range/); assert.throws(() => drv.groupAddr("th", 31), /slot out of range/);
   assert.equal(sent.length, 0);
 });

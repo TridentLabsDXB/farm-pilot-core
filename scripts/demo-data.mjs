@@ -1,6 +1,6 @@
 // Seed or reset the bench DEMO data through the normal API (so it is audited and goes through the same validation as the UI).
 //   BASE=http://10.0.0.3:4100 CTL=http://127.0.0.1:5030 USER_NAME=admin PASS=... node scripts/demo-data.mjs seed|reset
-// seed : idempotent. 8 simulated T/H sensors (serials 4A01B3F2..F9) with labels, two zones (Greenhouse 1 / 2), one sensor at 5 min and the rest at 1 min,
+// seed : idempotent. 8 simulated T/H sensors (serials 112600310..317) with labels, two zones (Greenhouse 1 / 2), one sensor at 5 min and the rest at 1 min,
 //        Send to Gateway, and one calibrated sensor once it has a reading. Existing items are left as they are.
 // reset: removes the demo sensors, zones and calibrations from CORE, sends that to the gateway (groups cleared) and unfreezes the simulator.
 //        Calibration rows stay as history (the API never deletes them). It never touches sensors with other serials, users, history or pump commands.
@@ -9,13 +9,13 @@ if (!BASE || !U || !P || !["seed", "reset"].includes(mode)) { console.error("usa
 let cookie = "";
 const api = async (m, p, b) => { const r = await fetch(BASE + "/api" + p, { method: m, headers: b ? { "content-type": "application/json", cookie } : { cookie }, body: b ? JSON.stringify(b) : undefined }); const sc = r.headers.get("set-cookie"); if (sc) cookie = sc.split(";")[0]; const body = await r.json().catch(() => ({})); return { status: r.status, body }; };
 const ok = (r, what) => { if (r.status >= 400) throw new Error(`${what}: ${r.body.error ?? r.status}`); return r.body; };
-const SERIALS = Array.from({ length: 8 }, (_, i) => "4A01B3F" + (2 + i)), ZONES = [["Greenhouse 1", "climate"], ["Greenhouse 2", "climate"]];
+const SERIALS = Array.from({ length: 8 }, (_, i) => String(112600310 + i)), ZONES = [["Greenhouse 1", "climate"], ["Greenhouse 2", "climate"]];
 ok(await api("POST", "/login", { username: U, password: P }), "login");
 
 if (mode === "seed") {
   const have = new Set(ok(await api("GET", "/sensors"), "list").sensors.map((s) => s.serial));
   const add = SERIALS.filter((s) => !have.has(s)); if (add.length) ok(await api("POST", "/sensors", { type: "th", serials: add, labels: Object.fromEntries(add.map((s, i) => [s, `${i < 4 ? "GH1" : "GH2"} row ${(i % 4) + 1}`])) }), "add sensors");
-  for (const [i, s] of SERIALS.entries()) ok(await api("PATCH", `/sensors/${s}`, { interval: i === 7 ? 300 : 60 }), "interval");
+  for (const [i, s] of SERIALS.entries()) ok(await api("PATCH", `/sensors/${s}`, { interval: i === 7 ? 15 : 5 }), "interval");
   let zs = ok(await api("GET", "/structure"), "structure").zones;
   for (const [n, t] of ZONES) if (!zs.some((z) => z.name === n)) ok(await api("POST", "/zones", { name: n, type: t }), "zone");
   zs = ok(await api("GET", "/structure"), "structure").zones;

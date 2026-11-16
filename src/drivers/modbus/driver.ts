@@ -1,5 +1,5 @@
 // Register-map aware gateway driver. All addresses and function codes come from the map, nothing is hard-coded here, so a new sensor type is a config block.
-import { decodeChannel, regsToSerial, serialToRegs, type RegMap, type TypeDef } from "./regmap.js";
+import { decodeChannel, groupIsEmpty, regsToSerial, serialToRegs, type RegMap, type TypeDef } from "./regmap.js";
 import type { ModbusMaster, Priority } from "./master.js";
 
 export interface Group { slot: number; serial: string | null; interval: number; control: number; }
@@ -21,8 +21,8 @@ export class GatewayDriver {
     const groups: Group[] = [];
     for (let slot = 1; slot <= t.groups; slot++) {          // slots are numbered 1..groups; the register address uses slot-1
       const g = regs.slice((slot - 1) * c.regs_per_group, slot * c.regs_per_group);
-      const empty = g.every((x) => x === 0);
-      groups.push({ slot, serial: empty ? null : regsToSerial(g[c.serial.reg], g[c.serial.reg + 1], c.serial.word_order), interval: g[c.interval.reg], control: g[c.control.reg] });
+      const empty = groupIsEmpty(g, c, this.map.empty_marker);   // 0xFFFF = never configured (CONFIRMED), zeros = cleared
+      groups.push({ slot, serial: empty ? null : regsToSerial(g[c.serial.reg], g[c.serial.reg + 1], c.serial.word_order), interval: empty ? 0 : g[c.interval.reg], control: empty ? 0 : g[c.control.reg] });
     }
     return groups;
   }

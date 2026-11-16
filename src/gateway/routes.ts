@@ -2,12 +2,13 @@
 // Operators get /api/scada and /api/alarms only: no serial-to-slot details, no raw values, no register addresses.
 import type { FastifyInstance } from "fastify";
 import type { Db } from "../db.js";
-import { audit } from "../db.js";
+import { audit, getSetting } from "../db.js";
 import { config } from "../config.js";
 import { AlarmTracker } from "./alarms.js";
 import { buildView, type AdminSensorView } from "./health.js";
 import { HttpError, type Registry } from "./registry.js";
 import type { GatewayService } from "./service.js";
+import { ProfileService } from "./profile.js";
 
 const TEMPLATES = [
   { key: "greenhouse", label: "Greenhouse", name: "Greenhouse", type: "climate", roles: ["Air temperature", "Air humidity"] },
@@ -15,11 +16,11 @@ const TEMPLATES = [
   { key: "water", label: "Water storage", name: "Water storage", type: "water_storage", roles: ["Air temperature", "Air humidity"] },
 ];
 
-export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registry, svc: GatewayService, admin: any, push: () => void) {
+export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registry, svc: GatewayService, admin: any, push: () => void, prof: ProfileService = new ProfileService(db, reg.map)) {
   const A = (req: any) => ({ username: req.user.username as string, role: req.user.role as string });
   app.setErrorHandler((err: any, _req, reply) => { if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message, ...(err.extra as object) }); reply.send(err); });
   const guard = <T>(f: () => T) => { const r = f(); push(); return r; };
-  const typesInfo = () => Object.values(reg.map.types).filter((t) => t.enabled).map((t) => ({ key: t.key, label: t.label, ...reg.usage(t.key), presets: reg.allowedIntervals(t.key), commissioningPresets: t.commissioning_presets, commissioning: reg.settings().commissioning, defaultInterval: t.default_interval, min: t.config.interval.min, max: t.config.interval.max, models: t.models }));
+  const typesInfo = () => Object.values(reg.map.types).filter((t) => t.enabled).map((t) => ({ key: t.key, label: t.label, ...reg.usage(t.key), presets: reg.allowedIntervals(t.key), commissioningPresets: t.commissioning_presets, commissioning: reg.settings().commissioning, defaultInterval: t.default_interval, unit: t.config.interval.unit, min: t.config.interval.min, max: t.config.interval.max, models: t.models }));
 
   app.get("/api/scada", async (req) => buildView(db, reg, svc, (req as any).user.role === "admin"));
   // Alarm history: the tracker opens/closes alarm_events rows whenever the gateway reports, and every 15 s (staleness is time-based). It also expires commissioning mode after 8 h.
@@ -44,8 +45,13 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   app.post<{ Body: { types?: string[]; confirm?: boolean } }>("/api/gateway/sync", { preHandler: admin }, async (req) => { const r = await svc.sync(A(req), req.body?.types?.length ? req.body.types : ["th"], !!req.body?.confirm); push(); return r; });
   app.post<{ Body: { confirmText?: string } }>("/api/gateway/delete-all", { preHandler: admin }, async (req) => {
     // Strong confirmation: the Admin must type the farm name exactly (as shown in the dialog). Wrong text = nothing happens, and the refusal is audited too.
-    if (req.body?.confirmText !== config.farm) { audit(db, A(req).username, A(req).role, "gateway.delete_all.refused", { reason: "confirmation text did not match" }); throw new HttpError(400, `type the farm name "${config.farm}" to confirm`); }
+    if (req.body?.confirmText !== prof.farmName()) { audit(db, A(req).username, A(req).role, "gateway.delete_all.refused", { reason: "confirmation text did not match" }); throw new HttpError(400, `type the farm name "${prof.farmName()}" to confirm`); }
     await svc.deleteAll(A(req)); push(); return { ok: true };
+  });
+  app.post<{ Body: { address?: number; confirmText?: string } }>("/api/gateway/set-address", { preHandler: admin }, async (req) => {
+    const n = Number(req.body?.address), bad = !Number.isInteger(n) || n < 1 || n > 254 || n === 123 || n === 160;
+    if (bad || req.body?.confirmText !== prof.farmName()) { audit(db, A(req).username, A(req).role, "gateway.set_address.refused", { address: req.body?.address ?? null, reason: bad ? "address not allowed" : "confirmation text did not match" }); throw new HttpError(400, bad ? "address must be 1 to 254 and never 123 or 160" : `type the farm name "${prof.farmName()}" to confirm`); }
+    await svc.setAddress(A(req), n); push(); return { ok: true, address: n };
   });
   app.post<{ Body: { serial: string } }>("/api/gateway/unassigned/ignore", { preHandler: admin }, async (req) => { svc.ignore(A(req), String(req.body?.serial ?? "")); push(); return { ok: true }; });
   app.post<{ Body: { serial: string } }>("/api/gateway/unassigned/add", { preHandler: admin }, async (req) => guard(() => {
@@ -92,6 +98,7 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   app.patch<{ Params: { id: string }; Body: { role: string } }>("/api/points/:id", { preHandler: admin }, async (req) => guard(() => { reg.setPointRole(A(req), Number(req.params.id), req.body?.role); return { ok: true }; }));
 
   // ---- backup ----
-  app.get("/api/backup", { preHandler: admin }, async (req, reply) => { audit(db, (req as any).user.username, "admin", "backup.export", {}); reply.header("content-disposition", 'attachment; filename="farmpilot-core-backup.json"'); return reg.exportAll(); });
-  app.post("/api/backup/restore", { preHandler: admin, bodyLimit: 2 * 1024 * 1024 }, async (req) => guard(() => { reg.restore(A(req), req.body); return { ok: true }; }));
+  app.get("/api/backup", { preHandler: admin }, async (req, reply) => { audit(db, (req as any).user.username, "admin", "backup.export", {}); reply.header("content-disposition", 'attachment; filename="farmpilot-core-backup.json"'); return { ...reg.exportAll(), ...prof.exportParts() }; });
+  app.get("/api/backup/status", { preHandler: admin }, async () => { const r = db.prepare("SELECT MAX(ts) t FROM audit_log WHERE action='backup.export'").get() as { t: number | null }; return { lastExportAt: r?.t ?? null, warnDays: Number(getSetting(db, "backup.warn_days", "7")) }; });
+  app.post("/api/backup/restore", { preHandler: admin, bodyLimit: 2 * 1024 * 1024 }, async (req) => guard(() => { const b = req.body as any; if (b && typeof b === "object") prof.checkBackup(b); reg.restore(A(req), req.body); prof.restoreParts(A(req), b); return { ok: true }; }));
 }

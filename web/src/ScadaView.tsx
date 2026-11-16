@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type Cmd, type Scada, type SensorView, type State, type ZoneView } from "./api";
-import { Battery, Chip, CommissioningBanner, Modal, Signal, StatusChip, ago, fmt, useNow, type Tone } from "./ui";
+import { Battery, Chip, CommissioningBanner, Modal, Signal, StatusChip, ago, fmt, tempUnit, tempVal, useNow, type Tone } from "./ui";
 
 const ZONE_STATUS = (z: ZoneView): [Tone, string] => z.status === "unknown" ? ["off", "UNKNOWN"] : z.status === "empty" ? ["off", "NO SENSORS"] : z.noUpdate ? ["warn", `${z.noUpdate} NO UPDATE`] : z.lowBattery ? ["warn", "LOW BATTERY"] : ["ok", "ONLINE"];
 
@@ -8,7 +8,7 @@ function Row({ s, now }: { s: SensorView; now: number }) {
   const dim = s.status !== "ok" && s.status !== "low_battery"; const warn = s.status === "no_update" || s.status === "low_battery";
   return (
     <div className="fp-srow" data-warn={warn ? 1 : 0}>
-      <span className="l">{s.label}</span><span className={`v ${dim ? "dim" : ""}`}>{fmt(s.temperature)} °C &nbsp;{fmt(s.humidity, 0)} %</span>
+      <span className="l">{s.label}</span><span className={`v ${dim ? "dim" : ""}`}>{fmt(tempVal(s.temperature))} {tempUnit()} &nbsp;{fmt(s.humidity, 0)} %</span>
       <span className="m"><StatusChip status={s.status} /><Battery v={s.voltage} level={s.batteryLevel} isLow={s.batteryLow} /><Signal rssi={s.rssi} band={s.rssiBand} /><span>changed {ago(s.lastChange, now)}</span>{s.calDue && <Chip tone="warn">CAL DUE</Chip>}{s.checkSensor && <Chip tone="warn">CHECK SENSOR</Chip>}</span>
     </div>
   );
@@ -21,7 +21,7 @@ function Zone({ z, now }: { z: ZoneView; now: number }) {
     <section className="fp-card" aria-label={z.name}>
       <div className="fp-row fp-spread"><h3>{z.name}</h3><Chip tone={tone}>{word}</Chip></div>
       <div className="fp-tiles">
-        <div className="fp-tile"><span className="fp-cap">Temperature</span><span className="fp-big" style={{ color: off ? "var(--fp-off)" : undefined }}>{off ? "--" : fmt(z.avgTemperature)}<small> °C</small></span></div>
+        <div className="fp-tile"><span className="fp-cap">Temperature</span><span className="fp-big" style={{ color: off ? "var(--fp-off)" : undefined }}>{off ? "--" : fmt(tempVal(z.avgTemperature))}<small> {tempUnit()}</small></span></div>
         <div className="fp-tile"><span className="fp-cap">Humidity</span><span className="fp-big" style={{ color: off ? "var(--fp-off)" : undefined }}>{off ? "--" : fmt(z.avgHumidity, 0)}<small> %</small></span></div>
       </div>
       <span className="fp-cap" style={{ textTransform: "none", letterSpacing: ".04em" }}>{off ? "Gateway offline: values unknown" : note}</span>

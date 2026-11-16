@@ -13,19 +13,20 @@ test("alarm events: raised once, cleared when gone, re-raised as a new episode; 
   assert.equal(t.history(50, true)[0].cleared_at, null);                                                                         // open ones first
 });
 test("acknowledge records who and when once, is audited, survives clearing; Operators never see the source serial", () => {
-  const db = openDb(":memory:"); const t = new AlarmTracker(db, null as any, null as any); t.sync([noUp("4A01B3F2")], 1000);
+  const db = openDb(":memory:"); const t = new AlarmTracker(db, null as any, null as any); t.sync([noUp("112600310")], 1000);
   const id = t.history(1, true)[0].id; t.ack({ username: "op1", role: "operator" }, id, 1500); t.ack({ username: "admin", role: "admin" }, id, 1600);      // second ack keeps the first
   t.sync([], 2000); const r = t.history(5, true)[0]; assert.deepEqual([r.acked_by, r.acked_at, r.cleared_at], ["op1", 1500, 2000]);
   assert.equal((db.prepare("SELECT COUNT(*) c FROM audit_log WHERE action='alarm.ack'").get() as any).c, 1);
-  assert.equal(t.history(5, false)[0].source, ""); assert.equal(t.history(5, true)[0].source, "4A01B3F2"); assert.throws(() => t.ack(A, 999), HttpError);
+  assert.equal(t.history(5, false)[0].source, ""); assert.equal(t.history(5, true)[0].source, "112600310"); assert.throws(() => t.ack(A, 999), HttpError);
 });
 test("commissioning mode switches itself off after 8 hours and the switch-off is audited", () => {
-  const db = openDb(":memory:"); const reg = new Registry(db, map); let now = 1_000_000; reg.now = () => now; reg.add(A, "th", ["4A01B3F2"]);
-  assert.equal(reg.settings().commissioning, false); assert.throws(() => reg.update(A, "4A01B3F2", { interval: 30 }), HttpError);
+  const db = openDb(":memory:"); const m2 = structuredClone(map); m2.types.th.commissioning_presets = [1];   // the shipped T/H map has none; the mechanism is kept for a type that does
+  const reg = new Registry(db, m2); let now = 1_000_000; reg.now = () => now; reg.add(A, "th", ["112600310"]);
+  assert.equal(reg.settings().commissioning, false); assert.throws(() => reg.update(A, "112600310", { interval: 1 }), HttpError);
   reg.saveSettings(A, { commissioning: true }); assert.deepEqual([reg.settings().commissioning, reg.settings().commissioningUntil], [true, 1_000_000 + COMMISSIONING_MS]);
-  reg.update(A, "4A01B3F2", { interval: 30 });                                                                                      // allowed while on
+  reg.update(A, "112600310", { interval: 1 });                                                                                      // allowed while on
   now += COMMISSIONING_MS - 1000; assert.equal(reg.settings().commissioning, true);
-  now += 1000; assert.equal(reg.settings().commissioning, false); assert.deepEqual(reg.allowedIntervals("th"), [60, 300]); assert.throws(() => reg.update(A, "4A01B3F2", { interval: 30 }), HttpError);
+  now += 1000; assert.equal(reg.settings().commissioning, false); assert.deepEqual(reg.allowedIntervals("th"), [5, 10, 15, 30]); assert.throws(() => reg.update(A, "112600310", { interval: 1 }), HttpError);
   const a = db.prepare("SELECT username,role,detail FROM audit_log WHERE action='gateway.commissioning.auto_off'").all() as any[]; assert.equal(a.length, 1); assert.equal(a[0].username, "system");
   reg.settings(); assert.equal((db.prepare("SELECT COUNT(*) c FROM audit_log WHERE action='gateway.commissioning.auto_off'").get() as any).c, 1);                 // audited once only
   reg.saveSettings(A, { commissioning: true }); now += 3600_000; reg.saveSettings(A, { commissioning: false }); assert.equal(reg.settings().commissioning, false);

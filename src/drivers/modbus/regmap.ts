@@ -7,17 +7,18 @@ export interface FieldDef { reg: number; type: FieldType; scale: number; unit: s
 export interface TypeDef {
   key: string; enabled: boolean; label: string; models: string[]; groups: number; low_voltage: number; default_interval: number; presets: number[]; commissioning_presets: number[];
   config: { base: number; regs_per_group: number; write_fc: number[]; read_fc: number; serial: { reg: number; regs: number; word_order: "high_first" | "low_first" };
-    interval: { reg: number; unit: string; min: number; max: number }; control: { reg: number; value_on_add: number } };
+    interval: { reg: number; unit: string; unit_sec: number; min: number; max: number }; control: { reg: number; value_on_add: number } };
   data: { base: number; regs_per_channel: number; read_fc: number; fields: Record<string, FieldDef> };
 }
 export interface RegMap {
-  gateway_model: string; manual_version: string; map_version: number; default_gateway_address: number; serial_pattern: RegExp;
+  gateway_model: string; manual_version: string; map_version: number; default_gateway_address: number; serial_pattern: RegExp; empty_marker: number;
   system: { address: number; group_address: number; version: number; delete_all: number; read_fc: number; write_fc: number; delete_all_value: number };
   health: { offline_multiplier: number; rssi_good_above: number; rssi_poor_below: number };
   types: Record<string, TypeDef>;
 }
 export class RegMapError extends Error { constructor(public problems: string[]) { super("register map invalid:\n - " + problems.join("\n - ")); } }
 
+const UNIT_SEC: Record<string, number> = { seconds: 1, minutes: 60 };
 const isInt = (v: unknown, lo = 0, hi = 0xffff): v is number => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
@@ -30,7 +31,8 @@ export function parseRegMap(text: string): RegMap {
   if (!isInt(raw.map_version, 1, 1e6)) p.push("map_version must be a positive integer");
   const addr = raw.default_gateway_address;
   if (!isInt(addr, 1, 254) || addr === 123 || addr === 160) p.push("default_gateway_address must be 1..254 and never 123 or 160 (0 and 255 are broadcast)");
-  let pattern = /^[0-9A-Fa-f]{8}$/; try { pattern = new RegExp(String(raw.serial_pattern ?? pattern.source)); } catch { p.push("serial_pattern is not a valid regular expression"); }
+  let pattern = /^[0-9]{7,10}$/; try { pattern = new RegExp(String(raw.serial_pattern ?? pattern.source)); } catch { p.push("serial_pattern is not a valid regular expression"); }
+  const marker = raw.empty_group_marker ?? 0xffff; if (!isInt(marker)) p.push("empty_group_marker must be 0..0xFFFF");
   const s = raw.system ?? {};
   for (const [k, f] of [["address", "reg"], ["group_address", "reg"], ["version", "reg"], ["delete_all", "reg"]] as const) if (!isInt(s[k]?.[f])) p.push(`system.${k}.reg missing or out of range`);
   const h = raw.health ?? {};
@@ -52,6 +54,8 @@ export function parseRegMap(text: string): RegMap {
     if (!["high_first", "low_first"].includes(c.serial?.word_order)) w("config.serial.word_order must be high_first|low_first");
     for (const f of ["interval", "control"] as const) if (!isInt(c[f]?.reg, 0, 15) || (isInt(c.regs_per_group) && c[f].reg >= c.regs_per_group)) w(`config.${f}.reg outside regs_per_group`);
     if (isInt(c.serial?.reg) && isInt(c.regs_per_group) && c.serial.reg + 2 > c.regs_per_group) w("config.serial does not fit inside regs_per_group");
+    if (!(c.interval?.unit in UNIT_SEC)) w(`config.interval.unit must be one of ${Object.keys(UNIT_SEC).join(", ")}`);
+    if (t?.data?.never_received !== undefined && t.data.never_received !== "all_zero") w("data.never_received must be all_zero (the only rule the detector knows)");
     if (!(isNum(c.interval?.min) && isNum(c.interval?.max) && c.interval.min > 0 && c.interval.max > c.interval.min)) w("config.interval min/max invalid");
     if (!isInt(d.base) || !isInt(d.regs_per_channel, 1, 125)) w("data.base / regs_per_channel invalid");
     const fields: Record<string, FieldDef> = {};
@@ -73,7 +77,7 @@ export function parseRegMap(text: string): RegMap {
     types[key] = { key, enabled: t?.enabled === true, label: String(t?.label ?? key), models: Array.isArray(t?.models) ? t.models.map(String) : [], groups: t?.groups,
       low_voltage: isNum(t?.low_voltage) ? t.low_voltage : 3.2, default_interval: isInt(t?.default_interval, 1, 1e6) ? t.default_interval : 300,
       presets: Array.isArray(t?.presets) ? t.presets.filter(isNum) : [], commissioning_presets: Array.isArray(t?.commissioning_presets) ? t.commissioning_presets.filter(isNum) : [], config: { base: c.base, regs_per_group: c.regs_per_group, write_fc: c.write_fc, read_fc: c.read_fc,
-        serial: { reg: c.serial?.reg, regs: 2, word_order: c.serial?.word_order }, interval: { reg: c.interval?.reg, unit: String(c.interval?.unit ?? "seconds"), min: c.interval?.min, max: c.interval?.max },
+        serial: { reg: c.serial?.reg, regs: 2, word_order: c.serial?.word_order }, interval: { reg: c.interval?.reg, unit: String(c.interval?.unit ?? "minutes"), unit_sec: UNIT_SEC[c.interval?.unit] ?? 60, min: c.interval?.min, max: c.interval?.max },
         control: { reg: c.control?.reg, value_on_add: isInt(c.control?.value_on_add) ? c.control.value_on_add : 0 } },
       data: { base: d.base, regs_per_channel: d.regs_per_channel, read_fc: d.read_fc, fields } };
   }
@@ -81,7 +85,7 @@ export function parseRegMap(text: string): RegMap {
   ranges.sort((a, b) => a.lo - b.lo);
   for (let i = 1; i < ranges.length; i++) if (ranges[i].lo <= ranges[i - 1].hi) p.push(`address ranges overlap: ${ranges[i - 1].name} (0x${ranges[i - 1].lo.toString(16)}-0x${ranges[i - 1].hi.toString(16)}) and ${ranges[i].name} (0x${ranges[i].lo.toString(16)}-0x${ranges[i].hi.toString(16)})`);
   if (p.length) throw new RegMapError(p);
-  return { gateway_model: raw.gateway_model, manual_version: raw.manual_version, map_version: raw.map_version, default_gateway_address: addr, serial_pattern: pattern,
+  return { gateway_model: raw.gateway_model, manual_version: raw.manual_version, map_version: raw.map_version, default_gateway_address: addr, serial_pattern: pattern, empty_marker: marker,
     system: { address: s.address.reg, group_address: s.group_address.reg, version: s.version.reg, delete_all: s.delete_all.reg, read_fc: 4, write_fc: 6, delete_all_value: s.delete_all.value ?? 0 },
     health: { offline_multiplier: h.offline_multiplier ?? 3, rssi_good_above: h.rssi_good_above ?? -90, rssi_poor_below: h.rssi_poor_below ?? -105 }, types };
 }
@@ -99,10 +103,16 @@ export function decodeField(regs: number[], f: FieldDef): number {
 export function decodeChannel(regs: number[], t: TypeDef): Record<string, number> {
   const o: Record<string, number> = {}; for (const [k, f] of Object.entries(t.data.fields)) o[k] = decodeField(regs, f); return o;
 }
+/** The printed serial is the plain DECIMAL of the 32-bit gateway address (CONFIRMED on the bench: 0x06B624FD = 112600317). */
 export const serialToRegs = (serial: string, order: "high_first" | "low_first"): [number, number] => {
-  const n = parseInt(serial, 16); const hi = Math.floor(n / 65536) & 0xffff, lo = n & 0xffff; return order === "high_first" ? [hi, lo] : [lo, hi];
+  const n = Number(serial); if (!/^[0-9]{1,10}$/.test(serial) || n > 0xffffffff) throw new Error(`serial "${serial}" is not a 32-bit decimal number`);
+  const hi = Math.floor(n / 65536) & 0xffff, lo = n & 0xffff; return order === "high_first" ? [hi, lo] : [lo, hi];
 };
 export const regsToSerial = (a: number, b: number, order: "high_first" | "low_first"): string => {
-  const [hi, lo] = order === "high_first" ? [a, b] : [b, a]; return (((hi & 0xffff) * 65536 + (lo & 0xffff)) >>> 0).toString(16).toUpperCase().padStart(8, "0");
+  const [hi, lo] = order === "high_first" ? [a, b] : [b, a]; return String(((hi & 0xffff) * 65536 + (lo & 0xffff)) >>> 0);
 };
-export const normaliseSerial = (s: string) => s.trim().toUpperCase();
+export const normaliseSerial = (s: string) => s.trim();
+/** Group of config registers is empty: serial registers both = the empty marker (0xFFFF, unconfigured slot) or the whole group is zero (a cleared slot; its read-back value is still to be checked on hardware). */
+export function groupIsEmpty(g: number[], c: { serial: { reg: number } }, marker: number): boolean {
+  return g.every((x) => x === 0) || (g[c.serial.reg] === marker && g[c.serial.reg + 1] === marker);
+}

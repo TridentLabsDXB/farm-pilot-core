@@ -1,12 +1,25 @@
 import { useEffect, useState } from "react";
 export const fmt = (v: number | null | undefined, dp = 1) => (v === null || v === undefined || !Number.isFinite(v) ? "--" : v.toFixed(dp));
 export const ago = (ts: number | null | undefined, now = Date.now()) => { if (!ts) return "--"; const s = Math.max(0, Math.round((now - ts) / 1000)); return s < 90 ? `${s} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+/** A gateway interval value in minutes (T/H and soil store minutes) as text. */
+export const mdur = (min: number) => dur(min * 60);
 export const dur = (sec: number) => (sec % 3600 === 0 ? `${sec / 3600} h` : sec % 60 === 0 ? `${sec / 60} min` : `${sec} s`);
-// 24-hour clock everywhere, dates like "16 Nov 2026 01:39". Built by hand so the browser locale can never switch to AM/PM.
+// Display formatting follows the Farm Profile (timezone, date and time format, temperature unit). Storage stays UTC and degC; only what is shown changes.
+export const fmtCfg = { tz: undefined as string | undefined, dateFormat: "D Mon YYYY", timeFormat: "24", tempUnit: "C" };
+export const setFmtCfg = (c: Partial<typeof fmtCfg>) => Object.assign(fmtCfg, c);
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]; const p2 = (n: number) => String(n).padStart(2, "0");
-export const hhmm = (ts: number) => { const d = new Date(ts); return `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
-export const dateOnly = (ts: number) => { const d = new Date(ts); return `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`; };
+const zoneParts = (ts: number) => {
+  const o: Record<string, string> = {};
+  try { for (const p of new Intl.DateTimeFormat("en-GB", { timeZone: fmtCfg.tz, year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date(ts))) o[p.type] = p.value; }
+  catch { const d = new Date(ts); return { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate(), h: d.getHours(), mi: d.getMinutes() }; }       // unknown zone: browser zone
+  return { y: +o.year, m: +o.month, d: +o.day, h: +o.hour % 24, mi: +o.minute };
+};
+export const hhmm = (ts: number) => { const z = zoneParts(ts); return fmtCfg.timeFormat === "12" ? `${z.h % 12 || 12}:${p2(z.mi)} ${z.h < 12 ? "AM" : "PM"}` : `${p2(z.h)}:${p2(z.mi)}`; };
+export const dateOnly = (ts: number) => { const z = zoneParts(ts); const f = fmtCfg.dateFormat; return f === "YYYY-MM-DD" ? `${z.y}-${p2(z.m)}-${p2(z.d)}` : f === "DD/MM/YYYY" ? `${p2(z.d)}/${p2(z.m)}/${z.y}` : f === "MM/DD/YYYY" ? `${p2(z.m)}/${p2(z.d)}/${z.y}` : `${z.d} ${MON[z.m - 1]} ${z.y}`; };
 export const dt = (ts: number | null | undefined) => (ts ? `${dateOnly(ts)} ${hhmm(ts)}` : "--");
+/** Temperature for display: stored values are always degC. */
+export const tempVal = (c: number | null | undefined) => (c === null || c === undefined ? c : fmtCfg.tempUnit === "F" ? c * 9 / 5 + 32 : c);
+export const tempUnit = () => (fmtCfg.tempUnit === "F" ? "°F" : "°C");
 /** Parses "16 Nov 2026" (also ISO 2026-11-16). Returns local noon of that day, or null. */
 export const parseDate = (txt: string): number | null => {
   const t = txt.trim(); let y: number, m: number, d: number; let r = /^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})$/.exec(t);
@@ -14,7 +27,7 @@ export const parseDate = (txt: string): number | null => {
   else if ((r = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t))) { y = +r[1]; m = +r[2] - 1; d = +r[3]; } else return null;
   const dte = new Date(y, m, d, 12); return dte.getFullYear() === y && dte.getMonth() === m && dte.getDate() === d ? dte.getTime() : null;
 };
-export const dayMon = (ts: number) => { const d = new Date(ts); return `${d.getDate()} ${MON[d.getMonth()]}`; };
+export const dayMon = (ts: number) => { const z = zoneParts(ts); return `${z.d} ${MON[z.m - 1]}`; };
 
 export type Tone = "ok" | "warn" | "alarm" | "off" | "info";
 export const Chip = ({ tone, children, title }: { tone: Tone; children: React.ReactNode; title?: string }) => <span className="fp-chip" data-tone={tone} title={title}><span className="fp-lamp" aria-hidden />{children}</span>;

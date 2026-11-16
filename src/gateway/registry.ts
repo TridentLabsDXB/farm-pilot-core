@@ -1,5 +1,6 @@
 // Sensor registry, zones, calibration, settings, backup. All writes audit. Pure SQLite, no Modbus.
 import { audit, getSetting, setSetting, type Db } from "../db.js";
+import { profileThresholds } from "./thresholds.js";
 import type { RegMap } from "../drivers/modbus/regmap.js";
 import { applyCal, checkLimits, DEFAULT_LIMITS, offsetCal, twoPointCal, type Cal, type Limits } from "./logic.js";
 
@@ -26,35 +27,41 @@ export class Registry {
   // ---- settings ----
   settings() {
     const g = (k: string, d: number) => Number(getSetting(this.db, k, String(d)));
-    const types: Record<string, { low_voltage: number }> = {}; for (const t of Object.values(this.map.types)) types[t.key] = { low_voltage: g(`gw.low_voltage.${t.key}`, t.low_voltage) };
+    // Precedence: register-map default < Farm Profile (read on every call, so changes apply without a restart).
+    const pt = profileThresholds(this.db); const types: Record<string, { low_voltage: number }> = {}; for (const t of Object.values(this.map.types)) types[t.key] = { low_voltage: pt.lowVoltageByType[t.key] ?? t.low_voltage };
     const c = this.commissioning();
-    return { commissioning: c.on, commissioningUntil: c.until, pollSec: g("gw.poll_sec", 30), offlineMultiplier: g("gw.offline_mult", this.map.health.offline_multiplier), offlineCycles: g("gw.offline_cycles", 3), rssiGood: g("gw.rssi_good", this.map.health.rssi_good_above), rssiPoor: g("gw.rssi_poor", this.map.health.rssi_poor_below),
-      calDueWarnDays: g("cal.default_due_days", 0), types, limits: this.limits() };
+    return { commissioning: c.on, commissioningUntil: c.until, pollSec: g("gw.poll_sec", 30), offlineMultiplier: pt.offlineMultiplier ?? this.map.health.offline_multiplier, staleMultiplier: pt.staleMultiplier ?? this.map.health.offline_multiplier, offlineCycles: g("gw.offline_cycles", 3), rssiGood: pt.rssiGood ?? this.map.health.rssi_good_above, rssiPoor: pt.rssiWeak ?? this.map.health.rssi_poor_below,
+      calDueWarnDays: pt.calibrationDueDays ?? 0, types, limits: this.limits() };
   }
   limits(): Record<string, Limits> { try { return { ...DEFAULT_LIMITS, ...JSON.parse(getSetting(this.db, "cal.limits", "{}")) }; } catch { return DEFAULT_LIMITS; } }
   saveSettings(a: Actor, b: any) {
     const num = (v: unknown, lo: number, hi: number, name: string) => { const n = Number(v); if (!Number.isFinite(n) || n < lo || n > hi) throw bad(`${name} must be ${lo}..${hi}`); return n; };
-    if (b.commissioning !== undefined) { if (typeof b.commissioning !== "boolean") throw bad("commissioning must be true or false"); const was = this.commissioning().on; setSetting(this.db, "gw.commissioning", b.commissioning ? "1" : "0"); if (b.commissioning && !was) setSetting(this.db, "gw.commissioning_since", String(this.now())); if (!b.commissioning) setSetting(this.db, "gw.commissioning_since", "0"); }
+    if (b.commissioning !== undefined) { if (typeof b.commissioning !== "boolean") throw bad("commissioning must be true or false"); if (b.commissioning && !Object.values(this.map.types).some((t) => t.commissioning_presets.length)) throw bad("no sensor type has shorter commissioning intervals on this gateway"); const was = this.commissioning().on; setSetting(this.db, "gw.commissioning", b.commissioning ? "1" : "0"); if (b.commissioning && !was) setSetting(this.db, "gw.commissioning_since", String(this.now())); if (!b.commissioning) setSetting(this.db, "gw.commissioning_since", "0"); }
+    for (const k of ["offlineMultiplier", "rssiGood", "rssiPoor", "types"]) if (b[k] !== undefined) throw bad(`${k} moved to Settings > Farm Profile (Defaults and thresholds)`);
     if (b.pollSec !== undefined) setSetting(this.db, "gw.poll_sec", String(num(b.pollSec, 10, 3600, "pollSec")));
-    if (b.offlineMultiplier !== undefined) setSetting(this.db, "gw.offline_mult", String(num(b.offlineMultiplier, 1, 20, "offlineMultiplier")));
-    if (b.rssiGood !== undefined || b.rssiPoor !== undefined) { const g = num(b.rssiGood ?? this.settings().rssiGood, -130, 0, "rssiGood"), p = num(b.rssiPoor ?? this.settings().rssiPoor, -130, 0, "rssiPoor"); if (p >= g) throw bad("poor must be below good"); setSetting(this.db, "gw.rssi_good", String(g)); setSetting(this.db, "gw.rssi_poor", String(p)); }
-    for (const [k, v] of Object.entries<any>(b.types ?? {})) if (this.map.types[k] && v?.low_voltage !== undefined) setSetting(this.db, `gw.low_voltage.${k}`, String(num(v.low_voltage, 0, 10, "low_voltage")));
     if (b.limits) setSetting(this.db, "cal.limits", JSON.stringify(b.limits));
     audit(this.db, a.username, a.role, "gateway.settings", b);
   }
 
   // ---- reporting intervals ----
-  // The ONLY accepted intervals are the type's presets (T/H: 1 min and 5 min), plus the commissioning presets (T/H: 30 s) while the Admin commissioning option is on.
-  // Nothing else is accepted: no custom values, no 10 s. A value that is already stored (older builds, backups, groups adopted from the gateway) stays displayable and is flagged.
+  // Intervals are stored and sent in the GATEWAY's unit (T/H: minutes, 5..240; CONFIRMED value 5 on the bench, unit and range from the MDMS manual, rate check pending).
+  // `presets` are what the UI offers; any whole number inside config.interval.min..max is accepted too (custom value). 30 s and 1 min do not exist on this gateway.
+  // A type that lists `commissioning_presets` (none today) can allow shorter values while the Admin commissioning option is on. A stored value outside the rule (adopted from the gateway, old backup) stays displayable and is flagged.
   allowedIntervals(type: string): number[] { const t = this.map.types[type]; return [...t.presets, ...(this.settings().commissioning ? t.commissioning_presets : [])].sort((a, b) => a - b); }
-  intervalOk(type: string, sec: number) { return this.allowedIntervals(type).includes(sec); }
+  intervalOk(type: string, v: number) { const c = this.map.types[type].config.interval; return Number.isInteger(v) && ((v >= c.min && v <= c.max) || this.allowedIntervals(type).includes(v)); }
+  unitName(type: string) { return this.map.types[type].config.interval.unit; }
+  /** Interval in seconds, for timing (offline threshold, poll period, update-rate check). */
+  intervalSec(type: string, v: number) { return v * this.map.types[type].config.interval.unit_sec; }
 
   // ---- sensors ----
   list(): SensorRow[] { return this.db.prepare("SELECT * FROM sensors WHERE replaced_by IS NULL ORDER BY type, COALESCE(slot, 999), serial").all() as SensorRow[]; }
   all(): SensorRow[] { return this.db.prepare("SELECT * FROM sensors ORDER BY type, serial").all() as SensorRow[]; }
   get(serial: string): SensorRow | undefined { return this.db.prepare("SELECT * FROM sensors WHERE serial=?").get(serial) as SensorRow | undefined; }
   typeDef(type: string) { const t = this.map.types[type]; if (!t) throw bad("unknown sensor type"); if (!t.enabled) throw bad(`sensor type ${type} is not enabled in this milestone`); return t; }
-  validSerial(s: string) { const n = s.trim().toUpperCase(); if (!this.map.serial_pattern.test(n)) throw bad(`invalid serial "${s}" (expected pattern ${this.map.serial_pattern.source})`); return n; }
+  validSerial(s: string) {
+    const n = s.trim(); if (!this.map.serial_pattern.test(n) || /^0/.test(n)) throw bad(`invalid serial "${s}": expected the plain decimal number printed on the sensor label (pattern ${this.map.serial_pattern.source}, no leading zero)`);
+    if (Number(n) > 0xfffffffe) throw bad(`invalid serial "${s}": does not fit the gateway's 32-bit address`); return n;
+  }
   usage(type: string) { const n = (this.db.prepare("SELECT COUNT(*) c FROM sensors WHERE type=? AND replaced_by IS NULL").get(type) as { c: number }).c; return { used: n, groups: this.map.types[type].groups }; }
   /** Slots held by registry sensors, pending removals and groups last seen in the gateway (foreign). */
   takenSlots(type: string, gatewaySeen: number[] = []): Set<number> {
@@ -85,8 +92,8 @@ export class Registry {
     if (b.label !== undefined) this.db.prepare("UPDATE sensors SET label=? WHERE serial=?").run(String(b.label).slice(0, 60), serial);
     if (b.zone_id !== undefined) this.assignZone(a, serial, b.zone_id);
     if (b.interval !== undefined) {
-      const v = Number(b.interval), ok = this.allowedIntervals(s.type); const words = ok.map((x) => (x % 60 === 0 ? `${x / 60} min` : `${x} s`)).join(", ");
-      if (!Number.isInteger(v) || !ok.includes(v)) throw bad(`interval must be one of: ${words}${this.settings().commissioning || !this.map.types[s.type].commissioning_presets.length ? "" : ` (${this.map.types[s.type].commissioning_presets.map((x) => x + " s").join(", ")} needs commissioning mode)`}`);
+      const v = Number(b.interval), ci = this.map.types[s.type].config.interval;
+      if (!this.intervalOk(s.type, v)) throw bad(`interval must be a whole number of ${ci.unit} from ${ci.min} to ${ci.max}`);
       this.db.prepare("UPDATE sensors SET reporting_interval=? WHERE serial=?").run(v, serial);
     }
     audit(this.db, a.username, a.role, "sensor.update", { serial, ...b });
@@ -176,13 +183,12 @@ export class Registry {
 
   // ---- backup / restore ----
   exportAll() {
-    const d = this.db; return { format: "farmpilot-core-backup", version: 2, map_version: this.map.map_version, exported_at: Date.now(),
+    const d = this.db; return { format: "farmpilot-core-backup", version: 3, map_version: this.map.map_version, exported_at: Date.now(),
       sensors: d.prepare("SELECT serial,type,label,zone_id,slot,reporting_interval,created_at,replaced_by,thresholds FROM sensors").all(), calibrations: d.prepare("SELECT * FROM calibrations").all(),
       zones: d.prepare("SELECT * FROM zones").all(), points: d.prepare("SELECT * FROM points").all(), settings: (d.prepare("SELECT key,value FROM settings WHERE key LIKE 'gw.%' OR key LIKE 'cal.%'").all()) };
   }
   restore(a: Actor, b: any) {
-    if (!b || b.format !== "farmpilot-core-backup" || ![1, 2].includes(b.version)) throw bad("not a Farm-Pilot CORE backup file");
-    if (b.version === 1 && Array.isArray(b.sensors)) b = { ...b, version: 2, sensors: b.sensors.map((s: any) => ({ ...s, slot: Number.isInteger(s.slot) ? s.slot + 1 : s.slot })) };   // version 1 files numbered slots from 0
+    if (!b || b.format !== "farmpilot-core-backup" || b.version !== 3) throw bad(b?.format === "farmpilot-core-backup" ? "backup from an older build (hex serials, intervals in seconds): re-enter the sensors, it cannot be restored as is" : "not a Farm-Pilot CORE backup file");
     for (const k of ["sensors", "calibrations", "zones", "points", "settings"]) if (!Array.isArray(b[k])) throw bad(`backup is missing "${k}"`);
     const seen = new Set<string>(), slots = new Set<string>();
     for (const s of b.sensors) {

@@ -8,6 +8,7 @@ const KIND: Record<string, string> = { gateway_offline: "GATEWAY OFFLINE", no_up
 const span = (a: number, b: number) => { const m = Math.max(0, Math.round((b - a) / 60000)); return m < 60 ? `${m} min` : m < 2880 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.round(m / 1440)} d`; };
 
 export default function Alarms({ scada }: { scada: Scada | null }) {
+  const [who, setWho] = useState<Record<string, { name: string; role: string; phone: string }[]>>({}); useEffect(() => { api<typeof who>("/farm-contacts/alarm-view").then(setWho).catch(() => {}); }, []);
   const [ev, setEv] = useState<Ev[] | null>(null); const [err, setErr] = useState("");
   const load = useCallback(() => api<Ev[]>("/alarms/history?limit=100").then(setEv).catch((e) => setErr(errText(e))), []);
   useEffect(() => { load(); }, [load, scada?.now, scada?.alarms.length]);
@@ -19,6 +20,7 @@ export default function Alarms({ scada }: { scada: Scada | null }) {
       <section className="fp-card"><h3>Active alarms</h3>
         {!active.length ? <Chip tone="ok">NO ACTIVE ALARMS</Chip> : <ul className="fp-list">{active.map((a) => (
           <li key={a.id}><span className="fp-row"><Chip tone={a.severity === "alarm" ? "alarm" : "warn"}>{KIND[a.kind] ?? a.kind}</Chip><span style={{ fontFamily: "var(--fp-head)", fontSize: 16, fontWeight: 700 }}>{a.text}</span>{a.last_data_at && <span className="fp-muted">last data {dt(a.last_data_at)}</span>}{a.unknown && <Chip tone="off" title="The gateway is offline, so the sensor state cannot be checked. The alarm stays open until the gateway answers again.">STATUS UNKNOWN (GATEWAY OFFLINE)</Chip>}</span>
+            {(who[a.kind] ?? []).length > 0 && <span className="fp-cap" style={{ textTransform: "none" }}>Who to inform: {who[a.kind].map((c) => `${c.name}${c.role ? ` (${c.role})` : ""}${c.phone ? " " + c.phone : ""}`).join(", ")}</span>}
             <span className="fp-row"><span className="fp-muted">since {dt(a.raised_at)}</span>{a.acked_at ? <Chip tone="info">ACK {a.acked_by} {hhmm(a.acked_at)}</Chip> : <button className="fp-btn small" onClick={() => ack(a.id)}>Acknowledge</button>}</span></li>))}</ul>}
         {err && <p className="fp-msg err" role="alert">{err}</p>}</section>
       <section className="fp-card"><h3>Recent history</h3>
