@@ -7,8 +7,11 @@ body { background: #F3F5F7; }
 .core .mono, .core .fp-num { font-family: var(--fp-mono); }
 /* ---- shell ---- */
 .fp-top { position: sticky; top: 0; z-index: 5; height: 72px; display: flex; align-items: center; gap: 14px; padding: 0 24px; background: var(--fp-card); border-bottom: 1px solid var(--fp-border); }
-.fp-brand { display: flex; flex-direction: column; line-height: 1.05; margin-right: 8px; }
-.fp-brand b { font-size: 22px; font-weight: 700; letter-spacing: .06em; } .fp-brand span { font-family: var(--fp-mono); font-size: 12px; color: var(--fp-muted); letter-spacing: .1em; text-transform: uppercase; }
+/* Header is one fixed 72 px row: logo, product name and farm name inline, left to right, nothing stacked under the title. */
+.fp-top { overflow: hidden; }
+.fp-brand { display: flex; flex-direction: row; align-items: center; gap: 12px; height: 72px; margin-right: 8px; min-width: 0; white-space: nowrap; }
+.fp-logo { height: 48px; max-width: 120px; object-fit: contain; flex: none; }
+.fp-brand b { font-size: 22px; font-weight: 700; letter-spacing: .06em; line-height: 1; } .fp-brand span { font-family: var(--fp-mono); font-size: 12px; color: var(--fp-muted); letter-spacing: .1em; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; max-width: 260px; padding-left: 12px; border-left: 1px solid var(--fp-border); line-height: 1; }
 .fp-nav { display: flex; gap: 8px; margin-right: auto; }
 .fp-navbtn { position: relative; min-height: 44px; padding: 0 18px; border-radius: var(--fp-radius-btn); border: 1px solid transparent; background: transparent; font-weight: 700; font-size: 16px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
 .fp-navbtn[aria-current="page"] { background: var(--fp-accent-tint); color: var(--fp-accent); border-color: var(--fp-accent); }

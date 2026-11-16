@@ -58,7 +58,7 @@ export default function App() {
   return (
     <div className="core" data-theme={theme}>
       <header className="fp-top">
-        <div className="fp-brand"><b>FARM-PILOT CORE</b>{pub?.logo_url && <img src={pub.logo_url} alt="" style={{ height: 28, maxWidth: 90, objectFit: "contain" }} />}<span>{pub?.farm_name ?? ""}</span></div>
+        <div className="fp-brand">{pub?.logo_url && <img className="fp-logo" src={pub.logo_url} alt="" />}<b>FARM-PILOT CORE</b>{pub?.farm_name && <span>{pub.farm_name}</span>}</div>
         <nav className="fp-nav" aria-label="Main">{nav()}</nav>
         {gwChip}
         <span className="fp-meta hide-phone" title="Box time">{hhmm(now)}</span>
