@@ -1,6 +1,6 @@
 // Gateway simulator process: Modbus TCP (MBAP) + RTU-over-TCP listeners and a small loopback HTTP control API for failure injection.
 //   node dist/tools/gateway-sim/main.js [--replay dump.json]
-// Env: SIM_MBAP_PORT (5020) SIM_RTU_PORT (5021) SIM_CTL_PORT (5030) SIM_BIND (127.0.0.1) SIM_MAP (config path) SIM_PRECONFIG (0) SIM_TIMESCALE (1; e.g. 60 makes a 5 min interval transmit every 5 s)
+// Env: SIM_POOL (comma separated serials of the physical sensors; default: the built-in pool) SIM_PRECONFIG_SLOT (first slot used by SIM_PRECONFIG, default 1) SIM_MBAP_PORT (5020) SIM_RTU_PORT (5021) SIM_CTL_PORT (5030) SIM_BIND (127.0.0.1) SIM_MAP (config path) SIM_PRECONFIG (0) SIM_TIMESCALE (1; e.g. 60 makes a 5 min interval transmit every 5 s)
 // Optional virtual serial pair to exercise real RTU framing without hardware (documented, not required):
 //   socat -d -d pty,raw,echo=0,link=/tmp/ttyGW pty,raw,echo=0,link=/tmp/ttyCORE   (then bridge /tmp/ttyGW to SIM_RTU_PORT with: socat tcp:127.0.0.1:5021 /tmp/ttyGW,raw,echo=0)
 import { createServer as createHttp } from "node:http";
@@ -12,10 +12,13 @@ import { serveSim } from "./server.js";
 
 const bind = process.env.SIM_BIND || "127.0.0.1";
 const map = loadRegMap(process.env.SIM_MAP || fileURLToPath(new URL("../../../config/gateway-thingsend.yaml", import.meta.url)));
-export const sim = new GatewaySim(map);
+// 2026-11-17 -- SIM_POOL lets the bench simulator carry the REAL bench serials, so a restart brings the bench sensors back with live data (the in-memory state is rebuilt from the environment on every start, also after a reboot).
+const pool = (process.env.SIM_POOL || "").split(",").map((x) => x.trim()).filter(Boolean);
+export const sim = pool.length ? new GatewaySim(map, pool) : new GatewaySim(map);
 sim.timeScale = Math.max(1, Number(process.env.SIM_TIMESCALE || 1));
 const pre = Number(process.env.SIM_PRECONFIG || 0);
-for (let i = 0; i < pre; i++) sim.preconfigure("th", i + 1, [...sim.phys.keys()][i], 5);
+const firstSlot = Math.max(1, Number(process.env.SIM_PRECONFIG_SLOT || 1));
+for (let i = 0; i < pre; i++) sim.preconfigure("th", firstSlot + i, [...sim.phys.keys()][i], 5);
 const ra = process.argv.indexOf("--replay"); if (ra > 0) sim.loadReplay(JSON.parse(readFileSync(process.argv[ra + 1], "utf8")));
 
 serveSim(sim, Number(process.env.SIM_MBAP_PORT || 5020), "mbap", bind);
