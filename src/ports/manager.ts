@@ -1,7 +1,6 @@
 // PortManager: one request queue per RS-485 port, devices bound to their port, apply-without-restart with TEST and REVERT.
 // The two ports run independently (separate queues and transports), so a fault on one never delays the other. Polling is never left off.
 import { EventEmitter } from "node:events";
-import { existsSync } from "node:fs";
 import { audit, type Db } from "../db.js";
 import { ModbusException, ModbusTimeout } from "../drivers/modbus/frames.js";
 import { GatewayDriver } from "../drivers/modbus/driver.js";
@@ -10,7 +9,9 @@ import type { RegMap } from "../drivers/modbus/regmap.js";
 import { createTransport, type ModbusTransport } from "../drivers/modbus/transport.js";
 import type { GatewayService } from "../gateway/service.js";
 import { HttpError, type Actor } from "../gateway/registry.js";
-import { errorText, listSerial } from "./available.js";
+import { errorText, listSerial, listSerialWin, refreshSerialCache, serialPresent } from "./available.js";
+import { serialOpenPath } from "./serialPath.js";
+import { isWin } from "../platform.js";
 import { PortStore } from "./store.js";
 import { mergeDevice, mergePort, sharedPorts, SHARED_BUS_RULES, validateAssignment, validateDevice, validatePort, validatePorts, type DeviceRow, type PortRow } from "./validate.js";
 
@@ -42,7 +43,7 @@ export class PortManager extends EventEmitter {
 
   private transportFor(p: PortRow): ModbusTransport {
     if (!p.enabled) return new ClosedTransport("port is switched off");
-    if (p.transport === "serial") return createTransport({ type: "rtu-serial", path: p.device_path, baud: p.baud, parity: p.parity, dataBits: 8, stopBits: p.stop_bits as 1 | 2 });
+    if (p.transport === "serial") return createTransport({ type: "rtu-serial", path: serialOpenPath(p.device_path), baud: p.baud, parity: p.parity, dataBits: 8, stopBits: p.stop_bits as 1 | 2 });
     return createTransport({ type: p.tcp_framing === "mbap" ? "tcp" : "rtu-tcp", host: p.tcp_host, port: p.tcp_port });
   }
   private async build(p: PortRow) {
@@ -106,16 +107,18 @@ export class PortManager extends EventEmitter {
   portView(p: PortRow) {
     const q = this.queues.get(p.id), st = q?.stats; let status: "OPEN" | "CLOSED" | "ERROR" | "NOT FOUND" = "OPEN"; let lastError = st?.lastError ? errorText(st.lastError, p) : null;
     if (!p.enabled) status = "CLOSED";
-    else if (p.transport === "serial" && (!p.device_path || !existsSync(p.device_path))) { status = "NOT FOUND"; lastError = p.device_path ? errorText(new Error("ENOENT"), p) : "No serial device chosen."; }
+    else if (p.transport === "serial" && (!p.device_path || !serialPresent(p.device_path))) { status = "NOT FOUND"; lastError = p.device_path ? errorText(new Error("ENOENT"), p) : "No serial device chosen."; }
     else if (st?.lastErrorKind === "io" && (st.lastOk === null || st.lastOk < st.lastErrAt!)) status = "ERROR";
     return { ...p, status, lastError, counters: { requests: st?.requests ?? 0, errors: st?.errors ?? 0, lastOk: st?.lastOk ?? null }, devices: this.store.devices().filter((d) => d.port_id === p.id).length, pending: q?.pending() ?? 0 };
   }
   view() {
     const devices = this.store.devices(); const ports = this.store.ports();
-    return { ports: ports.map((p) => this.portView(p)), devices: devices.map((d) => ({ ...d, state: this.deviceState(d), lastOk: d.kind === "lora_gateway" ? this.gw?.lastOk ?? null : this.pollers.get(d.id)?.lastOk ?? null, lastMs: this.pollers.get(d.id)?.lastMs ?? null })),
+    return { platform: process.platform, ports: ports.map((p) => this.portView(p)), devices: devices.map((d) => ({ ...d, state: this.deviceState(d), lastOk: d.kind === "lora_gateway" ? this.gw?.lastOk ?? null : this.pollers.get(d.id)?.lastOk ?? null, lastMs: this.pollers.get(d.id)?.lastMs ?? null })),
       shared: sharedPorts(devices), sharedRules: SHARED_BUS_RULES, pending: this.pending ? { deadline: this.pending.deadline, ports: this.pending.ports.map((p) => p.id) } : null, revertWindowSec: REVERT_WINDOW_MS / 1000 };
   }
-  available() { return listSerial(); }
+  available() { return isWin() ? listSerialWin() : listSerial(); }
+  /** Windows only (no-op on Linux): refresh the COM-port list the NOT FOUND check reads, so portView() can stay synchronous. */
+  refreshSerial() { return refreshSerialCache(); }
   /** Read-only summary for the Sensors Gateway page. */
   gatewayLink() {
     const d = this.store.devices().find((x) => x.kind === "lora_gateway"); if (!d) return null; const p = this.store.port(d.port_id); if (!p) return null;

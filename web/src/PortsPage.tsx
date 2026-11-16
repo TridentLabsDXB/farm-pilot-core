@@ -7,8 +7,8 @@ import { Chip, Modal, ago, errText, useNow, type Tone } from "./ui";
 interface Port { id: number; label: string; enabled: boolean; transport: "serial" | "tcp"; device_path: string; tcp_host: string; tcp_port: number; tcp_framing: "rtu" | "mbap"; baud: number; data_bits: number; parity: string; stop_bits: number; timeout_ms: number; retries: number; turnaround_ms: number;
   status: "OPEN" | "CLOSED" | "ERROR" | "NOT FOUND"; lastError: string | null; counters: { requests: number; errors: number; lastOk: number | null }; devices: number; }
 interface Dev { id: number; kind: string; model: string; port_id: number; modbus_address: number; poll_interval_s: number; enabled: boolean; state: "online" | "offline" | "not_connected" | "unknown"; lastOk: number | null; lastMs: number | null; }
-interface View { ports: Port[]; devices: Dev[]; shared: number[]; sharedRules: string[]; pending: { deadline: number; ports: number[] } | null; revertWindowSec: number; bauds: number[]; defaults: Record<string, number | string>; }
-interface Found { path: string; kind: string; target: string; accessible: boolean; }
+interface View { platform?: string; ports: Port[]; devices: Dev[]; shared: number[]; sharedRules: string[]; pending: { deadline: number; ports: number[] } | null; revertWindowSec: number; bauds: number[]; defaults: Record<string, number | string>; }
+interface Found { path: string; kind: string; target: string; accessible: boolean; label?: string; }
 interface TestRes { deviceId: number; model: string; address: number; result: string; ms: number | null; detail?: string; }
 
 const PORT_TONE: Record<string, Tone> = { OPEN: "ok", CLOSED: "off", ERROR: "alarm", "NOT FOUND": "warn" };
@@ -50,6 +50,7 @@ export default function PortsPage({ reload }: { reload: () => void }) {
     await load(true); reload(); say("d" + d.id, r.pending ? "err" : "ok", r.unchanged ? "Nothing changed." : r.pending ? "Saved, but the device is not answering on this port. Keep or revert." : "Saved. Polling paused, applied, tested and resumed.");
   });
 
+  const win = v.platform === "win32";
   const secs = v.pending ? Math.max(0, Math.ceil((v.pending.deadline - now) / 1000)) : 0;
   const withCur = (p: Port) => (p.device_path && !found.some((f) => f.path === p.device_path) ? [{ path: p.device_path, kind: "saved", target: "", accessible: true } as Found, ...found] : found);
 
@@ -66,11 +67,11 @@ export default function PortsPage({ reload }: { reload: () => void }) {
           <label className="fp-field"><span className="fp-cap">Enabled</span><span className="fp-row" style={{ minHeight: 44 }}><input type="checkbox" style={{ width: 24, height: 24 }} checked={p.enabled} onChange={(e) => set(p.id, { enabled: e.target.checked })} aria-label={`Port ${p.id} enabled`} />{p.enabled ? "ON" : "OFF"}</span></label>
           <label className="fp-field"><span className="fp-cap">Connection type</span><select className="fp-input" value={p.transport} onChange={(e) => set(p.id, { transport: e.target.value as Port["transport"] })}><option value="serial">Serial device</option><option value="tcp">TCP (RS-485 to Ethernet converter, bench simulator)</option></select></label>
           {p.transport === "serial" ? <>
-            <label className="fp-field wide"><span className="fp-cap">Serial device</span>
-              <div className="fp-row" style={{ gap: 8, flexWrap: "nowrap" }}><select className="fp-input" style={{ flex: 1 }} value={p.device_path} onChange={(e) => set(p.id, { device_path: e.target.value })}><option value="">Choose a device...</option>{withCur(p).map((f) => <option key={f.path} value={f.path}>{f.path}{f.accessible ? "" : "  (no permission)"}</option>)}</select>
+            <label className="fp-field wide"><span className="fp-cap">{win ? "Serial port (COM)" : "Serial device"}</span>
+              <div className="fp-row" style={{ gap: 8, flexWrap: "nowrap" }}><select className="fp-input" style={{ flex: 1 }} value={p.device_path} onChange={(e) => set(p.id, { device_path: e.target.value })}><option value="">Choose a device...</option>{withCur(p).map((f) => <option key={f.path} value={f.path}>{f.label ?? f.path}{f.accessible ? "" : "  (no permission)"}</option>)}</select>
                 <button className="fp-btn small" type="button" onClick={() => void refreshList()}>Refresh list</button></div>
-              <input className="fp-input" value={p.device_path} placeholder="/dev/serial/by-id/... (advanced: type a path)" onChange={(e) => set(p.id, { device_path: e.target.value.trim() })} aria-label="Serial device path" />
-              <span className="fp-hint">Stable by-id names are listed first: ttyUSB numbers can change after a reboot.</span></label></> : <>
+              <input className="fp-input" value={p.device_path} placeholder={win ? "COM3 (type the COM port name if it is not in the list)" : "/dev/serial/by-id/... (advanced: type a path)"} onChange={(e) => set(p.id, { device_path: e.target.value.trim() })} aria-label={win ? "COM port name" : "Serial device path"} />
+              <span className="fp-hint">{win ? "Windows gives a USB adapter a COM number that can change when it is plugged into another USB socket. Check Device Manager > Ports (COM & LPT) if the port is not found." : "Stable by-id names are listed first: ttyUSB numbers can change after a reboot."}</span></label></> : <>
             <label className="fp-field"><span className="fp-cap">Host</span><input className="fp-input" value={p.tcp_host} onChange={(e) => set(p.id, { tcp_host: e.target.value.trim() })} placeholder="192.168.1.50" /></label>
             <label className="fp-field"><span className="fp-cap">TCP port</span><input className="fp-input" inputMode="numeric" value={Number.isNaN(p.tcp_port) ? "" : p.tcp_port} onChange={(e) => set(p.id, { tcp_port: num(e.target.value) })} /></label>
             <label className="fp-field"><span className="fp-cap">Framing</span><select className="fp-input" value={p.tcp_framing} onChange={(e) => set(p.id, { tcp_framing: e.target.value as Port["tcp_framing"] })}><option value="rtu">RTU over TCP (converter)</option><option value="mbap">Modbus TCP (bench simulator)</option></select></label></>}
