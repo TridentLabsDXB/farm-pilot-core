@@ -9,6 +9,7 @@ Shown on the About page (RELEASE NOTES). Plain text, newest first. No network is
 - Licensing: a built-in FREE licence (1 gateway, 10 sensors in total). A licence file bound to the box's Device ID lifts the limits. Limits only block ADDING sensors or gateways; monitoring, alarms and pump commands never stop because of a licence.
 - Support tools for Admin: copy diagnostics and a support bundle.
 - CONTROL page for pumps and other control devices.
+- MONITORING (the old SCADA page) has a CARDS | CHARTS switch: one chart per zone with a line per sensor and the zone average, ranges 1H, 24H, 1W, 1M, and CSV export (temperature and humidity) for one zone or all zones. Charts and exports follow the licence: FREE reaches back 7 days (1M is locked), a licence lifts it.
 - RS-485 Ports: Port 1 and Port 2 settings, device-to-port assignment, one request queue per port, TEST and KEEP/REVERT.
 - Farm Profile, alarm history with acknowledgement, calibration, farm structure, backup and restore.
 - Sidebar navigation (drawer on tablet, bottom navigation on phone) and a new login page.

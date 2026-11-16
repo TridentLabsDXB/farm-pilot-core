@@ -26,14 +26,14 @@ export function useBadges(scada: Scada | null, tab: string | undefined, enabled:
   return badges;
 }
 
-/** Persistent left sidebar: logo and farm name on top, then SCADA, CONTROL, ALARMS and (Admin) the Settings items. Panel: always visible. Tablet: drawer. Phone: hidden (bottom nav). */
+/** Persistent left sidebar: logo and farm name on top, then ALARMS, MONITORING, CONTROL and (Admin) the Settings items. Panel: always visible. Tablet: drawer. Phone: hidden (bottom nav). */
 export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges }: { version: string; pub: PublicProfile | null; cur: string; tab?: string; admin: boolean; nAlarms: number; badges: Record<string, Badge> }) {
   return (
     <nav className="fp-sb" aria-label="Main">
       <div className="fp-sb-brand">{pub?.logo_url && <img src={pub.logo_url} alt="" />}<span>{pub?.farm_name ?? ""}</span></div>
-      <button className="fp-tab" aria-current={cur === "scada" ? "page" : undefined} onClick={() => go("/scada")}>SCADA</button>
-      <button className="fp-tab" aria-current={cur === "control" ? "page" : undefined} onClick={() => go("/control")}>CONTROL</button>
       <button className="fp-tab" aria-current={cur === "alarms" ? "page" : undefined} onClick={() => go("/alarms")}><span>ALARMS</span>{nAlarms > 0 && <span className="fp-badge">{nAlarms}</span>}</button>
+      <button className="fp-tab" aria-current={cur === "monitoring" ? "page" : undefined} onClick={() => go("/monitoring")}>MONITORING</button>
+      <button className="fp-tab" aria-current={cur === "control" ? "page" : undefined} onClick={() => go("/control")}>CONTROL</button>
       {admin && <>
         <span className="fp-cap fp-sb-group">Settings</span>
         {TABS.map(([k, l]) => <button key={k} className="fp-tab" aria-current={cur === "settings" && tab === k ? "page" : undefined} onClick={() => go("/settings/" + k)}><span>{l}</span>{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.word}</Chip>}</button>)}

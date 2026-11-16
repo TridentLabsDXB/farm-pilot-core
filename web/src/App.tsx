@@ -10,8 +10,8 @@ import About, { MorePage } from "./About";
 import Sidebar, { useBadges } from "./Sidebar";
 import { Chip, hhmm, setFmtCfg, useNow } from "./ui";
 
-// Tiny hash router: #/scada, #/alarms, #/settings/<tab>[/<serial>]. No dependency, back button works.
-function useHash() { const [h, setH] = useState(location.hash.slice(1) || "/scada"); useEffect(() => { const f = () => setH(location.hash.slice(1) || "/scada"); window.addEventListener("hashchange", f); return () => window.removeEventListener("hashchange", f); }, []); return h; }
+// Tiny hash router: #/alarms, #/monitoring[?view=charts&range=24h] (old #/scada redirects), #/control, #/settings/<tab>[/<serial>]. No dependency, back button works.
+function useHash() { const [h, setH] = useState(location.hash.slice(1) || "/monitoring"); useEffect(() => { const f = () => setH(location.hash.slice(1) || "/monitoring"); window.addEventListener("hashchange", f); return () => window.removeEventListener("hashchange", f); }, []); return h; }
 export const go = (p: string) => { location.hash = p; };
 const getTheme = (): "light" | "dark" | null => { try { const t = localStorage.getItem("core_theme"); return t === "dark" || t === "light" ? t : null; } catch { return null; } };
 
@@ -21,7 +21,8 @@ export default function App() {
   const [drawer, setDrawer] = useState(false); const [live, setLive] = useState(false); const [themePref, setThemePref] = useState<"light" | "dark" | null>(getTheme()); const [control, setControl] = useState<ControlDevice[] | null>(null); const [controlErr, setControlErr] = useState<string | null>(null); const [pub, setPub] = useState<PublicProfile | null>(null); const [version, setVersion] = useState("");
   const theme = themePref ?? pub?.default_theme ?? "light";          // the Farm Profile default applies until someone picks a theme on this device
   const ws = useRef<WebSocket | null>(null); const hash = useHash(); const now = useNow(1000);
-  const [, page, ...rest] = hash.split("/");
+  const [hpath, hquery = ""] = hash.split("?"); const [, page, ...rest] = hpath.split("/");
+  useEffect(() => { if (page === "scada") go("/monitoring" + (hquery ? "?" + hquery : "")); }, [page, hquery]);          // the page was called SCADA before 2026-11-16 (old bookmarks)
 
   useEffect(() => { api<Me>("/me").then(setMe).catch(() => setMe(null)); fetch("/api/health").then((r) => (r.ok ? r.json() : null)).then((h) => h?.version && setVersion(String(h.version))).catch(() => {}); }, []);
   const load = useCallback(() => api<State>("/state").then(setState).catch((e) => { if (e.status === 401) setMe(null); }), []);
@@ -54,19 +55,19 @@ export default function App() {
   }, [me, load, loadScada, loadPub, loadControl]);
 
   const toggleTheme = () => { const t = theme === "dark" ? "light" : "dark"; setThemePref(t); try { localStorage.setItem("core_theme", t); } catch { /* private mode */ } };
-  useEffect(() => { if (me && me.role !== "admin" && page === "settings") go("/scada"); }, [me, page]);          // Operators never get Settings (the server answers 403 as well)
+  useEffect(() => { if (me && me.role !== "admin" && page === "settings") go("/monitoring"); }, [me, page]);          // Operators never get Settings (the server answers 403 as well)
   const badges = useBadges(scada, rest[0], !!me && me.role === "admin");
   useEffect(() => { setDrawer(false); }, [hash]);                                       // the tablet drawer closes after every navigation
   useEffect(() => { if (!drawer) return; const f = (e: KeyboardEvent) => e.key === "Escape" && setDrawer(false); window.addEventListener("keydown", f); return () => window.removeEventListener("keydown", f); }, [drawer]);
   if (me === undefined) return null;
   if (!me) { const lt = themePref ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); return <div className="core fp-login-root" data-theme={lt}><Login onLogin={setMe} theme={lt} onToggleTheme={() => { const t = lt === "dark" ? "light" : "dark"; setThemePref(t); try { localStorage.setItem("core_theme", t); } catch { /* private mode */ } }} /></div>; }
-  const admin = me.role === "admin"; const cur = page === "alarms" ? "alarms" : page === "control" ? "control" : page === "about" ? "about" : page === "more" ? "more" : page === "settings" && admin ? "settings" : "scada";
+  const admin = me.role === "admin"; const cur = page === "alarms" ? "alarms" : page === "control" ? "control" : page === "about" ? "about" : page === "more" ? "more" : page === "settings" && admin ? "settings" : "monitoring";
   const nAlarms = scada?.alarms.length ?? 0; const gw = scada?.gateway;
   const gwChip = !gw || !gw.enabled ? <Chip tone="off">NO GATEWAY</Chip> : gw.online ? <Chip tone="ok">GATEWAY ONLINE</Chip> : <Chip tone="alarm">GATEWAY OFFLINE</Chip>;
   const nav = (cls = "") => (<>
-    <button className={`fp-navbtn ${cls}`} aria-current={cur === "scada" ? "page" : undefined} onClick={() => go("/scada")}>SCADA</button>
-    <button className={`fp-navbtn ${cls}`} aria-current={cur === "control" ? "page" : undefined} onClick={() => go("/control")}>CONTROL</button>
     <button className={`fp-navbtn ${cls}`} aria-current={cur === "alarms" ? "page" : undefined} onClick={() => go("/alarms")}>ALARMS{nAlarms > 0 && <span className="fp-badge">{nAlarms}</span>}</button>
+    <button className={`fp-navbtn ${cls}`} aria-current={cur === "monitoring" ? "page" : undefined} onClick={() => go("/monitoring")}>MONITORING</button>
+    <button className={`fp-navbtn ${cls}`} aria-current={cur === "control" ? "page" : undefined} onClick={() => go("/control")}>CONTROL</button>
     {admin ? <button className={`fp-navbtn ${cls}`} aria-current={cur === "settings" || cur === "about" ? "page" : undefined} onClick={() => go("/settings")}>SETTINGS</button>
       : <button className={`fp-navbtn ${cls}`} aria-current={cur === "more" || cur === "about" ? "page" : undefined} onClick={() => go("/more")}>MORE</button>}
   </>);
@@ -87,7 +88,7 @@ export default function App() {
         </header>
         {cur === "settings" ? <Settings tab={rest[0]} serial={rest[1]} focus={rest[2]} scada={scada} reload={() => { load(); loadScada(); }} onProfile={loadPub} badges={badges} />
           : cur === "about" ? <About admin={admin} from={admin ? "/settings" : "/more"} /> : cur === "more" ? <MorePage />
-          : cur === "alarms" ? <Alarms scada={scada} /> : cur === "control" ? <ControlPage devices={control} error={controlErr} onRetry={loadControl} state={state} scada={scada} reload={() => { load(); loadScada(); }} /> : <ScadaView state={state} scada={scada} control={control} controlError={controlErr} onRetry={loadControl} />}
+          : cur === "alarms" ? <Alarms scada={scada} /> : cur === "control" ? <ControlPage devices={control} error={controlErr} onRetry={loadControl} state={state} scada={scada} reload={() => { load(); loadScada(); }} /> : <ScadaView state={state} scada={scada} control={control} controlError={controlErr} onRetry={loadControl} query={hquery} />}
         <nav className="fp-bottom" aria-label="Main">{nav()}</nav>
       </div>
     </div>

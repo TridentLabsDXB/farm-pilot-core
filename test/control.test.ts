@@ -56,8 +56,10 @@ test("the SCADA pump card is gone and CONTROL, the status line and the nav exist
   const scada = readFileSync("web/src/ScadaView.tsx", "utf8"); assert.ok(!/PumpCard|Start pump|\/commands/.test(scada), "ScadaView must not contain the pump card or send commands"); assert.match(scada, /ControlStatusLine/);
   assert.match(readFileSync("web/src/ControlCard.tsx", "utf8"), /The PLC keeps its own logic; this panel only sends commands\./);
   assert.match(readFileSync("web/src/ControlPage.tsx", "utf8"), /Fans, valves and other actuators will appear here when they are configured/);
-  const app = readFileSync("web/src/App.tsx", "utf8"), sb = readFileSync("web/src/Sidebar.tsx", "utf8"); assert.match(app, /go\("\/control"\)[\s\S]*ALARMS/); assert.ok(sb.indexOf('go("/scada")') < sb.indexOf('go("/control")') && sb.indexOf('go("/control")') < sb.indexOf('go("/alarms")'));
-  assert.ok(app.indexOf('go("/scada")') < app.indexOf('go("/control")') && app.indexOf('go("/control")') < app.indexOf('go("/alarms")') && app.indexOf('go("/alarms")') < app.indexOf('go("/settings")'), "bottom nav order SCADA, CONTROL, ALARMS, SETTINGS");
+  // Menu order since the MONITORING rename (2026-11-16): ALARMS, MONITORING, CONTROL, then SETTINGS (REPORTS joins with the Reports page).
+  const app = readFileSync("web/src/App.tsx", "utf8"), sb = readFileSync("web/src/Sidebar.tsx", "utf8");
+  assert.ok(sb.indexOf('go("/alarms")') < sb.indexOf('go("/monitoring")') && sb.indexOf('go("/monitoring")') < sb.indexOf('go("/control")'));
+  assert.ok(app.indexOf('() => go("/alarms")') < app.indexOf('() => go("/monitoring")') && app.indexOf('() => go("/monitoring")') < app.indexOf('() => go("/control")') && app.indexOf('() => go("/control")') < app.indexOf('() => go("/settings")'), "bottom nav order ALARMS, MONITORING, CONTROL, SETTINGS");
   assert.ok(!/ControlStatusLine[\s\S]*api\(/.test(readFileSync("web/src/ControlStatusLine.tsx", "utf8")), "the status line makes no request of its own");
 });
 
