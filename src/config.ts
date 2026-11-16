@@ -15,6 +15,7 @@ export const config = {
   cookieSecure: (env.COOKIE_SECURE || "auto").toLowerCase(),
   trustProxy: (env.TRUST_PROXY ?? "true") !== "false",
   retentionDays: int("RETENTION_DAYS", 30),
+  exportMaxRows: int("EXPORT_MAX_ROWS", 500_000),   // CSV export refuses a request that would write more rows than this (choose a shorter range or one zone)
   commandTimeoutSec: int("COMMAND_TIMEOUT_SEC", 10),   // default only; Admin can change it in Settings
   dedupeWindowMs: int("COMMAND_DEDUPE_MS", 3000),
   sessionHours: int("SESSION_HOURS", 12),

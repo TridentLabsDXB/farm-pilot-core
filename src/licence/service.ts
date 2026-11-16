@@ -12,6 +12,7 @@ import { checkLicence, expiryMs, LicenceError, type KeyMap, type LicenceFile } f
 import { LICENCE_PUBLIC_KEYS } from "./keys.js";
 import { overLimit, type LicenceSummary } from "./summary.js";
 import { usage } from "./usage.js";
+import { reportsDaysFor } from "./range.js";
 
 export const SCHEMA_LICENCE = `CREATE TABLE IF NOT EXISTS licence (id INTEGER PRIMARY KEY, licence_id TEXT NOT NULL, type TEXT NOT NULL, licensed_to TEXT NOT NULL, limits_json TEXT NOT NULL, valid_until TEXT,
   installed_at INTEGER NOT NULL, installed_by TEXT NOT NULL, file_sha256 TEXT NOT NULL);`;
@@ -48,6 +49,8 @@ export class LicenceService {
     if ((getSetting(this.db, "licence.noted", "")) === tag) return; setSetting(this.db, "licence.noted", tag);
     if (tag) audit(this.db, "system", "system", s.state === "EXPIRED" ? "licence.expired" : "licence.invalid", { state: s.state, reason: s.reason ?? null, falls_back_to: "FREE" });
   }
+  /** How many days back charts, CSV export and Reports may reach: 7 on FREE (also EXPIRED and INVALID), null on a valid licence. Read live, so a licence change applies without a restart. */
+  reportsDays() { return reportsDaysFor(this.summary()); }
   /** Effective limits: the licence's own while it is LICENSED, FREE otherwise (expired, invalid, none). */
   limits() { return this.summary().limits; }
   summary(): LicenceSummary {
