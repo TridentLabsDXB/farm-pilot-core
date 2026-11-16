@@ -209,3 +209,22 @@ test("API: POST /api/backup/restore of a foreign-platform port answers 200 with 
   const r = await fetch(`http://127.0.0.1:${port}/api/backup/restore`, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(bk) }); const j: any = await r.json();
   assert.equal(r.status, 200, JSON.stringify(j)); assert.equal(j.ok, true); assert.equal(j.warnings.length, 1); assert.match(j.warnings[0], /please reassign/); assert.equal(!!store.port(2)!.enabled, false);
 });
+
+// ---------- Lab bundle (2026-11-17): a Linux bench backup restored on the Windows tablet ----------
+test("bench backup (/dev/ttyUSB0 and /dev/serial/by-id, devices assigned) restores on win32: both serial ports DISABLED with one warning each, paths and assignments untouched, restore never fails, nothing is auto-mapped to a COM port", async () => {
+  const { mgr, store, db } = await rig(); const b = JSON.parse(JSON.stringify(mgr.exportParts()));
+  b.ports[0] = { ...b.ports[0], enabled: true, transport: "serial", device_path: "/dev/ttyUSB0", label: "Gateway bus" }; b.ports[1] = { ...b.ports[1], enabled: true, transport: "serial", device_path: "/dev/serial/by-id/usb-FTDI_FT232R-if00-port0", label: "Weather" };
+  const devs = JSON.stringify(b.devices.map((d: any) => [d.id, d.port_id, d.address])); const w = mgr.checkBackup(b, "win32");
+  assert.equal(w.length, 2); assert.match(w[0], /Port 1 \(Gateway bus\) was disabled: port path not valid on this platform, please reassign \(was \/dev\/ttyUSB0\)/); assert.match(w[1], /Port 2 \(Weather\) was disabled/);
+  assert.deepEqual(b.ports.map((p: any) => p.enabled), [false, false]); await mgr.restoreParts(A, b, w);
+  assert.deepEqual(store.ports().map((p) => [!!p.enabled, p.device_path]), [[false, "/dev/ttyUSB0"], [false, "/dev/serial/by-id/usb-FTDI_FT232R-if00-port0"]], "disabled, text kept, no COM name invented");
+  assert.equal(JSON.stringify(store.devices().map((d: any) => [d.id, d.port_id, d.address])), devs, "device-to-port assignment is unchanged");
+  assert.equal(JSON.parse(audits2(db, "ports.restore").at(-1)!.detail).warnings.length, 2);
+});
+test("COM names are stored as bare COMn, also when they arrive in a backup (\\\\.\\COM12 and com7 become COM12 and COM7); a disabled port is canonicalised too", async () => {
+  const { mgr, store } = await rig(); const b = JSON.parse(JSON.stringify(mgr.exportParts()));
+  b.ports[0] = { ...b.ports[0], enabled: true, transport: "serial", device_path: "\\\\.\\COM12" }; b.ports[1] = { ...b.ports[1], enabled: false, transport: "serial", device_path: "com7" };
+  assert.deepEqual(mgr.checkBackup(b, "win32"), []); assert.deepEqual(b.ports.map((p: any) => p.device_path), ["COM12", "COM7"]); assert.equal(b.ports[0].enabled, true);
+  const lin = JSON.parse(JSON.stringify(mgr.exportParts())); lin.ports[0] = { ...lin.ports[0], transport: "serial", enabled: false, device_path: "/dev/ttyUSB0" }; mgr.checkBackup(lin, "linux"); assert.equal(lin.ports[0].device_path, "/dev/ttyUSB0", "Linux paths are never rewritten");
+  void store;
+});

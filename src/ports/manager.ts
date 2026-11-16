@@ -10,7 +10,7 @@ import { createTransport, type ModbusTransport } from "../drivers/modbus/transpo
 import type { GatewayService } from "../gateway/service.js";
 import { HttpError, type Actor } from "../gateway/registry.js";
 import { errorText, listSerial, listSerialWin, refreshSerialCache, serialPresent } from "./available.js";
-import { serialOpenPath } from "./serialPath.js";
+import { canonicalSerialPath, serialOpenPath } from "./serialPath.js";
 import { isWin } from "../platform.js";
 import { PortStore } from "./store.js";
 import { mergeDevice, mergePort, sharedPorts, SHARED_BUS_RULES, serialPathValid, PATH_INVALID_HERE, validateAssignment, validateDevice, validatePort, validatePorts, type DeviceRow, type PortRow } from "./validate.js";
@@ -211,6 +211,8 @@ export class PortManager extends EventEmitter {
     if (b?.ports === undefined && b?.devices === undefined) return []; const ports = b.ports as PortRow[], devices = b.devices as DeviceRow[];
     if (!Array.isArray(ports) || !Array.isArray(devices)) throw new HttpError(400, "backup: ports and devices must be lists");
     const warnings: string[] = [];
+    // Lab bundle (2026-11-17): COM names are STORED as bare COMn ("\\.\COM12" and "com12" become "COM12"), also when they arrive in a backup. Nothing is ever auto-mapped: a foreign path keeps its text.
+    for (const p of ports) if (p && p.transport === "serial" && typeof p.device_path === "string") { const c = isWin(platform) ? canonicalSerialPath(p.device_path, platform) : null; if (c) p.device_path = c; }
     for (const p of ports) if (p && p.transport === "serial" && p.enabled && typeof p.device_path === "string" && p.device_path && !serialPathValid(p.device_path, platform)) {
       p.enabled = false; warnings.push(`Port ${p.id}${p.label ? ` (${p.label})` : ""} was disabled: ${PATH_INVALID_HERE} (was ${p.device_path}).`);
     }
