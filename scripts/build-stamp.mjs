@@ -1,4 +1,4 @@
-// Build stamp for dist/: BUILD (one line, as before) and BUILD.json ({ build, released, dirty }). Plain Node, so it also runs on Windows.
+// Build stamp for dist/: BUILD (one line, as before) and BUILD.json ({ build, released, dirty, release }). Plain Node, so it also runs on Windows.
 //   node scripts/build-stamp.mjs [--release] [outDir]
 // --release (or RELEASE=1): a dirty work tree is an ERROR, because a release build must never carry "-dirty" (About spec, Build and version).
 import { execFileSync } from "node:child_process";
@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 export function makeStamp({ hash, dirty, release, now = new Date() }) {
   if (release && dirty) throw new Error("RELEASE build refused: the work tree has uncommitted changes (would be stamped -dirty). Commit or stash, then build again.");
-  return { build: (hash || "unknown") + (dirty ? "-dirty" : ""), released: now.toISOString().slice(0, 10), dirty: !!dirty };
+  return { build: (hash || "unknown") + (dirty ? "-dirty" : ""), released: now.toISOString().slice(0, 10), dirty: !!dirty, release: !!release };     // `released` is the build DATE of every build; `release` is true ONLY for ./deploy.sh --release (customer builds: licence dev keys are not trusted)
 }
 const git = (...a) => { try { return execFileSync("git", a, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return ""; } };
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

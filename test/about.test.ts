@@ -24,10 +24,10 @@ test("build label: one function; reads BUILD.json and the old BUILD file; -dirty
   assert.equal(buildLabel("0.1.0", "d4d82c4"), "v0.1.0 · build d4d82c4"); assert.equal(buildLabel("0.1.0", "unknown"), "v0.1.0"); assert.equal(buildLabel("", "unknown"), "");
   const root = tmp(), dist = join(root, "dist"); writeFileSync(join(root, "package.json"), '{"version":"2.3.4"}'); require_mkdir(dist);
   writeFileSync(join(dist, "BUILD.json"), JSON.stringify({ build: "abc1234", released: "2026-11-16", dirty: false }));
-  assert.deepEqual(readBuild(dist, root), { version: "2.3.4", build: "abc1234", released: "2026-11-16", dirty: false, label: "v2.3.4 · build abc1234" });
+  assert.deepEqual(readBuild(dist, root), { version: "2.3.4", build: "abc1234", released: "2026-11-16", dirty: false, release: false, label: "v2.3.4 · build abc1234" });
   const old = tmp(); require_mkdir(join(old, "dist")); writeFileSync(join(old, "package.json"), '{"version":"1.0.0"}'); writeFileSync(join(old, "dist", "BUILD"), "ffff000-dirty\n");
   const r = readBuild(join(old, "dist"), old); assert.equal(r.build, "ffff000-dirty"); assert.equal(r.dirty, true); assert.equal(r.released, null);
-  assert.deepEqual(makeStamp({ hash: "abc1234", dirty: false, release: true, now: new Date("2026-11-16T10:00:00Z") }), { build: "abc1234", released: "2026-11-16", dirty: false });
+  assert.deepEqual(makeStamp({ hash: "abc1234", dirty: false, release: true, now: new Date("2026-11-16T10:00:00Z") }), { build: "abc1234", released: "2026-11-16", dirty: false, release: true });
   assert.equal(makeStamp({ hash: "abc1234", dirty: true, release: false }).build, "abc1234-dirty");
   assert.throws(() => makeStamp({ hash: "abc1234", dirty: true, release: true }), /RELEASE build refused/);
   for (const s of [makeStamp({ hash: "abc1234", dirty: false, release: true })]) assert.ok(!/dirty/i.test(s.build));
