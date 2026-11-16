@@ -28,12 +28,17 @@ export const shutdownSignals = (platform: Platform = process.platform): NodeJS.S
 
 type Run = (file: string, args: string[]) => unknown;
 /**
- * Windows equivalent of chmod 600: drop inherited permissions and grant Full control to the current user only (icacls). Returns true when the
+ * Windows equivalent of chmod 600: drop inherited permissions and grant Full control to the current account only (icacls). Returns true when the
  * file is restricted. On Linux this is a no-op that returns true (the caller already wrote the file with mode 0o600).
- * `run` and `user` are injectable for tests; the real icacls call needs a Windows machine to verify.
+ * The account is identified by SID (`whoami /user`), because under Task Scheduler / a service as SYSTEM the DOMAIN\USER environment values are
+ * not an account icacls can resolve; the name form is only the fallback. `run` and `user` are injectable for tests; the real icacls and whoami
+ * calls need a Windows machine to verify.
  */
-export function restrictToCurrentUser(file: string, platform: Platform = process.platform, run: Run = (f, a) => execFileSync(f, a, { stdio: "pipe", windowsHide: true }), user = currentWindowsUser()): boolean {
+export function restrictToCurrentUser(file: string, platform: Platform = process.platform, run: Run = (f, a) => execFileSync(f, a, { stdio: "pipe", windowsHide: true }), user?: string): boolean {
   if (!isWin(platform)) return true;
-  try { run("icacls", [file, "/inheritance:r", "/grant:r", `${user}:(F)`]); return true; } catch { return false; }
+  try { run("icacls", [file, "/inheritance:r", "/grant:r", `${user ?? currentWindowsGrantee()}:(F)`]); return true; } catch { return false; }
 }
-function currentWindowsUser(): string { const u = userInfo().username, d = process.env.USERDOMAIN; return d && !u.includes("\\") ? `${d}\\${u}` : u; }
+function currentWindowsGrantee(): string {
+  try { const sid = /(S-1-[0-9-]+)/.exec(execFileSync("whoami", ["/user", "/fo", "csv", "/nh"], { encoding: "utf8", windowsHide: true }))?.[1]; if (sid) return "*" + sid; } catch { /* fall through */ }
+  const u = userInfo().username, d = process.env.USERDOMAIN; return d && !u.includes("\\") ? `${d}\\${u}` : u;
+}
