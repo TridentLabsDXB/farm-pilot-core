@@ -1,11 +1,14 @@
 // FARM-PILOT CORE -- runtime configuration, all from environment (systemd EnvironmentFile). No file is ever required.
+import { join } from "node:path";
 const env = process.env;
 const int = (k: string, d: number) => { const n = Number(env[k]); return Number.isFinite(n) && env[k] !== undefined && env[k] !== "" ? n : d; };
 
 export const config = {
   host: env.HOST_BIND_IP || "127.0.0.1",
   port: int("PORT", 4100),
-  dbPath: env.DB_PATH || "/var/lib/farmpilot-core/core.db",
+  // 2026-11-17 -- DB_PATH defaults to <DATA_DIR>/core.db. It used to default to /var/lib/farmpilot-core/core.db whatever DATA_DIR said, so a throwaway instance started with only DATA_DIR
+  // opened the LIVE bench database (docs/ops-notes.md, audit row 373). Set DB_PATH explicitly only to put the database somewhere else than the data folder.
+  dbPath: env.DB_PATH || join(env.DATA_DIR || "/var/lib/farmpilot-core", "core.db"),
   dataDir: env.DATA_DIR || "/var/lib/farmpilot-core",
   mqttHost: "127.0.0.1",                    // loopback ONLY, never configurable to a public address
   mqttPort: int("MQTT_PORT", 1884),         // 1883 is EMQX on the test bench

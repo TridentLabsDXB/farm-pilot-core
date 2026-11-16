@@ -16,6 +16,7 @@ import { installLogCapture } from "./about/logbuf.js";
 import { LicenceService } from "./licence/service.js";
 
 installLogCapture();                       // keeps a sanitised copy of the last log lines for diagnostics (about/logbuf.ts)
+console.log(`database: ${config.dbPath} (data folder: ${config.dataDir})`);       // the resolved path, so a wrong DATA_DIR / DB_PATH is visible in the first log line
 const db = openDb(config.dbPath);
 ensureAdmin(db);
 const broker = new AedesBroker(config.mqttPort, config.mqttHost);
