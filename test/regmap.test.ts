@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 import { test } from "node:test"; import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { decodeChannel, decodeField, groupIsEmpty, loadRegMap, parseRegMap, regsToSerial, serialToRegs, RegMapError } from "../src/drivers/modbus/regmap.js";

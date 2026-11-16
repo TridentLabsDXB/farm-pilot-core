@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // 2026-11-17 -- bench finding: a sensor that goes silent kept showing NO UPDATE on the cards but /alarms had no NO UPDATE alarm.
 // Cause: the alarm was raised only for status "no_update" (identical frame). A gateway that answers an ALL-ZERO frame for a silent sensor gives status "no_data",
 // the alarm condition vanished and the tracker closed the episode (CONDITION ENDED) in the same second. Now a sensor that HAS reported before and is silent

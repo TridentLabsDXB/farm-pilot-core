@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // Slot -> Modbus address mapping. Slots are numbered 1..groups. Slot 1 is the FIRST group of the type, slot N is base + (N-1) * regs.
 // Checked three ways: the address helpers, the bytes actually put on the wire (recording transport), and the simulator's registers.
 import { test } from "node:test"; import assert from "node:assert/strict";

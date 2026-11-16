@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // Licence model (Step 2 + 3): file format, signature, device binding, install/remove over HTTP with audit, FREE defaults, limits only block ADDING, nothing else is touched.
 import { test, after } from "node:test"; import assert from "node:assert/strict";
 import { generateKeyPairSync, createPrivateKey, type KeyObject } from "node:crypto"; import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";

@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // Diagnostics and support bundle (Step 4): Admin only, valid ZIP, the content is what the spec lists, and a SCAN proves no password hash, token or session secret is inside.
 import { test, after } from "node:test"; import assert from "node:assert/strict"; import { execFileSync } from "node:child_process"; import { inflateRawSync } from "node:zlib"; import { mkdtempSync, writeFileSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";
 import { config } from "../src/config.js"; import { setSetting } from "../src/db.js"; import { makeZip } from "../src/about/zip.js"; import { pushLog, recentErrors, recentLines, clearLogsForTests, sanitizeLine, installLogCapture } from "../src/about/logbuf.js";

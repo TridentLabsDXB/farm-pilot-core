@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // HTTP-level tests of the gateway API (Fastify inject): the interval rule and the factory-reset confirmation.
 import { test, after } from "node:test"; import assert from "node:assert/strict";
 import Fastify from "fastify"; import type { AddressInfo } from "node:net";

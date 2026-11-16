@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 import { test, after } from "node:test"; import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net"; import { rmSync } from "node:fs";
 import { openDb } from "../src/db.js"; import { Ingest } from "../src/ingest.js";

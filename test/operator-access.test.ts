@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // Operator data check, server side. Boots the REAL app (buildApp) with seeded sensors, calibrations, alarms and a gateway simulator, logs in as an Operator and:
 //  1. calls EVERY registered route: only the routes an Operator needs may answer; every other route must refuse (403/401);
 //  2. scans every Operator response (and every WebSocket message) and FAILS if a serial, a raw value, calibration data, a setting or an audit/setup field appears;

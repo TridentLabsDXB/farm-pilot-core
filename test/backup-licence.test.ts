@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // 2026-11-17 -- the licence and the Device ID are NOT part of a backup and a restore never changes them (the licence belongs to the box, not to the farm data).
 // Backup file: no licence table, no licence file, no Device ID, no licence settings. Restore: refuses licence settings smuggled into a file; installed licence, its file and the Device ID are identical afterwards.
 import { test, after } from "node:test"; import assert from "node:assert/strict"; import type { AddressInfo } from "node:net"; import { mkdtempSync, readFileSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";

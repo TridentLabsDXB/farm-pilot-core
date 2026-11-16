@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 import { test } from "node:test"; import assert from "node:assert/strict";
 import { planSync, applyCal, offsetCal, twoPointCal, checkLimits, DEFAULT_LIMITS, FingerprintDetector, offlineAfterMs, pollPeriodMs, sensorStatus, rssiBand, type RegSensor } from "../src/gateway/logic.js";
 import type { Group } from "../src/drivers/modbus/driver.js";

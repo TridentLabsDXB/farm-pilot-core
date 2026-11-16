@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // About page, Step 1: branding, build label, Device ID, host details (Linux real + Windows with injected sources), API access per role, bundled notices, UI wiring.
 import { test, after } from "node:test"; import assert from "node:assert/strict";
 import { createHash } from "node:crypto"; import { mkdtempSync, writeFileSync, readFileSync, mkdirSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";

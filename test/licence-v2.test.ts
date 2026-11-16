@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // 2026-11-17 -- licence v2 (null = unlimited, reports_days, retention_days), the ENGINEERING type, retention driven by the licence, dev-1 only in non-release builds,
 // and the batch issuing tool. v1 files keep verifying (test/licence.test.ts pins the v1 signature).
 import { test, after } from "node:test"; import assert from "node:assert/strict"; import { spawnSync } from "node:child_process"; import { mkdtempSync, readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";

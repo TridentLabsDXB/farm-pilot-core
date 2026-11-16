@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // 2026-11-16 -- MONITORING charts and CSV export (change request core-control-section-and-scada-charts.md): pure logic (buckets, downsampling, gaps, zone average, CSV writer, unit conversion),
 // the licence range rule (FREE 7 days, PRO any range, one function), and the real HTTP API with role based columns, audit, row limit and streaming.
 import { test, after } from "node:test"; import assert from "node:assert/strict"; import { readFileSync, mkdtempSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";

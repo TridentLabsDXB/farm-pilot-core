@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // 2026-11-16 -- CONTROL section (phase 1): the pump command works from CONTROL for an Operator and an Admin, the SCADA pump card is gone, the SCADA status line
 // (deviceState, same state as CONTROL) shows ON / OFF / UNKNOWN and follows a command, and an Operator still gets 403 on every Settings route.
 import { test, after } from "node:test"; import assert from "node:assert/strict"; import { readFileSync } from "node:fs";

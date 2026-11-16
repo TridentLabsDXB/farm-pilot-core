@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // Licence limits through the REAL app with a gateway simulator: the 11th sensor over HTTP, "add unassigned", restore, SEND TO GATEWAY -- and, over the limit, polling, alarms and pump commands keep working.
 import { test, after } from "node:test"; import assert from "node:assert/strict"; import type { AddressInfo } from "node:net";
 import { mkdtempSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";

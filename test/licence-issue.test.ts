@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // Issuing tool (Step 5): keygen / sign / verify end to end, the private key can never live in the repo, and the tool is outside the shipped build.
 import { test } from "node:test"; import assert from "node:assert/strict"; import { execFileSync, spawnSync } from "node:child_process"; import { mkdtempSync, readFileSync, existsSync, statSync, writeFileSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";
 import { checkLicence } from "../src/licence/format.js"; import { LICENCE_PUBLIC_KEYS } from "../src/licence/keys.js"; import { LicenceService } from "../src/licence/service.js"; import { openDb } from "../src/db.js";

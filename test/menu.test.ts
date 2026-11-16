@@ -1,3 +1,4 @@
+import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // Menu structure of 2026-11-17 (source checks, same style as control.test.ts / about.test.ts): Admin sees ALARMS, MONITORING, CONTROL and the groups
 // SETTINGS, DATA POINTS, SYSTEM, ABOUT pinned at the bottom; Operators get no group headings; every old settings route still opens its page.
 import test from "node:test";

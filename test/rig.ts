@@ -1,4 +1,5 @@
 // Shared rig for HTTP-level tests that need the REAL app (buildApp) without a gateway: an in-memory database, an Admin and an Operator session, a `call` helper.
+import "./isolate.js";
 import type { AddressInfo } from "node:net";
 import { openDb, type Db } from "../src/db.js"; import { Ingest } from "../src/ingest.js"; import { hashPassword, createSession } from "../src/auth.js"; import { buildApp } from "../src/app.js"; import { Commands } from "../src/commands.js";
 
