@@ -2,7 +2,7 @@
 import { test, after } from "node:test"; import assert from "node:assert/strict";
 import { createHash } from "node:crypto"; import { mkdtempSync, writeFileSync, readFileSync, mkdirSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";
 import { loadBranding, BRANDING_DEFAULTS } from "../src/about/branding.js"; import { buildLabel, readBuild } from "../src/about/build.js";
-import { deviceIdFromMachineId, readMachineId, thisDeviceId, DEVICE_ID_RE } from "../src/licence/device.js"; import { computerInfo, osName } from "../src/about/host.js";
+import { deviceIdFromMachineId, readMachineId, thisDeviceId, DEVICE_ID_RE } from "../src/licence/device.js"; import { computerInfo, osName, ipv4Addresses } from "../src/about/host.js";
 import { FREE_LICENCE } from "../src/licence/free.js"; import { openDb } from "../src/db.js";
 import { rig } from "./rig.js";
 // @ts-ignore plain .mjs scripts without types
@@ -98,4 +98,10 @@ test("UI wiring (source): ABOUT in the sidebar above the version caption, route 
   assert.match(ab, /setInterval\(load, 10_000\)/); assert.match(ab, /info\.label/); assert.match(login, /h\.build_label/);
   assert.match(css, /max-width: 1023px/); assert.match(css, /max-width: 767px/); assert.match(css, /grid-template-columns: 380px/); assert.match(css, /\.ab-logo \{ width: 230px/); assert.match(css, /data-theme="dark"\] \.ab-logo \{ filter: drop-shadow/);
   assert.ok(!/https?:\/\//.test(ab.replace(/\/\/.*$/gm, "")), "no external requests");
+});
+
+test("IP addresses survive os.networkInterfaces() failing (EAFNOSUPPORT under the systemd unit): fallback to /proc/net/fib_trie, never throws", () => {
+  const boom = { networkInterfaces: () => { throw new Error("uv_interface_addresses returned Unknown system error 97"); } };
+  const trie = "Main:\n  +-- 0.0.0.0/0 3 0 5\n     |-- 10.0.0.3\n        /32 host LOCAL\n     |-- 10.0.0.255\n        /32 link BROADCAST\n     |-- 127.0.0.1\n        /32 host LOCAL\n     |-- 172.17.0.1\n        /32 host LOCAL\n";
+  assert.deepEqual(ipv4Addresses(boom as any, () => trie), ["10.0.0.3", "172.17.0.1"]); assert.deepEqual(ipv4Addresses(boom as any, () => { throw new Error("no proc"); }), []);
 });

@@ -31,12 +31,17 @@ export function osName(d: HostDeps = {}): string {
   return `${pretty || o.version()} (${platform === "linux" ? "Linux" : platform} ${o.release()})`;
 }
 
+/** Non-internal IPv4 addresses. os.networkInterfaces() throws EAFNOSUPPORT (error 97) under the systemd unit's address-family restrictions (found on the bench, 2026-11-16), so Linux falls back to /proc/net/fib_trie. Never throws. */
+export function ipv4Addresses(o: Pick<typeof nodeOs, "networkInterfaces">, read: (p: string) => string): string[] {
+  try { const ips: string[] = []; for (const list of Object.values(o.networkInterfaces())) for (const a of list ?? []) if (a.family === "IPv4" && !a.internal) ips.push(a.address); return ips; } catch { /* fall through */ }
+  try { const out = new Set<string>(); const lines = read("/proc/net/fib_trie").split("\n"); for (let i = 0; i < lines.length - 1; i++) { const m = /\|-- (\d+\.\d+\.\d+\.\d+)\s*$/.exec(lines[i]); if (m && /\/32 host LOCAL/.test(lines[i + 1]) && !m[1].startsWith("127.")) out.add(m[1]); } return [...out]; } catch { return []; }
+}
 export async function computerInfo(db: Db, opts: { dataDir: string; dbPath: string; timezone?: string }, d: HostDeps = {}): Promise<Computer> {
   const platform = d.platform ?? process.platform, o = d.os ?? nodeOs;
   const size = d.fileSize ?? ((p: string) => { try { return statSync(p).size; } catch { return null; } });
   let free: number | null = null, total: number | null = null;
   try { const s = await (d.statfs ?? ((p: string) => statfs(p)))(opts.dataDir); free = s.bavail * s.bsize; total = s.blocks * s.bsize; } catch { /* folder missing: shown as -- */ }
-  const ips: string[] = []; for (const list of Object.values(o.networkInterfaces())) for (const a of list ?? []) if (a.family === "IPv4" && !a.internal) ips.push(a.address);
+  const ips = ipv4Addresses(o, d.readFile ?? ((p) => readFileSync(p, "utf8")));
   const cpus = o.cpus(); const db1 = size(opts.dbPath), wal = size(opts.dbPath + "-wal");
   let sqlite = ""; try { sqlite = String((db.prepare("select sqlite_version() v").get() as { v: string }).v); } catch { /* closed db */ }
   let ports: string[] = []; try { ports = await (d.serialPorts ?? (() => Promise.resolve([])))(); } catch { /* listing failed */ }
