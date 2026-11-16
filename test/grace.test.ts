@@ -102,3 +102,11 @@ test("About API: the grace notice data is sent to Admin only; an Operator gets n
 test("wiring (source): the scheduled retention uses the licence-aware runner", () => {
   const idx = readFileSync("src/index.ts", "utf8"); assert.ok(!/runRetention\(/.test(idx)); assert.equal((idx.match(/runLicenceRetention\(db, lic\)/g) ?? []).length, 2);
 });
+
+test("UI (source): Admin-only amber notice with the delete date in the Farm Profile zone, the REMOVE dialog names the consequence, the INVALID notice says nothing is deleted", () => {
+  const ab = readFileSync("web/src/About.tsx", "utf8");
+  assert.match(ab, /\{admin && lic\.grace && <div className="ab-notice"/); assert.match(ab, /History older than \{lic\.retention_days \?\? 90\} days will be deleted on <strong>\{dateOnly\(Date\.parse\(lic\.grace\.delete_on\)\)\}<\/strong>\. Upload a PRO licence to keep it\./);
+  assert.match(ab, /Back to FREE limits\. History older than \{lic\.retention_days \?\? 90\} days is kept for 30 days, then deleted\./);
+  assert.match(ab, /\{admin && lic\.state === "INVALID" && <div className="ab-notice"/); assert.match(ab, /No history is deleted while the licence is invalid/);
+  assert.match(readFileSync("web/src/ui.tsx", "utf8"), /export const dateOnly = .*zoneParts/, "dateOnly formats in the Farm Profile time zone");
+});

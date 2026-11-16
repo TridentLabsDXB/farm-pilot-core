@@ -39,3 +39,7 @@
 @media (max-width: 1023px) { .ab-grid { grid-template-columns: minmax(0, 1fr); } .ab-id { flex-direction: column; } .ab-comp { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 767px) { .ab-back { display: inline-flex; } .ab-comp { grid-template-columns: minmax(0, 1fr); } .ab .fp-btn { min-height: 44px; } .ab-logo { width: 180px; height: 180px; } }
 .ab-btns2 { margin-top: 8px; } .ab a.fp-btn { display: inline-flex; align-items: center; text-decoration: none; color: var(--fp-text); }
+
+/* 2026-11-17 -- amber notices in the licence card (Admin only): downgrade grace and invalid licence. Lamp chip plus a plain sentence; colours are the existing warn tokens. */
+.ab .ab-notice { display: flex; align-items: flex-start; gap: 12px; margin: 12px 0; padding: 10px 12px; border: 1px solid var(--fp-warn); border-radius: 8px; background: color-mix(in srgb, var(--fp-warn) 10%, transparent); }
+.ab .ab-notice p { margin: 0; font-size: 15px; } .ab .ab-notice .fp-chip { flex: none; }

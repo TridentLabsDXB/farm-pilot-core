@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ENGINEERING, licWord, limitWord } from "./licence";
 import { api, type AboutInfo, type ComputerInfo, type LicenceInfo } from "./api";
 import { go } from "./App";
-import { Chip, Modal, errText, type Tone } from "./ui";
+import { Chip, Modal, dateOnly, errText, type Tone } from "./ui";
 import { GROUPS, type Badge } from "./Sidebar";
 import "./about.css";
 
@@ -63,7 +63,7 @@ function Upload({ lic, onDone }: { lic: LicenceInfo; onDone: () => void }) {
       {lic.state !== "FREE" && <button className="fp-btn danger" onClick={() => setRm(true)}>REMOVE LICENCE</button>}
     </div>
     <p className="fp-cap ab-note">Admin only. One licence file works on one box. Every licence change is written to the audit log.</p>
-    {rm && <Modal title="Remove licence" onClose={() => setRm(false)}><p>The box goes back to the FREE licence. Sensors that are already added keep running; only adding more is blocked while the box is over the limit.</p>
+    {rm && <Modal title="Remove licence" onClose={() => setRm(false)}><p><strong>Back to FREE limits. History older than {lic.retention_days ?? 90} days is kept for 30 days, then deleted.</strong></p><p>Sensors that are already added keep running; only adding more is blocked while the box is over the limit.</p>
       <div className="fp-row"><button className="fp-btn danger" onClick={() => api("/licence", { method: "DELETE" }).then(() => { setRm(false); window.dispatchEvent(new Event("core-licence")); onDone(); }).catch((e) => setMsg({ ok: false, text: errText(e) }))}>REMOVE LICENCE</button><button className="fp-btn" onClick={() => setRm(false)}>Cancel</button></div></Modal>}
   </div>);
 }
@@ -102,6 +102,8 @@ export default function About({ admin, from }: { admin: boolean; from: string })
               {admin && <div className="ab-dev"><dt className="fp-cap">DEVICE ID</dt><dd><code className="fp-num" data-testid="device-id">{info.device_id ?? "--"}</code>{info.device_id && <button className="fp-btn small" onClick={() => flash("dev", info.device_id!)}>COPY</button>}{copied === "dev" && <Chip tone="ok">COPIED</Chip>}{copied === "!dev" && <Chip tone="warn">SELECT AND COPY BY HAND</Chip>}</dd></div>}
             </dl>
             {lic.reason && <p className="fp-msg err" role="status">{lic.reason}</p>}
+            {admin && lic.grace && <div className="ab-notice" role="status" data-testid="grace-notice"><Chip tone="warn">HISTORY NOTICE</Chip><p>History older than {lic.retention_days ?? 90} days will be deleted on <strong>{dateOnly(Date.parse(lic.grace.delete_on))}</strong>. Upload a PRO licence to keep it.</p></div>}
+            {admin && lic.state === "INVALID" && <div className="ab-notice" role="status" data-testid="invalid-notice"><Chip tone="warn">LICENCE PROBLEM</Chip><p>FREE limits apply to adding sensors and gateways. No history is deleted while the licence is invalid. Upload the licence file again.</p></div>}
             {admin && <Upload lic={lic} onDone={load} />}
             <div className="ab-usages"><Bar label="GATEWAYS" n={lic.usage.gateways} max={lic.limits.gateways} /><Bar label="SENSORS (ALL TYPES)" n={lic.usage.sensors} max={lic.limits.sensors} /></div>
           </section>
