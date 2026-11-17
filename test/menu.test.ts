@@ -1,6 +1,6 @@
 import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 // Menu structure of 2026-11-17 (source checks, same style as control.test.ts / about.test.ts): Admin sees ALARMS, MONITORING, CONTROL and the groups
-// SETTINGS, DATA SOURCES, SYSTEM, ABOUT pinned at the bottom; Operators get no group headings; every old settings route still opens its page.
+// SETTINGS, DATA SOURCES, SYSTEM, ABOUT pinned at the bottom; Operators get no group headings (one plain MQTT PAYLOAD item, read only); every old settings route still opens its page.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -29,7 +29,7 @@ test("Operator: group headings and group items render for Admin only (sidebar an
   assert.match(ab, /\{admin && GROUPS\.filter\(\(g\) => g\.tabs\.length > 0\)\.map\(/); assert.ok(ab.indexOf("{admin && GROUPS") < ab.indexOf("{g.title}</span>"));
   // ABOUT is outside the admin block in both places, so an Operator still has it
   assert.ok(sb.indexOf(">ABOUT</button>") > sb.indexOf("</div>)}")); assert.match(ab, /row\("about", "ABOUT", "\/about"\)/);
-  assert.match(app, /page === "settings" && admin \? "settings"/); assert.match(app, /me\.role !== "admin" && page === "settings"\) go\("\/monitoring"\)/);
+  assert.match(app, /page === "settings" && \(admin \|\| rest\[0\] === "mqtt-payload"\) \? "settings"/);   // Operators: only the read-only MQTT Payload page (owner decision 2026-11-18) assert.match(app, /me\.role !== "admin" && page === "settings" && rest\[0\] !== "mqtt-payload"\) go\("\/monitoring"\)/);
 });
 
 test("Phone: bottom nav ALARMS, MONITORING, CONTROL, MORE for both roles; the MORE sheet shows the same groups (with badges) and ABOUT; the old phone Settings list leads to it", () => {

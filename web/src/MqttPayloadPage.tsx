@@ -15,7 +15,7 @@ interface View {
   topics: { id: number; filter: string; qos: number; count: number; lastAt: number | null }[];
   devices: { device_id: string; state: "new" | "added" | "ignored"; label: string; first_seen: number; last_seen: number; msg_count: number }[];
   mapping: { id_path: string; ts_path: string; rules: Rule[]; unmapped: { field: string; count: number }[]; errors: number };
-  messages: { ts: number; topic: string; raw: string; status: "ok" | "unmapped" | "error"; device: string | null; notes: string[]; stored: boolean }[];
+  messages: { ts: number; topic: string; payload: string; status: "ok" | "unmapped" | "error"; device: string | null; notes: string[]; stored: boolean }[];
 }
 /** Lamp shape + word, never colour alone: CONNECTED circle, CONNECTING triangle, DISCONNECTED square, DISABLED ring. */
 const LAMP: Record<State, { shape: string; word: string; tone: Tone }> = { connected: { shape: "circle", word: "CONNECTED", tone: "ok" }, connecting: { shape: "triangle", word: "CONNECTING", tone: "warn" }, disconnected: { shape: "square", word: "DISCONNECTED", tone: "alarm" }, disabled: { shape: "ring", word: "DISABLED", tone: "off" } };
@@ -23,7 +23,7 @@ const MSG: Record<string, [Tone, string]> = { ok: ["ok", "OK"], unmapped: ["warn
 export const Lamp = ({ state }: { state: State }) => { const l = LAMP[state]; return <span className="mq-lamp" data-tone={l.tone}><span className="mq-shape" data-shape={l.shape} aria-hidden />{l.word}</span>; };
 type Say = { t: "ok" | "err"; s: string } | null;
 
-export default function MqttPayloadPage() {
+export default function MqttPayloadPage({ readOnly = false }: { readOnly?: boolean }) {
   const [v, setV] = useState<View | null>(null); const now = useNow(1000); const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState<Record<string, Say>>({});
   const [c, setC] = useState({ host: "", port: "", tls: true, client_id: "", username: "", password: "", keepalive: "", dirty: false });
   const [nt, setNt] = useState({ filter: "", qos: "1" }); const [map, setMap] = useState<{ id_path: string; ts_path: string; rules: Rule[]; dirty: boolean } | null>(null);
@@ -54,7 +54,7 @@ export default function MqttPayloadPage() {
   const fresh = v.devices.filter((d) => d.state === "new"), added = v.devices.filter((d) => d.state === "added");
 
   return (
-    <div className="mq" data-testid="mqtt-page">
+    <fieldset className="mq" data-testid="mqtt-page" disabled={readOnly} data-ro={readOnly ? "1" : undefined}>
       <section className="fp-card mq-banner" aria-label="Connection status" data-state={st.state}>
         <div className="mq-row"><Lamp state={st.state} /><span className="mq-num" data-testid="mq-host">{st.host}:{st.port}</span></div>
         <dl className="mq-facts"><div><dt className="fp-cap">LAST MESSAGE</dt><dd className="mq-num">{ago(st.lastMessageAt, now)}</dd></div><div><dt className="fp-cap">MESSAGES / MIN</dt><dd className="mq-num">{st.perMinute}</dd></div></dl>
@@ -86,7 +86,7 @@ export default function MqttPayloadPage() {
           {v.topics.length === 0 && <tr><td colSpan={4}>No topic filters. Add one below.</td></tr>}
           {v.topics.map((t) => <tr key={t.id}><td>{t.filter}</td><td>{t.qos}</td><td className="mq-num">{t.count}</td><td><button className="fp-btn small" disabled={busy !== null} aria-label={`Remove ${t.filter}`} onClick={() => delTopic(t.id)}>REMOVE</button></td></tr>)}
         </tbody></table>
-        <div className="fp-row"><input className="fp-input" aria-label="New topic filter" placeholder="fp/+/data" value={nt.filter} onChange={(e) => setNt({ ...nt, filter: e.target.value })} />
+        <div className="fp-row mq-add"><input className="fp-input" aria-label="New topic filter" placeholder="fp/+/data" value={nt.filter} onChange={(e) => setNt({ ...nt, filter: e.target.value })} />
           <select className="fp-input" aria-label="QoS" value={nt.qos} onChange={(e) => setNt({ ...nt, qos: e.target.value })}><option value="0">QoS 0</option><option value="1">QoS 1</option><option value="2">QoS 2</option></select>
           <button className="fp-btn" disabled={busy !== null || !nt.filter.trim()} onClick={addTopic}>ADD TOPIC</button></div>
         <Msg k="topic" />
@@ -100,13 +100,14 @@ export default function MqttPayloadPage() {
       </section>
 
       <section className="fp-card" aria-label="Payload mapping"><h3>PAYLOAD MAPPING</h3>
+        {readOnly && <p className="fp-msg" data-testid="mq-ro">Read only. Only an Admin can change these settings.</p>}
         <p className="fp-msg">Placeholder format until the real payload is decided. Value in CORE = payload value × scale + offset.</p>
         <div className="mq-form"><label>Device ID field<input className="fp-input" value={map.id_path} onChange={(e) => setMap({ ...map, id_path: e.target.value, dirty: true })} /></label><label>Timestamp field<input className="fp-input" value={map.ts_path} onChange={(e) => setMap({ ...map, ts_path: e.target.value, dirty: true })} /></label></div>
         <div className="mq-scroll"><table className="fp-table"><thead><tr><th>PAYLOAD FIELD</th><th>MEASUREMENT</th><th>UNIT</th><th>SCALE</th><th>OFFSET</th><th /></tr></thead><tbody>
           {map.rules.map((r, i) => <tr key={i}>{(["path", "name", "unit", "scale", "offset"] as const).map((k) => <td key={k}><input className="fp-input mq-cell" aria-label={`${k} row ${i + 1}`} value={String(r[k])} onChange={(e) => setRule(i, { [k]: e.target.value })} /></td>)}
             <td><button className="fp-btn small" aria-label={`Remove row ${i + 1}`} onClick={() => setMap({ ...map, dirty: true, rules: map.rules.filter((_, j) => j !== i) })}>REMOVE</button></td></tr>)}
         </tbody></table></div>
-        <div className="fp-row"><button className="fp-btn" onClick={() => setMap({ ...map, dirty: true, rules: [...map.rules, { path: "", name: "", unit: "", scale: 1, offset: 0 }] })}>ADD ROW</button><button className="fp-btn primary" disabled={busy !== null || !map.dirty} onClick={saveMap}>SAVE MAPPING</button></div>
+        <div className="fp-row mq-add"><button className="fp-btn" onClick={() => setMap({ ...map, dirty: true, rules: [...map.rules, { path: "", name: "", unit: "", scale: 1, offset: 0 }] })}>ADD ROW</button><button className="fp-btn primary" disabled={busy !== null || !map.dirty} onClick={saveMap}>SAVE MAPPING</button></div>
         <Msg k="map" />
         <div className="mq-split"><div><span className="fp-cap">UNMAPPED FIELDS</span>{v.mapping.unmapped.length === 0 ? <p className="fp-msg">None seen.</p> : <ul className="mq-chips">{v.mapping.unmapped.map((u) => <li key={u.field}><Chip tone="warn">{u.field} × {u.count}</Chip></li>)}</ul>}</div>
           <div><span className="fp-cap">PARSE ERRORS</span><p className="mq-num" data-testid="mq-errors">{v.mapping.errors}</p></div></div>
@@ -116,8 +117,8 @@ export default function MqttPayloadPage() {
         {v.messages.length === 0 ? <p className="fp-msg">No messages received yet.</p> :
           <ol className="mq-msgs">{v.messages.map((m, i) => { const [tone, word] = MSG[m.status]; return <li key={m.ts + ":" + i}>
             <div className="fp-row mq-mh"><span className="mq-num">{hhmm(m.ts)}</span><span className="mq-num">{m.topic}</span><Chip tone={tone}>{word}</Chip>{m.device && <span className="fp-cap">{m.device}</span>}</div>
-            {m.notes.length > 0 && <p className="fp-cap mq-notes">{m.notes.join(" · ")}</p>}<pre className="mq-raw">{m.raw}</pre></li>; })}</ol>}
+            {m.notes.length > 0 && <p className="fp-cap mq-notes">{m.notes.join(" · ")}</p>}<pre className="mq-raw">{m.payload}</pre></li>; })}</ol>}
       </section>
-    </div>
+    </fieldset>
   );
 }

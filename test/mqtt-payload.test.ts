@@ -89,14 +89,15 @@ test("Password: encrypted at rest, never in any API response, audit row or datab
   const keep = await x.call(x.admin, "PUT", "/api/mqtt/config", { username: "u2" }); assert.equal(keep.json.config.has_password, true, "omitting the password keeps it");
   const gone = await x.call(x.admin, "PUT", "/api/mqtt/config", { password: "" }); assert.equal(gone.json.config.has_password, false, "empty password removes it");
 });
-test("Admin only: an Operator gets 403 on every MQTT route (read and write); anonymous gets 401", async () => {
-  const x = await boot(); const mqttRoutes = x.routes.filter((r) => r.url.startsWith("/api/mqtt") && r.method !== "HEAD"); assert.ok(mqttRoutes.length >= 9, `found ${mqttRoutes.length} MQTT routes`);
-  for (const r of mqttRoutes) { const url = r.url.replace(/:id/g, "1"); const body = r.method === "GET" || r.method === "DELETE" ? undefined : {};
-    const o = await x.call(x.op, r.method, url, body); assert.equal(o.status, 403, `${r.method} ${r.url} Operator`); assert.ok(!/mqtt\.farm-pilot|fp\/\+/.test(o.txt), "a refusal leaks nothing");
+test("Roles: an Operator can READ the page data (never the password); every write and the test are Admin only; anonymous gets 401", async () => {
+  const x = await boot(); await x.call(x.admin, "PUT", "/api/mqtt/config", { password: "op-must-not-see" });
+  const rd = await x.call(x.op, "GET", "/api/mqtt"); assert.equal(rd.status, 200); assert.ok(rd.json.topics.length && rd.json.mapping.rules.length && rd.json.config.host); assert.ok(!rd.txt.includes("op-must-not-see")); assert.equal(rd.json.config.has_password, true);
+  const mqttRoutes = x.routes.filter((r) => r.url.startsWith("/api/mqtt") && r.method !== "HEAD"); assert.ok(mqttRoutes.length >= 9, `found ${mqttRoutes.length} MQTT routes`);
+  for (const r of mqttRoutes) { const url = r.url.replace(/:id/g, "1"); const body = r.method === "GET" || r.method === "DELETE" ? undefined : {}; const isRead = r.method === "GET";
+    const o = await x.call(x.op, r.method, url, body); assert.equal(o.status, isRead ? 200 : 403, `${r.method} ${r.url} Operator`);
     assert.equal((await x.call(null, r.method, url, body)).status, 401, `${r.method} ${r.url} anonymous`); }
-  assert.equal((await x.call(x.admin, "GET", "/api/mqtt")).status, 200);
+  assert.equal((await x.get()).topics.length, 2, "nothing was changed by the Operator attempts");
 });
-
 // ---------------------------------------------------------------- topics
 test("Topics: add and remove with validation, duplicates refused, counts start at 0", async () => {
   const x = await boot(); const post = (filter: any, qos: any = 1) => x.call(x.admin, "POST", "/api/mqtt/topics", { filter, qos });
@@ -138,7 +139,7 @@ test("Connect, receive, new-device flow (add and ignore), bad JSON, disconnect a
   // bad payloads: counted, shown, nothing crashes
   const before = (await x.get()).mapping.errors; await publish(b.port, "fp/dev1/data", "{not json"); await publish(b.port, "fp/dev1/data", JSON.stringify({ id: "dev1", t: "warm" })); await publish(b.port, "fp/x/data", "[1]");
   await until(async () => (await x.get()).mapping.errors === before + 3, "3 errors counted"); v = await x.get();
-  assert.deepEqual(v.messages.slice(0, 3).map((m: any) => m.status), ["error", "error", "error"]); assert.equal(v.messages[0].raw, "[1]", "newest first, raw text kept"); assert.equal(v.status.state, "connected");
+  assert.deepEqual(v.messages.slice(0, 3).map((m: any) => m.status), ["error", "error", "error"]); assert.equal(v.messages[0].payload, "[1]", "newest first, raw text kept"); assert.equal(v.status.state, "connected");
   assert.ok(v.messages.length <= 20); assert.equal((await x.call(x.admin, "POST", "/api/mqtt/enabled", { enabled: "yes" })).status, 400);
   // broker goes away: DISCONNECTED with a plain reason, CORE keeps answering, then it comes back by itself
   await b.stop(); await until(async () => (await x.get()).status.state !== "connected", "DISCONNECTED/CONNECTING after the broker stopped");
@@ -165,10 +166,16 @@ test("Menu: DATA SOURCES (renamed) holds RS-485 Ports, Sensors Gateway, MQTT Pay
   const sb = readFileSync("web/src/Sidebar.tsx", "utf8"), ab = readFileSync("web/src/About.tsx", "utf8"), st = readFileSync("web/src/Settings.tsx", "utf8");
   assert.match(sb, /title: "Data sources", tabs: \[\["rs485-ports", "RS-485 PORTS"\], \["sensors-gateway", "SENSORS GATEWAY"\], \["mqtt-payload", "MQTT PAYLOAD"\], \["sensors", "SENSORS"\]\]/);
   assert.match(sb, /text-transform|GROUPS/); assert.match(ab, /GROUPS\.filter/, "the MORE sheet is built from the same GROUPS"); assert.match(ab, /SETTINGS, DATA SOURCES, SYSTEM/);
-  assert.match(st, /t === "mqtt-payload" \? <MqttPayloadPage \/>/, "the route #/settings/mqtt-payload opens the page");
+  assert.match(st, /t === "mqtt-payload" \? <MqttPayloadPage readOnly=\{!admin\} \/>/, "the route #/settings/mqtt-payload opens the page");
   for (const f of ["web/src/Sidebar.tsx", "web/src/About.tsx", "web/src/Settings.tsx", "web/src/core.css", "README.md", "CHANGELOG.md"]) assert.ok(!/data points/i.test(readFileSync(f, "utf8")), `${f} still says DATA POINTS`);
   const css = readFileSync("web/src/core.css", "utf8"); assert.match(css, /\.fp-sb-brand img \{ width: 104px; height: 104px; border-radius: 50%/, "round logo 104 px"); assert.match(css, /\.fp-sb-brand \{ display: flex; flex-direction: column; align-items: center; text-align: center/, "logo and farm name centred, name directly under the logo");
   assert.match(css, /\.fp-sb-brand span \{ font-size: 20px; font-weight: 700/, "farm name bold");
+});
+test("Operator UI: MQTT PAYLOAD is reachable read-only (plain item, no group heading; phone MORE row); the other Settings stay Admin only", () => {
+  const sb = readFileSync("web/src/Sidebar.tsx", "utf8"), ab = readFileSync("web/src/About.tsx", "utf8"), app = readFileSync("web/src/App.tsx", "utf8"), st = readFileSync("web/src/Settings.tsx", "utf8"), p = readFileSync("web/src/MqttPayloadPage.tsx", "utf8");
+  assert.match(sb, /\{!admin && <button[^\n]*go\("\/settings\/mqtt-payload"\)[^\n]*>MQTT PAYLOAD<\/button>\}/); assert.match(ab, /\{!admin && row\("mqtt-payload", "MQTT PAYLOAD", "\/settings\/mqtt-payload"\)\}/);
+  assert.match(app, /me\.role !== "admin" && page === "settings" && rest\[0\] !== "mqtt-payload"\) go\("\/monitoring"\)/); assert.match(st, /<MqttPayloadPage readOnly=\{!admin\} \/>/);
+  assert.match(p, /<fieldset className="mq"[^>]*disabled=\{readOnly\}/); assert.match(readFileSync("web/src/mqtt.css", "utf8"), /\.mq\[data-ro\] \.fp-btn:not\(\.fp-seg \.fp-btn\)[^}]*display: none/);
 });
 test("Page: card order, lamp shapes with words, 44 px / 56 px targets, Rajdhani + JetBrains Mono via tokens, no colour-only status", () => {
   const p = readFileSync("web/src/MqttPayloadPage.tsx", "utf8"), css = readFileSync("web/src/mqtt.css", "utf8");

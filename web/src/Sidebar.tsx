@@ -44,6 +44,7 @@ export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges
         <span className="fp-cap fp-sb-group">{g.title}</span>
         {g.tabs.map(([k, l]) => <button key={k} className="fp-tab" aria-current={cur === "settings" && tab === k ? "page" : undefined} onClick={() => go("/settings/" + k)}><span>{l}</span>{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.word}</Chip>}</button>)}
       </div>)}
+      {!admin && <button className="fp-tab" aria-current={cur === "settings" && tab === "mqtt-payload" ? "page" : undefined} onClick={() => go("/settings/mqtt-payload")}>MQTT PAYLOAD</button>}   {/* Operators: read-only page, no group heading */}
       <div className="fp-sb-bottom">
         <button className="fp-tab" aria-current={cur === "about" ? "page" : undefined} onClick={() => go("/about")}>ABOUT</button>
         <span className="fp-cap fp-sb-ver">FARM-PILOT CORE{version ? ` · v${version}` : ""}</span>

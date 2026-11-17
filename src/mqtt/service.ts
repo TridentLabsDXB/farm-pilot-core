@@ -128,7 +128,7 @@ export class MqttSourceService extends EventEmitter {
       topics: this.topics().map((t) => ({ ...t, count: this.topicCount.get(t.filter)?.n ?? 0, lastAt: this.topicCount.get(t.filter)?.at ?? null })),
       devices: (this.db.prepare("SELECT device_id,state,label,first_seen,last_seen,msg_count FROM mqtt_devices ORDER BY first_seen").all() as any[]).map((d) => ({ ...d, msg_count: d.msg_count })),
       mapping: { id_path: c.id_path, ts_path: c.ts_path, rules: this.rules(), unmapped: [...this.unmapped].map(([field, count]) => ({ field, count })).sort((a, b) => b.count - a.count).slice(0, 20), errors: this.errorCount },
-      messages: this.messages,
+      messages: this.messages.map(({ raw, ...m }) => ({ ...m, payload: raw })),
     };
   }
   private validate(i: ConnInput, cur: any) {

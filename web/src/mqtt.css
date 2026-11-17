@@ -1,5 +1,5 @@
 /* MQTT Payload page. All rules scoped under .mq. Uses the shared tokens (tokens.css), so light and dark follow the header toggle. */
-.mq { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.mq { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .mq h3 { font-family: var(--fp-head); letter-spacing: .08em; margin: 0 0 12px; }
 .mq .mq-num { font-family: var(--fp-mono); }
 .mq-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
@@ -26,3 +26,6 @@
 .mq-raw { font-family: var(--fp-mono); font-size: 12px; background: var(--fp-inset); border: 1px solid var(--fp-border); border-radius: 6px; padding: 8px; margin: 6px 0 0; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; }
 @media (max-width: 767px) { .mq .fp-btn, .mq .fp-input { min-height: 48px; } .mq-btns .fp-btn { flex: 1 1 140px; } }
 @media (prefers-reduced-motion: reduce) { .mq * { transition: none !important; } }
+/* read only (Operator): values stay visible in disabled fields, every action button and add row is hidden */
+.mq[data-ro] .fp-btn:not(.fp-seg .fp-btn), .mq[data-ro] .mq-add, .mq[data-ro] .mq-btns { display: none; }
+.mq[data-ro] .fp-input:disabled { color: var(--fp-text); opacity: 1; }

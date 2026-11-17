@@ -60,13 +60,13 @@ export default function App() {
   }, [me, load, loadScada, loadPub, loadControl]);
 
   const toggleTheme = () => { const t = theme === "dark" ? "light" : "dark"; setThemePref(t); try { localStorage.setItem("core_theme", t); } catch { /* private mode */ } };
-  useEffect(() => { if (me && me.role !== "admin" && page === "settings") go("/monitoring"); }, [me, page]);          // Operators never get Settings (the server answers 403 as well)
+  useEffect(() => { if (me && me.role !== "admin" && page === "settings" && rest[0] !== "mqtt-payload") go("/monitoring"); }, [me, page]);          // Operators never get Settings (the server answers 403 as well)
   const badges = useBadges(scada, rest[0], !!me && me.role === "admin");
   useEffect(() => { setDrawer(false); }, [hash]);                                       // the tablet drawer closes after every navigation
   useEffect(() => { if (!drawer) return; const f = (e: KeyboardEvent) => e.key === "Escape" && setDrawer(false); window.addEventListener("keydown", f); return () => window.removeEventListener("keydown", f); }, [drawer]);
   if (me === undefined) return null;
   if (!me) { const lt = themePref ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); return <div className="core fp-login-root" data-theme={lt}><Login onLogin={setMe} theme={lt} onToggleTheme={() => { const t = lt === "dark" ? "light" : "dark"; setThemePref(t); try { localStorage.setItem("core_theme", t); } catch { /* private mode */ } }} /></div>; }
-  const admin = me.role === "admin"; const cur = page === "alarms" ? "alarms" : page === "control" ? "control" : page === "about" ? "about" : page === "more" ? "more" : page === "settings" && admin ? "settings" : "monitoring";
+  const admin = me.role === "admin"; const cur = page === "alarms" ? "alarms" : page === "control" ? "control" : page === "about" ? "about" : page === "more" ? "more" : page === "settings" && (admin || rest[0] === "mqtt-payload") ? "settings" : "monitoring";
   const nAlarms = scada?.alarms.length ?? 0; const gw = scada?.gateway;
   const gwChip = !gw || !gw.enabled ? <Chip tone="off">NO GATEWAY</Chip> : gw.online ? <Chip tone="ok">GATEWAY ONLINE</Chip> : <Chip tone="alarm">GATEWAY OFFLINE</Chip>;
   const nav = (cls = "") => (<>
@@ -91,7 +91,7 @@ export default function App() {
           <button className="fp-btn small hide-phone" onClick={toggleTheme} aria-label="Toggle dark theme" aria-pressed={theme === "dark"}>{theme === "dark" ? "LIGHT" : "DARK"}</button>
           <button className="fp-btn small" onClick={() => api("/logout", { method: "POST" }).finally(() => setMe(null))}>Logout</button>
         </header>
-        {cur === "settings" ? <Settings tab={rest[0]} serial={rest[1]} focus={rest[2]} scada={scada} reload={() => { load(); loadScada(); }} onProfile={loadPub} badges={badges} />
+        {cur === "settings" ? <Settings admin={admin} tab={rest[0]} serial={rest[1]} focus={rest[2]} scada={scada} reload={() => { load(); loadScada(); }} onProfile={loadPub} badges={badges} />
           : cur === "about" ? <About admin={admin} from="/more" /> : cur === "more" ? <MorePage admin={admin} badges={badges} />
           : cur === "alarms" ? <Alarms scada={scada} /> : cur === "control" ? <ControlPage devices={control} error={controlErr} onRetry={loadControl} state={state} scada={scada} reload={() => { load(); loadScada(); }} /> : <ScadaView state={state} scada={scada} control={control} controlError={controlErr} onRetry={loadControl} query={hquery} />}
         <nav className="fp-bottom" aria-label="Main">{nav()}</nav>
