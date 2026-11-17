@@ -65,7 +65,7 @@ STOP, DATA, LOGS
     Settings file (optional): C:\FarmPilot-Core\core.env  (see core.env.example). Restart CORE after changing it.
 
 UPGRADE AND ROLLBACK
-    Upgrade:   stop CORE, copy the new farmpilot-core-lab-...zip to the tablet, then in C:\FarmPilot-Core\app run
+    Upgrade:   stop CORE, copy the new farmpilot-core-lab-...zip to the tablet, then in C:\FarmPilot-Core\app run (any cmd window; close Explorer and editors that have the app folder open, and do not leave PowerShell sitting inside app)
                    upgrade.cmd C:\path\to\the-new-zip.zip
                It unpacks the new program next to the old one, runs the new self-test, copies the database to C:\FarmPilot-Core\backups\pre-upgrade-<time>
                (checked), keeps the old program as C:\FarmPilot-Core\app.prev and puts the new one in place. Data, licence and core.env are not touched.

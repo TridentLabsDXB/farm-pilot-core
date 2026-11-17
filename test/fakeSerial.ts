@@ -7,7 +7,9 @@ import { rtuFrameLength, rtuUnwrap, rtuWrap } from "../src/drivers/modbus/frames
 
 export class FakeLine {
   openError = new Map<string, { message: string; code?: string }>(); present = ["COM11"]; held = new Set<string>();
-  opened: string[] = []; closed: string[] = []; tx: Buffer[] = []; mode: "ok" | "silent" | "garbage" | "badcrc" = "ok";
+  opened: string[] = []; closed: string[] = []; tx: Buffer[] = []; chunks: number[] = []; mode: "ok" | "silent" | "garbage" | "badcrc" = "ok";
+  /** Deliver a reply in n bursts with random gaps (ms), like a USB-RS485 adapter. corrupt: flip one byte in the first N replies. truncate: cut this many bytes off the end of the first N replies (0 = never). stray: bytes sent before every reply. */
+  burst: { n: number; gapMin: number; gapMax: number } | null = null; corrupt = 0; truncate = { times: 0, cut: 0 }; stray: number[] = [];
   slave: (unit: number, pdu: Buffer) => Buffer | null = () => null;
   listInfos: Record<string, unknown>[] | null = null;
   module: any;
@@ -28,7 +30,16 @@ export class FakeLine {
         const req = rtuUnwrap(b); if (!req || line.mode === "silent") return;
         const res = line.slave(req.unit, req.pdu); if (!res) return;
         const frame = rtuWrap(req.unit, res); if (line.mode === "badcrc") frame[frame.length - 1] ^= 0xff;
-        setImmediate(() => { if (!this.isOpen) return; if (line.mode === "garbage") this.emit("data", Buffer.from([0xde, 0xad, 0xbe])); else this.emit("data", frame); });
+        let out = frame;
+        if (line.corrupt > 0 && line.mode === "ok") { line.corrupt--; out = Buffer.from(frame); out[Math.floor(out.length / 2)] ^= 0xb8; }
+        if (line.truncate.times > 0) { line.truncate.times--; out = out.subarray(0, out.length - line.truncate.cut); }
+        if (line.stray.length) out = Buffer.concat([Buffer.from(line.stray), out]);
+        if (line.burst && line.mode === "ok") {
+          const { n, gapMin, gapMax } = line.burst, size = Math.ceil(out.length / n); let at = 0, t = 0;
+          for (let k = 0; k < n && at < out.length; k++, at += size) { const part = out.subarray(at, at + size); t += k === 0 ? 5 : gapMin + Math.random() * (gapMax - gapMin); setTimeout(() => { if (this.isOpen) { line.chunks.push(part.length); this.emit("data", Buffer.from(part)); } }, t); }
+          return;
+        }
+        setImmediate(() => { if (!this.isOpen) return; if (line.mode === "garbage") this.emit("data", Buffer.from([0xde, 0xad, 0xbe])); else this.emit("data", out); });
       }
       drain(cb: (e: Error | null) => void) { cb(null); }
       close(cb: () => void) { if (this.isOpen) { this.isOpen = false; line.held.delete(this.path); line.closed.push(this.path); } setImmediate(() => { this.emit("close"); cb(); }); }

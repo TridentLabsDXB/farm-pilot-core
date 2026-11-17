@@ -1,8 +1,8 @@
 // ModbusTransport: one request/response exchange at a time. Implementations: Modbus TCP (MBAP), RTU over TCP (RS485-to-Ethernet converter or the bench
 // simulator's RTU port) and RTU over a serial port (production: RS485 / USB-RS485 on the industrial PC, 9600 8N1 by default).
 import { Socket } from "node:net";
-import { mbapLength, mbapWrap, ModbusTimeout, rtuFrameLength, rtuUnwrap, rtuWrap } from "./frames.js";
-import { modbusTrace, serialError, serialInfo } from "../../serialLog.js";
+import { crc16, mbapLength, mbapWrap, ModbusBadFrame, ModbusTimeout, rtuExpectedResponse, rtuWrap } from "./frames.js";
+import { modbusNote, modbusTrace, serialError, serialInfo } from "../../serialLog.js";
 
 export interface ModbusTransport {
   /** Send a request PDU to a unit and resolve with the response PDU (function code first). */
@@ -89,8 +89,10 @@ class SerialChannel implements Channel {
   }
 }
 
+/** What a matcher says about the bytes received so far: null = need more, "bad" = junk, drop it and keep waiting (TCP stale reply), {fail} = a whole reply arrived but is unusable, give up on this attempt now so the queue retries at once. */
+type Match = Buffer | null | "bad" | { fail: string };
 class Exchange {
-  private pending?: { match: (b: Buffer) => Buffer | null | "bad"; resolve: (p: Buffer) => void; timer: NodeJS.Timeout };
+  private pending?: { match: (b: Buffer) => Match; resolve: (p: Buffer) => void; reject: (e: unknown) => void; timer: NodeJS.Timeout };
   bad = 0; badFrames() { return this.bad; }
   private buf = Buffer.alloc(0); private chain: Promise<unknown> = Promise.resolve();
   constructor(protected ch: Channel) { ch.onData((d) => this.feed(d)); }
@@ -98,14 +100,17 @@ class Exchange {
     this.buf = Buffer.concat([this.buf, d]); if (this.buf.length > 4096) this.buf = Buffer.alloc(0);
     const p = this.pending; if (!p) { this.buf = Buffer.alloc(0); return; }
     const r = p.match(this.buf); if (r === null) return;
-    this.buf = Buffer.alloc(0); if (r === "bad") { this.bad++; return; }     // garbage or CRC error: keep waiting until timeout
-    clearTimeout(p.timer); this.pending = undefined; p.resolve(r);
+    if (r === "bad") { this.buf = Buffer.alloc(0); this.bad++; return; }          // junk: keep waiting until timeout
+    clearTimeout(p.timer); this.pending = undefined;
+    if (Buffer.isBuffer(r)) { this.buf = Buffer.alloc(0); p.resolve(r); return; }
+    this.bad++; this.buf = Buffer.alloc(0); p.reject(new ModbusBadFrame(r.fail));
   }
-  protected exchange(frame: Buffer, match: (b: Buffer) => Buffer | null | "bad", timeoutMs: number): Promise<Buffer> {
+  /** describe(bytesSoFar): the reason text when the timeout expires ("no reply" vs "short reply: got N of M bytes"). */
+  protected exchange(frame: Buffer, match: (b: Buffer) => Match, timeoutMs: number, describe?: (got: Buffer) => string): Promise<Buffer> {
     const run = () => new Promise<Buffer>((resolve, reject) => {
       this.buf = Buffer.alloc(0);
-      const timer = setTimeout(() => { this.pending = undefined; reject(new ModbusTimeout()); }, timeoutMs);
-      this.pending = { match, resolve, timer };
+      const timer = setTimeout(() => { this.pending = undefined; const got = this.buf; this.buf = Buffer.alloc(0); reject(new ModbusTimeout(describe ? describe(got) : "modbus timeout")); }, timeoutMs);
+      this.pending = { match, resolve, reject, timer };
       this.ch.write(frame).catch((e) => { clearTimeout(timer); this.pending = undefined; reject(e); });
     });
     const next = this.chain.then(run, run); this.chain = next.catch(() => {}); return next;
@@ -115,12 +120,33 @@ class Exchange {
   linkState() { return this.ch.linkState?.(); }
 }
 
+/** A USB-RS485 adapter hands a long reply over in bursts (the lab saw 8 bursts with 20-60 ms gaps for 245 bytes), so silence between bytes never ends a frame here. */
+export function matchRtuResponse(b: Buffer, unit: number, pdu: Buffer): Match {
+  const fc = pdu[0], total = rtuExpectedResponse(pdu), isRead = fc === 3 || fc === 4, count = isRead ? pdu.readUInt16BE(3) : 0;
+  let crcBad = false, waiting = false;
+  for (let i = 0; i < b.length; i++) {                                           // stray bytes before the frame are skipped: a candidate starts at <unit><fc or fc|0x80>
+    if (b[i] !== unit) continue;
+    if (i + 1 >= b.length) { waiting = true; continue; }
+    const f = b[i + 1], isEx = f === (fc | 0x80); if (f !== fc && !isEx) continue;
+    if (!isEx && isRead && i + 2 < b.length && b[i + 2] !== count * 2) continue; // byte count disagrees with the request: not our reply
+    const n = isEx ? 5 : total; if (n === null) continue;
+    if (b.length - i < n) { waiting = true; continue; }                          // known length not reached yet: keep reading until it is (or the timeout)
+    const fr = b.subarray(i, i + n);
+    if (crc16(fr.subarray(0, n - 2)) !== fr.readUInt16LE(n - 2)) { crcBad = true; continue; }   // a frame that fails its CRC is never accepted
+    return Buffer.from(fr.subarray(1, n - 2));
+  }
+  return crcBad && !waiting ? { fail: `bad CRC (${b.length} bytes received${total ? `, ${total} expected` : ""})` } : null;
+}
 class RtuTransport extends Exchange implements ModbusTransport {
   request(unit: number, pdu: Buffer, timeoutMs: number) {
+    const total = rtuExpectedResponse(pdu), t0 = Date.now(), tmo = timeoutMs;
     return this.exchange(rtuWrap(unit, pdu), (b) => {
-      const n = rtuFrameLength(b, "res"); if (n < 0) return "bad"; if (n === 0 || b.length < n) return null;
-      const f = rtuUnwrap(b.subarray(0, n)); return !f || f.unit !== unit || (f.pdu[0] & 0x7f) !== (pdu[0] & 0x7f) ? "bad" : Buffer.from(f.pdu);
-    }, timeoutMs);
+      const r = matchRtuResponse(b, unit, pdu);
+      if (Buffer.isBuffer(r)) modbusNote(`frame ok unit ${unit} fc ${pdu[0]} ${b.length}B in ${Date.now() - t0} ms`); else if (r && typeof r === "object") modbusNote(`frame rejected: ${r.fail}`);
+      return r;
+    }, tmo, (got) => {
+      const m = got.length === 0 ? `timeout: no reply within ${tmo} ms` : `short reply: got ${got.length} of ${total ?? "?"} bytes within ${tmo} ms`; modbusNote(m); return m;
+    });
   }
 }
 class MbapTransport extends Exchange implements ModbusTransport {

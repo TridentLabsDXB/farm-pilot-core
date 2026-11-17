@@ -16,7 +16,7 @@ export interface PortRow {
 }
 export interface DeviceRow { id: number; kind: DeviceKind; model: string; port_id: number; modbus_address: number; poll_interval_s: number; enabled: boolean; }
 
-export const PORT_DEFAULTS = { baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1000, retries: 2, turnaround_ms: 50 } as const;
+export const PORT_DEFAULTS = { baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1500, retries: 2, turnaround_ms: 50 } as const;
 
 const intIn = (v: unknown, lo: number, hi: number) => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
 const HOST = /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;

@@ -39,7 +39,9 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
     // The link settings now live in the RS-485 Ports page (database). This is the read-only summary; without a manager (tests) the old environment values are shown.
     const link = ports ? ports.gatewayLink() : config.gwTransport === "off" ? null : { transport: config.gwTransport, host: config.gwHost, port: config.gwPort, serialPath: config.gwSerialPath, baud: config.gwBaud, parity: config.gwParity, dataBits: 8, stopBits: 1,
       address: config.gwAddress || reg.map.default_gateway_address, timeoutMs: config.gwTimeoutMs, retries: config.gwRetries };
-    return { enabled: svc.enabled, online: svc.online, lastOk: svc.lastOk, lastError: svc.lastError, link, model: reg.map.gateway_model, manual: reg.map.manual_version, mapVersion: reg.map.map_version, info: svc.info,
+    return { enabled: svc.enabled, online: svc.online, lastOk: svc.lastOk, lastError: svc.lastError, link, model: reg.map.gateway_model, manual: reg.map.manual_version, mapVersion: reg.map.map_version,
+      // 2026-11-17 -- the system registers are only read after a poll succeeds, so while the gateway is offline info.address was empty and the card showed "--" although the LINK card showed 7: fall back to the address CORE is configured to use.
+      info: { ...svc.info, address: svc.info.address ?? (link as { address?: number } | null)?.address ?? reg.map.default_gateway_address },
       types: typesInfo(), unsent: pend, pending: db.prepare("SELECT type,serial,slot FROM pending_removals").all(), lastSync: svc.lastSync(), unassigned: svc.unassigned(), syncing: svc.syncing, settings: reg.settings() };
   });
   app.put("/api/gateway/settings", { preHandler: admin }, async (req) => guard(() => { reg.saveSettings(A(req), req.body); return { ok: true }; }));

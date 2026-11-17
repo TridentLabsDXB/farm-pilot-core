@@ -8,3 +8,5 @@ export const modbusTraceOn = () => process.env.LOG_MODBUS === "1";
 export const hex = (b: Buffer) => [...b].map((x) => x.toString(16).padStart(2, "0")).join(" ");
 /** dir: "TX" (request sent) or "RX" (bytes received). */
 export function modbusTrace(dir: "TX" | "RX", path: string, b: Buffer) { if (modbusTraceOn()) console.log(`${stamp()} INFO modbus ${dir} ${path} ${b.length}B ${hex(b)}`); }
+/** One decision line (frame accepted / rejected / timeout) next to the hex lines; only with LOG_MODBUS=1. */
+export function modbusNote(msg: string) { if (modbusTraceOn()) console.log(`${stamp()} INFO modbus ${msg}`); }

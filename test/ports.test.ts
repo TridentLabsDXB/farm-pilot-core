@@ -12,7 +12,7 @@ import { PortStore } from "../src/ports/store.js"; import { PortManager } from "
 import { mergePort, validateAssignment, validateDevice, validatePort, validatePorts, type PortRow } from "../src/ports/validate.js";
 
 const map = loadRegMap("config/gateway-thingsend.yaml"); const A = { username: "admin", role: "admin" }; const closers: (() => void)[] = []; after(() => closers.forEach((c) => c()));
-const base: PortRow = { id: 1, label: "Port 1", enabled: true, transport: "serial", device_path: "/dev/ttyUSB0", tcp_host: "", tcp_port: 502, tcp_framing: "rtu", baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1000, retries: 2, turnaround_ms: 50 };
+const base: PortRow = { id: 1, label: "Port 1", enabled: true, transport: "serial", device_path: "/dev/ttyUSB0", tcp_host: "", tcp_port: 502, tcp_framing: "rtu", baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1500, retries: 2, turnaround_ms: 50 };
 const env = { transport: "tcp" as const, host: "127.0.0.1", port: 5020, serialPath: "/dev/ttyUSB0", baud: 9600, parity: "none" as const, address: 0, timeoutMs: 1500, retries: 2 };
 const listen = (s: Server) => new Promise<number>((r) => s.once("listening", () => r((s.address() as AddressInfo).port)));
 const vPortL = (p: PortRow) => validatePort(p, "linux"), vPortsL = (p: PortRow[]) => validatePorts(p, "linux");   // these tests are about Linux /dev paths; the Windows COM rules are tested at the bottom of this file
@@ -127,7 +127,7 @@ test("API: Operator gets 403 on every ports/devices route, Admin works, change i
   const call = async (c: string, m: string, u: string, body?: unknown) => { const r = await fetch(`http://127.0.0.1:${port}${u}`, { method: m, headers: { cookie: c, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, json: await r.json().catch(() => null) as any }; };
   const mine = routes.filter((r) => /^\/api\/(ports|devices)/.test(r.url) && r.method !== "HEAD"); assert.ok(mine.length >= 8, "all ports routes registered");
   for (const r of mine) assert.equal((await call(op, r.method, r.url.replace(":id", "1"), r.method === "PUT" || r.method === "POST" ? {} : undefined)).status, 403, `${r.method} ${r.url} must refuse an Operator`);
-  const list = await call(admin, "GET", "/api/ports"); assert.equal(list.status, 200); assert.equal(list.json.ports.length, 2); assert.equal(list.json.devices.length, 2); assert.deepEqual(list.json.defaults, { baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1000, retries: 2, turnaround_ms: 50 });
+  const list = await call(admin, "GET", "/api/ports"); assert.equal(list.status, 200); assert.equal(list.json.ports.length, 2); assert.equal(list.json.devices.length, 2); assert.deepEqual(list.json.defaults, { baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1500, retries: 2, turnaround_ms: 50 });
   assert.equal((await call(admin, "GET", "/api/ports/available")).status, 200);
   const bad = await call(admin, "PUT", "/api/ports/1", { baud: 7 }); assert.equal(bad.status, 400); assert.match(bad.json.error, /baud/);
   const put = await call(admin, "PUT", "/api/ports/2", { label: "Port 2 - WN90LP" }); assert.equal(put.status, 200); assert.equal(store.port(2)!.label, "Port 2 - WN90LP");

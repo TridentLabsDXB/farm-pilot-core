@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS serial_ports (
   id INTEGER PRIMARY KEY, label TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, transport TEXT NOT NULL DEFAULT 'serial' CHECK (transport IN ('serial','tcp')),
   device_path TEXT NOT NULL DEFAULT '', tcp_host TEXT NOT NULL DEFAULT '', tcp_port INTEGER NOT NULL DEFAULT 502, tcp_framing TEXT NOT NULL DEFAULT 'rtu' CHECK (tcp_framing IN ('rtu','mbap')),
   baud INTEGER NOT NULL DEFAULT 9600, data_bits INTEGER NOT NULL DEFAULT 8, parity TEXT NOT NULL DEFAULT 'none', stop_bits INTEGER NOT NULL DEFAULT 1,
-  timeout_ms INTEGER NOT NULL DEFAULT 1000, retries INTEGER NOT NULL DEFAULT 2, turnaround_ms INTEGER NOT NULL DEFAULT 50,
+  timeout_ms INTEGER NOT NULL DEFAULT 1500, retries INTEGER NOT NULL DEFAULT 2, turnaround_ms INTEGER NOT NULL DEFAULT 50,
   last_good TEXT,                       -- JSON of the last settings that answered, used by REVERT
   updated_at INTEGER, updated_by TEXT);
 CREATE TABLE IF NOT EXISTS bus_devices (
@@ -60,7 +60,7 @@ export class PortStore {
     const off = env.transport === "off", serial = env.transport === "rtu-serial";
     const p1: PortRow = { id: 1, label: "Port 1 - LoRa gateway", enabled: !off, transport: serial ? "serial" : "tcp", device_path: serial ? env.serialPath : "", tcp_host: serial ? "" : env.host, tcp_port: serial ? 502 : env.port,
       tcp_framing: env.transport === "tcp" ? "mbap" : "rtu", baud: env.baud, data_bits: 8, parity: env.parity, stop_bits: 1, timeout_ms: env.timeoutMs, retries: env.retries, turnaround_ms: PORT_DEFAULTS.turnaround_ms };
-    const p2: PortRow = { id: 2, label: "Port 2 - Weather station", enabled: false, transport: "serial", device_path: "", tcp_host: "", tcp_port: 502, tcp_framing: "rtu", baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1000, retries: 2, turnaround_ms: 50 };
+    const p2: PortRow = { id: 2, label: "Port 2 - Weather station", enabled: false, transport: "serial", device_path: "", tcp_host: "", tcp_port: 502, tcp_framing: "rtu", baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1500, retries: 2, turnaround_ms: 50 };
     this.db.transaction(() => {
       for (const p of [p1, p2]) { this.insertPort(p); this.savePort(p, "migration"); this.setLastGood(p.id, p); }
       const ins = this.db.prepare("INSERT INTO bus_devices(kind,model,port_id,modbus_address,poll_interval_s,enabled) VALUES(?,?,?,?,?,?)");

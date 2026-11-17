@@ -5,7 +5,7 @@ import { test } from "node:test"; import assert from "node:assert/strict"; impor
 // @ts-ignore plain .mjs without types
 import { parseEnvFile, classifyDrive, dataDriveKind, portFree, runChecks, render } from "../deploy/windows/check.mjs";
 // @ts-ignore plain .mjs without types
-import { upgrade, rollback, backupDb } from "../deploy/windows/upgrade.mjs";
+import { upgrade, rollback, backupDb, renameRetry } from "../deploy/windows/upgrade.mjs";
 const require = createRequire(import.meta.url); const Database = require("better-sqlite3"); const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 
 test("check: core.env parsing, drive classification (removable, USB, network, fixed, unknown), UNC refusal, PowerShell failure is 'unknown' not a crash", () => {
@@ -81,4 +81,24 @@ test("bundle scripts: top folder FarmPilot-Core\\app, no leftover FarmPilotCore 
 test("README-LAB.txt: numbered first-run checklist with every step asked for, stop / data / logs / sleep, upgrade and rollback", () => {
   const t = readFileSync("deploy/windows/README-LAB.txt", "utf8"); assert.equal((t.match(/^ \[ \] \d+\./gm) ?? []).length, 12); assert.match(t, /^ \[ \] 4a\. Serial check without CORE/m); assert.match(t, /close every other program using the COM port/); assert.match(t, /serial-probe\.cmd COM11/); assert.match(t, /LOG_MODBUS=1/);
   for (const s of ["Unblock and unzip", "check.cmd", "start-core.cmd", "http://127.0.0.1:4100", "First login", "RS-485 PORTS", "TEST PORT", "Replug test", "COM10+ test", "Ctrl+C", "Sleep = Never", "initial-admin-password", "upgrade.cmd /rollback", "C:\\FarmPilot-Core\\logs\\core.log", "BOTH \"Private networks\" AND \"Public networks\"", "ipconfig", "192.168.137.1", "http://<tablet IP>:4100"]) assert.ok(t.includes(s), s);
+});
+
+// 2026-11-17 -- lab: upgrade.cmd looked for node.exe next to itself, but it is in app\\node\\. The .cmd now uses app\\node\\node.exe; the .mjs below is run for real (child process, real tar, real database copy)
+// the way the .cmd runs it. The database copy must happen in a CHILD process: a better-sqlite3 loaded into the upgrader would keep a native .node file in app\\node_modules locked and Windows would refuse to rename app.
+test("upgrade.mjs END TO END as a real process (what upgrade.cmd runs): backup in a child, rename, rollback; the upgrader process itself never loads better-sqlite3", { skip: process.platform === "win32" && "uses a shell script as node.exe" }, async () => {
+  const { execFileSync } = await import("node:child_process"); const { symlinkSync, chmodSync } = await import("node:fs");
+  const fake = (app: string, build: string) => { mkApp(app, "0.1.0", build); writeFileSync(join(app, "check.mjs"), ""); writeFileSync(join(app, "node", "node.exe"), "#!/bin/sh\nexit 0\n"); chmodSync(join(app, "node", "node.exe"), 0o755); symlinkSync(join(process.cwd(), "node_modules"), join(app, "node_modules")); };
+  const base = tmp("fp-e2e-"); fake(join(base, "app"), "aaaaaaa"); mkdirSync(join(base, "data"), { recursive: true }); const d = new Database(join(base, "data", "core.db")); d.exec("create table t(a); insert into t values (1),(2),(3)"); d.close();
+  const src = tmp("fp-e2e-zip-"); fake(join(src, "FarmPilot-Core", "app"), "bbbbbbb"); const tarball = join(src, "bundle.tar"); execFileSync("tar", ["-cf", tarball, "-C", src, "FarmPilot-Core"]);
+  const run = (...a: string[]) => execFileSync(process.execPath, [join(process.cwd(), "deploy/windows/upgrade.mjs"), join(base, "app"), ...a], { encoding: "utf8", cwd: tmp("fp-run-"), env: { ...process.env, PORT: "1" } });
+  const out = run(tarball); assert.match(out, /upgraded 0\.1\.0 \(aaaaaaa\) -> 0\.1\.0 \(bbbbbbb\)/); assert.equal(readFileSync(join(base, "app", "dist", "BUILD"), "utf8").trim(), "bbbbbbb"); assert.equal(readFileSync(join(base, "app.prev", "dist", "BUILD"), "utf8").trim(), "aaaaaaa");
+  const li = JSON.parse(readFileSync(join(base, "backups", "last-upgrade.json"), "utf8")); assert.equal(rows(li.db_backup), 3, "database copy made and checked");
+  const rb = run("/rollback"); assert.match(rb, /rolled back to 0\.1\.0 \(aaaaaaa\)/); assert.equal(readFileSync(join(base, "app", "dist", "BUILD"), "utf8").trim(), "aaaaaaa"); assert.equal(rows(join(base, "data", "core.db")), 3);
+  assert.doesNotMatch(readFileSync("deploy/windows/upgrade.mjs", "utf8").split("async function main")[1].split("try {")[0], /require\("better-sqlite3"\)\s*[,}]/, "the main process must not load the native module");
+});
+test("renameRetry: a folder that cannot be renamed gives a plain-language error (close windows inside it) after the retries", { skip: process.platform === "win32" && "unused" }, () => {
+  assert.throws(() => renameRetry(join(tmp("fp-rn-"), "nope"), join(tmp("fp-rn-"), "x"), 2), /Close every window.*inside/);
+});
+test("upgrade.cmd: uses app\\node\\node.exe (not a node.exe next to itself), runs from a copy in %TEMP%, tells the user which node was missing", () => {
+  const c = readFileSync("deploy/windows/upgrade.cmd", "utf8"); assert.match(c, /%APP%\\node\\node\.exe/); assert.doesNotMatch(c, /"%APP%\\node\.exe"/); assert.match(c, /copy \/y "%APP%\\node\\node\.exe" "%RUN%\\node\.exe"/);
 });

@@ -1,6 +1,8 @@
 // Modbus framing: PDU builders/parsers, RTU (CRC16) and MBAP (TCP) wrappers, and stream length detection for RTU.
 export class ModbusException extends Error { constructor(public fc: number, public code: number) { super(`modbus exception ${code} on fc ${fc}`); this.name = "ModbusException"; } }
 export class ModbusTimeout extends Error { constructor(m = "modbus timeout") { super(m); this.name = "ModbusTimeout"; } }
+/** A complete reply arrived but is unusable (bad CRC, wrong byte count). A ModbusTimeout subclass on purpose: callers that retry or report "no valid answer" treat it the same, TEST PORT reads it as CRC ERROR. */
+export class ModbusBadFrame extends ModbusTimeout { constructor(m: string) { super(m); this.name = "ModbusBadFrame"; } }
 export const MAX_READ_REGS = 125;     // Modbus limit for FC03/FC04
 export const MAX_WRITE_REGS = 123;    // FC16
 
@@ -46,3 +48,8 @@ export function rtuFrameLength(b: Buffer, role: "req" | "res"): number {
 }
 export const mbapWrap = (tid: number, unit: number, pdu: Buffer) => { const b = Buffer.alloc(7 + pdu.length); b.writeUInt16BE(tid & 0xffff, 0); b.writeUInt16BE(0, 2); b.writeUInt16BE(pdu.length + 1, 4); b[6] = unit; pdu.copy(b, 7); return b; };
 export function mbapLength(b: Buffer): number { return b.length < 6 ? 0 : 6 + b.readUInt16BE(4); }
+
+/** Total RTU response length (unit + pdu + crc) for a request PDU, when it is known up front: FC03/04 = 5 + 2*count, FC06/16 = 8. null = unknown (other function codes). Exception replies are always 5. */
+export function rtuExpectedResponse(req: Buffer): number | null {
+  const fc = req[0]; if (fc === 3 || fc === 4) return 5 + 2 * req.readUInt16BE(3); if (fc === 6 || fc === 16) return 8; return null;
+}
