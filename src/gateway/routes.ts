@@ -33,6 +33,9 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   app.get("/api/gateway/status", async () => ({ enabled: svc.enabled, online: svc.online, lastOk: svc.lastOk, model: reg.map.gateway_model }));
 
   // ---- gateway ----
+  // 2026-11-17: read-only section reads (Admin only, like every route here that reveals setup). A failed read is a normal 200 answer with ok:false and the real reason: it never changes the gateway state.
+  app.post<{ Params: { section: string } }>("/api/gateway/read-section/:section", { preHandler: admin }, async (req) => svc.readSection(A(req), req.params.section));
+  app.post<{ Params: { section: string } }>("/api/gateway/import-section/:section", { preHandler: admin }, async (req) => { const r = await svc.importSection(A(req), req.params.section); push(); return r; });
   app.get("/api/gateway", { preHandler: admin }, async () => {
     const pend = (db.prepare("SELECT COUNT(*) c FROM sensors WHERE replaced_by IS NULL AND (sent_slot IS NULL OR sent_slot IS NOT slot OR sent_interval IS NOT reporting_interval)").get() as { c: number }).c
       + (db.prepare("SELECT COUNT(*) c FROM pending_removals").get() as { c: number }).c;

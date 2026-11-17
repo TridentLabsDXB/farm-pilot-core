@@ -41,6 +41,8 @@ export class PortQueue {
         if (isEx) throw e;                                                           // a device exception is an answer, never retried
       }
     }
+    // 2026-11-17: say WHICH request failed (function, address, count) next to the real reason, e.g. "short reply: got 7 of 11 bytes within 1500 ms (FC04 addr 0x0000 count 1)".
+    if (last instanceof Error && !last.message.includes(" (FC")) last.message += ` (FC${String(j.pdu[0]).padStart(2, "0")} addr 0x${j.pdu.readUInt16BE(1).toString(16).padStart(4, "0")} count ${j.pdu.readUInt16BE(3)})`;
     throw last;
   }
 }

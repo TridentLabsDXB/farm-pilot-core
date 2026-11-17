@@ -20,7 +20,7 @@ async function rig(framing: "mbap" | "rtu") {
 for (const framing of ["mbap", "rtu"] as const) {
   test(`[${framing}] system registers, write groups, read back config, data decode`, async () => {
     const { sim, drv } = await rig(framing); const t0 = Date.now();
-    assert.deepEqual(await drv.readSystem(), { address: 7, groupAddress: 300, version: 0x200 });
+    assert.deepEqual(await drv.readSystem(), { address: 7, groupAddress: 300, version: 0x200, problems: [] });
     await drv.writeGroup("th", 1, { serial: "112600310", interval: 10 }); await drv.writeGroup("th", 3, { serial: "112600311", interval: 5 });
     const cfg = await drv.readConfig("th");
     assert.equal(cfg.length, 30); assert.equal(cfg[0].slot, 1); assert.equal(cfg[29].slot, 30); assert.deepEqual([cfg[0].serial, cfg[0].interval, cfg[1].serial, cfg[2].serial, cfg[2].interval], ["112600310", 10, null, "112600311", 5]);
@@ -41,7 +41,8 @@ test("exceptions: bad address, delete-all, reject injection, silent gateway time
   await assert.rejects(drv.writeGroup("th", 1, { serial: "112600312", interval: 4 }), /outside/);
   await assert.rejects(drv.writeGroup("th", 0, { serial: "112600312", interval: 10 }), /slot out of range/); await assert.rejects(drv.writeGroup("th", 31, { serial: "112600312", interval: 10 }), /slot out of range/);
   for (const a of [0, 123, 160, 255]) await assert.rejects(drv.setAddress(a), /never 123 or 160/);
-  sim.silent = true; await assert.rejects(drv.readSystem(), /timeout/);
+  // 2026-11-17: the system registers only fill the info card and never decide ONLINE, so a silent gateway is reported in `problems` (real reason + request), not thrown. The config / data poll then fails and decides OFFLINE.
+  sim.silent = true; { const r = await drv.readSystem(); assert.equal(r.address, undefined); assert.match(r.problems[0], /timeout.*\(FC04 addr 0x0000 count 1\)/); assert.match(r.problems[2], /skipped after 2 failed reads/); await assert.rejects(drv.readConfig("th"), /timeout/); }
 });
 test("queue: a write queued behind polls runs before the remaining polls", async () => {
   const { drv, master } = await rig("mbap"); const order: string[] = [];

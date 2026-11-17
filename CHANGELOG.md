@@ -5,6 +5,7 @@ Shown on the About page (RELEASE NOTES). Plain text, newest first. No network is
 ## 0.1.0 (in preparation)
 
 ### Added
+- Sensors Gateway (Admin): READ GATEWAY T/H SECTION and READ GATEWAY SOIL SECTION (read-only) compare the slots in the gateway with CORE; IMPORT INTO CORE adds the sensors only the gateway holds. Audited as gateway.read_section. Soil import comes with Milestone 2b.
 - About page for every role: product identity, version and build, licence summary with usage, and (Admin) details of this computer.
 - Licensing: a built-in FREE licence (1 gateway, 10 sensors in total). A licence file bound to the box's Device ID lifts the limits. Limits only block ADDING sensors or gateways; monitoring, alarms and pump commands never stop because of a licence.
 - Support tools for Admin: copy diagnostics and a support bundle.
@@ -15,6 +16,9 @@ Shown on the About page (RELEASE NOTES). Plain text, newest first. No network is
 - Sidebar navigation (drawer on tablet, bottom navigation on phone) and a new login page.
 
 - MQTT Payload page (Data sources): connect CORE to an external MQTT broker as a client, subscribe to topics, map JSON fields to measurements, review new devices and the last 20 messages. Admin edits, Operators can read it. Starts disabled. The payload format is a placeholder until the real one is decided.
+
+### Fixed
+- Sensors Gateway: the gateway's system registers (address, PID, version) are read one at a time (count 1); the real gateway answers one register per read, so the old 3-register read gave "short reply: got 7 of 11 bytes" and OFFLINE. The version is optional, the system registers only fill the GATEWAY card, and the gateway is ONLINE when the sensor poll works. A failed read names the request (function, address, count).
 
 ### Changed
 - The database file now defaults to core.db inside the data folder (DATA_DIR); DB_PATH still overrides it. The server prints the database path it opened as the first log line.

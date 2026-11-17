@@ -5,16 +5,21 @@ import { ModbusException } from "../drivers/modbus/frames.js";
 import { GatewayDriver, type Group } from "../drivers/modbus/driver.js";
 import type { Ingest } from "../ingest.js";
 import { applyCal, FingerprintDetector, planSync, pollPeriodMs, type StalenessDetector, type SyncPlan } from "./logic.js";
+import { ModbusTimeout } from "../drivers/modbus/frames.js";
 import { HttpError, topicFor, type Actor, type Registry, type SensorRow } from "./registry.js";
 
 export interface SyncItem { serial: string; slot: number; action: "add" | "interval" | "move" | "replace" | "remove" | "clear"; status: "confirmed" | "failed"; reason?: string; interval?: number; }
+export interface SectionSlot { slot: number; serial: string | null; interval: number | null; control: number | null; state: "CONFIGURED" | "EMPTY"; match: "in_core" | "only_gateway" | "slot_mismatch" | null; coreSlot: number | null; }
+export interface SectionRead { section: string; label: string; ok: boolean; at: number; tookMs: number; address: number; count: number; bytes: number; hex: string; used: number; total: number; slots: SectionSlot[];
+  onlyInCore: { serial: string; slot: number | null; label: string }[]; importable: boolean; importNote: string | null; error: string | null; }
+const EXC: Record<number, string> = { 1: "illegal function", 2: "illegal data address", 3: "illegal data value", 4: "device failure", 6: "device busy" };
 export interface SyncResult { type: string; ok: boolean; items: SyncItem[]; at: number; }
 const reasonOf = (e: unknown) => (e instanceof ModbusException ? "write rejected" : /timeout/i.test(String((e as Error)?.message)) ? "timeout" : "timeout");
 
 export class GatewayService extends EventEmitter {
   online = false; failCycles = 0; lastOk: number | null = null; lastError: string | null = null; info: { address?: number; groupAddress?: number; version?: number } = {};
   paused = false; syncing = false; lastConfig: Record<string, Group[]> = {};
-  private cycle: Promise<void> | null = null; private timer?: NodeJS.Timeout; private n = 0; private stopped = false; private started = false; private needFull = true; private obs = new Map<string, number[]>();
+  private cycle: Promise<void> | null = null; private timer?: NodeJS.Timeout; private n = 0; private stopped = false; private started = false; private needFull = true; private obs = new Map<string, number[]>(); private sysWarned = new Set<string>();
   detector: StalenessDetector;
   constructor(private db: Db, private reg: Registry, private ingest: Ingest, public drv: GatewayDriver | null) {
     super(); this.detector = new FingerprintDetector(() => reg.settings().staleMultiplier); this.persist();
@@ -62,7 +67,9 @@ export class GatewayService extends EventEmitter {
 
   private async pollOnce(now = Date.now()) {
     const drv = this.drv!; const first = this.needFull || this.n++ % 10 === 0;
-    if (first) { const s = await drv.readSystem(); this.info = { address: s.address, groupAddress: s.groupAddress, version: s.version }; for (const t of Object.values(drv.map.types)) if (t.enabled) { this.lastConfig[t.key] = await drv.readConfig(t.key); this.reconcile(t.key); } this.needFull = false; }
+    if (first) { const s = await drv.readSystem(); this.info = { address: s.address ?? this.info.address, groupAddress: s.groupAddress ?? this.info.groupAddress, version: s.version ?? this.info.version };
+      for (const m of s.problems) if (!this.sysWarned.has(m)) { this.sysWarned.add(m); console.warn(`gateway system register: ${m}`); }          // 2026-11-17: info card only, never decides ONLINE (the config / data poll does)
+      for (const t of Object.values(drv.map.types)) if (t.enabled) { this.lastConfig[t.key] = await drv.readConfig(t.key); this.reconcile(t.key); } this.needFull = false; }
     const cals = this.reg.activeCals(); const all = this.reg.list();
     for (const t of Object.values(drv.map.types)) {
       if (!t.enabled) continue; const sensors = all.filter((s) => s.type === t.key && s.sent_slot !== null); if (!sensors.length) continue;
@@ -152,6 +159,57 @@ export class GatewayService extends EventEmitter {
     return this.reg.list().filter((s) => s.type === type && (s.sent_slot === null || s.sent_interval !== s.reporting_interval || s.sent_slot !== s.slot)).map((s) => ({ serial: s.serial, slot: s.slot ?? -1, action: "add" as const, status: "failed" as const }));
   }
   lastSync(): SyncResult | null { try { return JSON.parse(getSetting(this.db, "gw.last_sync", "null")); } catch { return null; } }
+
+  // ---------------- Read a config section (read-only) ----------------
+  /** 2026-11-17: "READ GATEWAY T/H SECTION" / "READ GATEWAY SOIL SECTION". One FC04 read of a type's config groups (T/H 0x0100 x120, soil 0x0600 x40) through the normal request queue
+   *  (priority "poll": polling is neither paused nor stopped, the queue runs one request at a time and a write always jumps ahead). Refused while a write job (sync, set address, delete all) runs.
+   *  Strictly read-only: it never writes to the gateway, never touches lastConfig / reconcile / online / failCycles, so an unverified section (soil) that errors or times out cannot take the gateway OFFLINE.
+   *  The result says what the gateway holds and how that compares with CORE; IMPORT INTO CORE (importSection) is a separate, explicit step. */
+  async readSection(a: Actor, section: string): Promise<SectionRead> {
+    const t = this.reg.map.types[section]; if (!t) throw new HttpError(400, "unknown section");
+    if (!this.drv) throw new HttpError(409, "no gateway configured");
+    if (this.syncing) throw new HttpError(409, "a write to the gateway is running; try again when it has finished");
+    const label = section === "th" ? "T/H" : t.label, drv = this.drv, c = t.config, count = t.groups * c.regs_per_group, started = Date.now();
+    const base: SectionRead = { section, label, ok: false, at: started, tookMs: 0, address: c.base, count, bytes: 0, hex: "", used: 0, total: t.groups, slots: [], onlyInCore: [], importable: false, importNote: null, error: null };
+    let regs: number[] = [];
+    try { regs = await drv.master.read(c.read_fc as 3 | 4, c.base, count, "poll"); }
+    catch (e) {
+      const reason = e instanceof ModbusException ? `gateway answered with exception ${e.code} (${EXC[e.code] ?? "unknown"}) to FC${String(e.fc).padStart(2, "0")} addr 0x${c.base.toString(16).padStart(4, "0")} count ${count}` : String((e as Error)?.message ?? e);
+      const res = { ...base, tookMs: Date.now() - started, error: `Gateway did not answer the ${label} section: ${reason}` };
+      audit(this.db, a.username, a.role, "gateway.read_section", { section, slots_used: null, result: "failed", reason }); return res;
+    }
+    const groups = drv.decodeGroups(section, regs); const core = this.reg.all().filter((s) => s.type === section && !s.replaced_by); const byCore = new Map(core.map((s) => [s.serial, s]));
+    const inGw = new Set(groups.filter((g) => g.serial).map((g) => g.serial!));
+    const slots = groups.map((g): SectionSlot => {
+      if (!g.serial) return { slot: g.slot, serial: null, interval: null, control: null, state: "EMPTY", match: null, coreSlot: null };
+      const s = byCore.get(g.serial); return { slot: g.slot, serial: g.serial, interval: g.interval, control: g.control, state: "CONFIGURED", match: !s ? "only_gateway" : s.slot !== null && s.slot !== g.slot ? "slot_mismatch" : "in_core", coreSlot: s?.slot ?? null };
+    });
+    const hex = regs.map((r) => (r & 0xffff).toString(16).padStart(4, "0")).join("").replace(/(..)/g, "$1 ").trim();
+    const used = slots.filter((x) => x.state === "CONFIGURED").length;
+    const res: SectionRead = { ...base, ok: true, tookMs: Date.now() - started, bytes: regs.length * 2, hex, used, slots, onlyInCore: core.filter((s) => !inGw.has(s.serial)).map((s) => ({ serial: s.serial, slot: s.slot, label: s.label })),
+      importable: t.enabled, importNote: t.enabled ? null : `${label} import comes with Milestone 2b` };
+    audit(this.db, a.username, a.role, "gateway.read_section", { section, slots_used: used, result: "ok", only_in_gateway: slots.filter((x) => x.match === "only_gateway").length, only_in_core: res.onlyInCore.length, slot_mismatch: slots.filter((x) => x.match === "slot_mismatch").length });
+    return res;
+  }
+  /** Add every "Only in gateway" sensor of a freshly read section to CORE with the gateway's slot and interval. Reads the gateway again (no stale client data), writes ONLY to CORE's database, never to the gateway. */
+  async importSection(a: Actor, section: string) {
+    const t = this.reg.map.types[section]; if (!t) throw new HttpError(400, "unknown section"); if (!t.enabled) throw new HttpError(409, `${t.label} import comes with Milestone 2b`);
+    const r = await this.readSection(a, section); if (!r.ok) throw new HttpError(502, r.error ?? "read failed");
+    const pending = r.slots.filter((x) => x.match === "only_gateway" && x.serial), added: string[] = [], skipped: { serial: string; reason: string }[] = [];
+    this.reg.limiter?.checkSensorsAdd(pending.length);
+    this.db.transaction(() => {
+      for (const x of pending) {
+        if (!this.reg.map.serial_pattern.test(x.serial!) || /^0/.test(x.serial!)) { skipped.push({ serial: x.serial!, reason: "serial does not match the sensor serial pattern" }); continue; }
+        const iv = x.interval!, ok = this.reg.intervalOk(section, iv) || (iv >= t.config.interval.min && iv <= t.config.interval.max); const interval = ok ? iv : t.default_interval;
+        const slotTaken = this.db.prepare("SELECT 1 FROM sensors WHERE type=? AND slot=? AND replaced_by IS NULL").get(section, x.slot);
+        this.db.prepare("INSERT INTO sensors(serial,type,label,slot,reporting_interval,created_at,sent_slot,sent_interval) VALUES(?,?,?,?,?,?,?,?)").run(x.serial, section, "", slotTaken ? null : x.slot, interval, Date.now(), x.slot, iv);
+        added.push(x.serial!);
+        audit(this.db, a.username, a.role, "sensor.add", { serial: x.serial, type: section, slot: x.slot, interval, source: "gateway_import" });
+      }
+    })();
+    audit(this.db, a.username, a.role, "gateway.import_section", { section, added: added.length, skipped: skipped.length });
+    this.emit("update"); return { added, skipped };
+  }
 
   /** Explicit Admin tool: FC06 write of the gateway's own Modbus address, sent to its CURRENT address (never broadcast). 0, 255, 123 and 160 are refused by the driver. The runtime then talks to the new address;
    *  after a restart it uses GW_ADDRESS / the map default again, so the env file must be updated too (the UI says so). */

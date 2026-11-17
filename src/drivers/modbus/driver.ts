@@ -10,19 +10,33 @@ export class GatewayDriver {
   constructor(public master: ModbusMaster, public map: RegMap) {}
   type(key: string): TypeDef { const t = this.map.types[key]; if (!t) throw new Error("unknown sensor type " + key); return t; }
 
-  async readSystem() {
-    const [address, groupAddress, version] = await this.master.read(this.map.system.read_fc as 4, this.map.system.address, 3);
-    return { address, groupAddress, version };
+  /** 2026-11-17 (Windows lab, real XZ-DS-MUS2 address 7): the system area answers ONE register per read. A request for count 3 got a 7-byte reply (1 register) and the reader waited for 11 bytes,
+   *  so the gateway went OFFLINE. The manual reads each system register on its own (01 04 0000 0001, 01 04 0001 0001, 01 04 0002 0001) and so do we, never as one multi-register read.
+   *  Each register is optional: a failure is recorded in `problems` (the caller logs it) and the value stays undefined. The system registers only fill the GATEWAY info card;
+   *  they never decide ONLINE (the config / data poll does). After two failures in a row the rest is skipped, so a dead bus does not cost three timeouts here before the real poll reports it. */
+  async readSystem(): Promise<{ address?: number; groupAddress?: number; version?: number; problems: string[] }> {
+    const out: { address?: number; groupAddress?: number; version?: number; problems: string[] } = { problems: [] }; let streak = 0;
+    for (const [key, name, reg] of [["address", "address", this.map.system.address], ["groupAddress", "PID", this.map.system.group_address], ["version", "version", this.map.system.version]] as const) {
+      if (streak >= 2) { out.problems.push(`${name} register 0x${reg.toString(16).padStart(4, "0")} skipped after 2 failed reads`); continue; }
+      try { const [v] = await this.master.read(this.map.system.read_fc as 4, reg, 1); if (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 0xffff) { out[key] = v; streak = 0; } else { out.problems.push(`${name} register returned an unexpected value`); streak++; } }
+      catch (e) { out.problems.push(`${name} register: ${String((e as Error)?.message ?? e)}`); streak++; }
+    }
+    return out;
   }
   /** Read the config groups of a type with the configured read FC (FC04), all groups in one or two requests. */
   async readConfig(typeKey: string, prio: Priority = "poll"): Promise<Group[]> {
     const t = this.type(typeKey), c = t.config;
-    const regs = await this.master.read(c.read_fc as 3 | 4, c.base, t.groups * c.regs_per_group, prio);
-    const groups: Group[] = [];
+    return this.decodeGroups(typeKey, await this.master.read(c.read_fc as 3 | 4, c.base, t.groups * c.regs_per_group, prio));
+  }
+  /** Raw config registers -> groups. Never throws on odd data: a short array reads as empty groups. Empty = every register zero, both serial registers 0xFFFF (never configured, CONFIRMED),
+   *  or a serial of 0 / 0xFFFFFFFF (2026-11-17: such a group is not a sensor, whatever the other registers hold). */
+  decodeGroups(typeKey: string, regs: number[]): Group[] {
+    const t = this.type(typeKey), c = t.config; const groups: Group[] = [];
     for (let slot = 1; slot <= t.groups; slot++) {          // slots are numbered 1..groups; the register address uses slot-1
-      const g = regs.slice((slot - 1) * c.regs_per_group, slot * c.regs_per_group);
-      const empty = groupIsEmpty(g, c, this.map.empty_marker);   // 0xFFFF = never configured (CONFIRMED), zeros = cleared
-      groups.push({ slot, serial: empty ? null : regsToSerial(g[c.serial.reg], g[c.serial.reg + 1], c.serial.word_order), interval: empty ? 0 : g[c.interval.reg], control: empty ? 0 : g[c.control.reg] });
+      const g = Array.from({ length: c.regs_per_group }, (_, i) => regs[(slot - 1) * c.regs_per_group + i] ?? 0);
+      const serial = regsToSerial(g[c.serial.reg], g[c.serial.reg + 1], c.serial.word_order);
+      const empty = groupIsEmpty(g, c, this.map.empty_marker) || serial === "0" || serial === "4294967295";   // 0xFFFF = never configured (CONFIRMED), zeros = cleared
+      groups.push({ slot, serial: empty ? null : serial, interval: empty ? 0 : g[c.interval.reg], control: empty ? 0 : g[c.control.reg] });
     }
     return groups;
   }
