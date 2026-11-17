@@ -4,7 +4,11 @@ Shown on the About page (RELEASE NOTES). Plain text, newest first. No network is
 
 ## 0.1.0 (in preparation)
 
+### Added
+- Sensors Gateway (Admin): READ GATEWAY T/H SECTION and READ GATEWAY SOIL SECTION (read-only) compare the slots in the gateway with CORE; IMPORT INTO CORE adds the sensors only the gateway holds. Audited as gateway.read_section. Soil import comes with Milestone 2b.
+
 ### Fixed
+- Sensors Gateway: the gateway's system registers (address, PID, version) are read one at a time (count 1); the real gateway answers one register per read, so the old 3-register read gave "short reply: got 7 of 11 bytes" and OFFLINE. The version is optional, the system registers only fill the GATEWAY card, and the gateway is ONLINE when the sensor poll works. A failed read names the request (function, address, count).
 - RS-485 serial reader: a reply is read until its full length is known (a 120-register read is 245 bytes), never ended by a pause between bytes, so a USB-RS485 adapter that delivers it in 8 bursts works. Stray bytes are skipped, a frame with a bad CRC is never accepted and is retried at once, and the reason is shown ("bad CRC", "timeout: no reply", "short reply: got N of M bytes"). The gateway goes OFFLINE only after 3 failed poll cycles in a row. The default response timeout is 1500 ms. LOG_MODBUS=1 also logs the decision for every frame.
 - Sensors Gateway: the GATEWAY card shows the configured Modbus address instead of "--" while the gateway has not answered yet.
 - upgrade.cmd: the database copy is made by a separate process (a loaded native module kept the program folder locked on Windows), a folder that cannot be renamed gives a plain explanation, and a zip path starting with / is no longer mistaken for an option.

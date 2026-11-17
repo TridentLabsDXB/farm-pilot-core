@@ -64,6 +64,12 @@ STOP, DATA, LOGS
     Sleep:   disable sleep in Windows power settings for the whole lab (step 2). If the tablet sleeps, readings and alarms stop until it wakes.
     Settings file (optional): C:\FarmPilot-Core\core.env  (see core.env.example). Restart CORE after changing it.
 
+READ FROM THE GATEWAY (Data points > Sensors Gateway, Admin only)
+    READ GATEWAY T/H SECTION and READ GATEWAY SOIL SECTION read the sensor slots the gateway holds (read-only, nothing is written to the gateway) and compare them with CORE:
+    In CORE / Only in gateway / slot mismatch (amber) / Only in CORE. IMPORT INTO CORE adds the "Only in gateway" sensors to CORE only. "Details" shows the raw reply in hex.
+    Soil is not verified on hardware yet: if the gateway does not answer, the page says "Gateway did not answer the soil section: <reason>" and the gateway stays ONLINE.
+    The gateway's system registers (address, PID, version) are read one at a time and only fill the GATEWAY card; the gateway is ONLINE when the sensor poll works.
+
 UPGRADE AND ROLLBACK
     Upgrade:   stop CORE, copy the new farmpilot-core-lab-...zip to the tablet, then in C:\FarmPilot-Core\app run (any cmd window; close Explorer and editors that have the app folder open, and do not leave PowerShell sitting inside app)
                    upgrade.cmd C:\path\to\the-new-zip.zip

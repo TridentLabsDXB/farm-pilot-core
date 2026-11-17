@@ -4,6 +4,7 @@ import { ConfirmModal, SendBar, SyncCards, linkText, useSync } from "./Sync";
 import type { Scada } from "./api";
 import { Chip, Modal, dt, errText } from "./ui";
 import { go } from "./App";
+import { SectionReads } from "./SectionRead";
 
 export default function GatewayPage({ scada, reload }: { scada: Scada | null; reload: () => void }) {
   const S = useSync(scada, reload); const th = S.list?.types.find((t) => t.key === "th");
@@ -21,6 +22,7 @@ export default function GatewayPage({ scada, reload }: { scada: Scada | null; re
     <section className="fp-card"><h3>Send to gateway</h3>
       {th && <div className="fp-field"><span className="fp-cap">T/H sensors: {th.used} of {th.groups} slots in gateway</span><div className="fp-progress" role="progressbar" aria-valuenow={th.used} aria-valuemax={th.groups}><b style={{ width: `${(th.used / th.groups) * 100}%` }} /></div></div>}
       <SendBar s={S} /></section>
+    <SectionReads reload={() => { load(); reload(); }} />
     <div className="fp-two"><div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
     <section className="fp-card"><div className="fp-row fp-spread"><h3>Gateway</h3>{!g.enabled ? <Chip tone="off">NO GATEWAY</Chip> : g.online ? <Chip tone="ok">ONLINE</Chip> : <Chip tone="alarm">OFFLINE</Chip>}</div>
       <ul className="fp-list"><li><span>Model</span><span>{g.model} (manual {g.manual})</span></li><li><span>Modbus address / PID (group address)</span><span>{g.info.address ?? "--"} / {g.info.groupAddress ?? "--"}</span></li><li><span>Polling interval</span><span>{g.settings.pollSec} s</span></li><li><span>Register map version</span><span>{g.mapVersion}</span></li><li><span>Version register</span><span>{g.info.version == null ? "--" : "0x" + g.info.version.toString(16).toUpperCase().padStart(4, "0")}</span></li><li><span>Last successful poll</span><span>{dt(g.lastOk)}</span></li>{g.lastError && <li><span>Last error</span><span>{g.lastError}</span></li>}</ul></section>
