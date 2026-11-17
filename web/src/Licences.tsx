@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { Modal, errText } from "./ui";
 import { copyText } from "./About";
+import { LICENCE_ID_HELP, licenceIdError, nextLicenceId } from "./licenceId";
 import "./licences.css";
 
 // 2026-11-17 -- LICENCE MANAGEMENT, Option B (list left, detail right). ONLINE build only (the route and the menu entry need /api/me online:true) and Admin only; the server answers 404 / 403 as well.
@@ -56,12 +57,14 @@ function DeploymentForm({ initial, tiers, onClose, onSaved, onChangeType }: { in
   </Modal>;
 }
 
-function RecordForm({ d, tiers, onClose, onSaved }: { d: Dep; tiers: Tiers; onClose: () => void; onSaved: (d: Dep) => void }) {
+function RecordForm({ d, tiers, usedIds, onClose, onSaved }: { d: Dep; tiers: Tiers; usedIds: (string | null)[]; onClose: () => void; onSaved: (d: Dep) => void }) {
   const issue = d.type === "FREE", types = ["FREE", "PRO", "FULL", "ENGINEERING"] as ("FREE" | "PRO" | "FULL" | "ENGINEERING")[];
   // Defaults (owner decision 2026-11-18): issued today, valid until one year after it (editable, "no expiry" allowed). Limits are fixed by the type, never typed.
-  const [v, setV] = useState({ type: (issue ? "PRO" : d.type) as "FREE" | "PRO" | "FULL" | "ENGINEERING", licenceId: "", issuedAt: todayYmd(), validUntil: addYear(todayYmd()), untilTouched: false, noExpiry: d.type === "ENGINEERING", note: "" });
+  const [v, setV] = useState({ type: (issue ? "PRO" : d.type) as "FREE" | "PRO" | "FULL" | "ENGINEERING", licenceId: nextLicenceId(todayYmd(), usedIds) ?? "", idTouched: false, issuedAt: todayYmd(), validUntil: addYear(todayYmd()), untilTouched: false, noExpiry: d.type === "ENGINEERING", note: "" });
   const [err, setErr] = useState(""), [busy, setBusy] = useState(false), free = v.type === "FREE", lim = tiers[v.type];
-  const setIssued = (x: string) => setV((o) => ({ ...o, issuedAt: x, validUntil: !o.untilTouched && /^\d{4}-\d{2}-\d{2}$/.test(x) ? addYear(x) : o.validUntil }));
+  const [idErr, setIdErr] = useState<string | null>(null);
+  // The Licence ID follows the issued date (next free number for that day) until the person edits it; typed values are never overwritten.
+  const setIssued = (x: string) => setV((o) => ({ ...o, issuedAt: x, licenceId: o.idTouched ? o.licenceId : nextLicenceId(x, usedIds) ?? o.licenceId, validUntil: !o.untilTouched && /^\d{4}-\d{2}-\d{2}$/.test(x) ? addYear(x) : o.validUntil }));
   async function save() {
     setBusy(true); setErr("");
     try {
@@ -77,7 +80,10 @@ function RecordForm({ d, tiers, onClose, onSaved }: { d: Dep; tiers: Tiers; onCl
     </fieldset>
     {free ? <p className="lm-note">FREE has no licence ID, issue date or expiry. Saving clears them from this deployment and writes a history row.</p> : <>
       <div className="lm-grid2">
-        <F label="Licence ID"><input className="fp-input" placeholder="FPL-YYYYMMDD-NNNN" value={v.licenceId} onChange={(e) => setV({ ...v, licenceId: e.target.value })} /></F>
+        <div className="lm-f"><label htmlFor="lm-lid" className="fp-cap" style={{ display: "block" }}>Licence ID</label>
+          <input id="lm-lid" className="fp-input" placeholder="FPL-YYYYMMDD-NNNN" value={v.licenceId} aria-invalid={idErr ? true : undefined} aria-describedby="lm-lid-help" onChange={(e) => { setV({ ...v, licenceId: e.target.value, idTouched: true }); if (idErr) setIdErr(licenceIdError(e.target.value)); }} onBlur={() => setIdErr(licenceIdError(v.licenceId))} />
+          <div id="lm-lid-help" className="lm-note" style={{ fontSize: 12 }}>{LICENCE_ID_HELP}</div>
+          {idErr && <div className="lm-err" role="alert" style={{ fontSize: 13 }}>{idErr}</div>}</div>
         <F label="Issued"><input className="fp-input" type="date" value={v.issuedAt} onChange={(e) => setIssued(e.target.value)} /></F>
         <F label="Valid until"><input className="fp-input" type="date" disabled={v.noExpiry} value={v.noExpiry ? "" : v.validUntil} onChange={(e) => setV({ ...v, validUntil: e.target.value, untilTouched: true })} /></F>
         <label className="lm-f" style={{ alignSelf: "end", minHeight: 44, display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={v.noExpiry} onChange={(e) => setV({ ...v, noExpiry: e.target.checked })} />NO EXPIRY</label>
@@ -86,7 +92,7 @@ function RecordForm({ d, tiers, onClose, onSaved }: { d: Dep; tiers: Tiers; onCl
     </>}
     <F label="Notes (optional)"><input className="fp-input" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></F>
     {err && <div className="lm-err" role="alert">{err}</div>}
-    <button className="fp-btn primary" disabled={busy || (!free && !v.licenceId.trim())} onClick={save}>{busy ? "SAVING" : free ? "SET TO FREE" : "RECORD"}</button>
+    <button className="fp-btn primary" disabled={busy || (!free && licenceIdError(v.licenceId) !== null)} onClick={save}>{busy ? "SAVING" : free ? "SET TO FREE" : "RECORD"}</button>
   </Modal>;
 }
 
@@ -177,6 +183,6 @@ export default function Licences({ onChange }: { onChange: () => void }) {
     </div>}
     {modal === "add" && tiers && <DeploymentForm tiers={tiers} onClose={() => setModal(null)} onSaved={saved} />}
     {modal === "edit" && sel && tiers && <DeploymentForm initial={sel} tiers={tiers} onClose={() => setModal(null)} onSaved={saved} onChangeType={() => setModal("record")} />}
-    {modal === "record" && sel && tiers && <RecordForm d={sel} tiers={tiers} onClose={() => setModal(null)} onSaved={saved} />}
+    {modal === "record" && sel && tiers && <RecordForm d={sel} tiers={tiers} usedIds={(all ?? []).map((x) => x.licenceId)} onClose={() => setModal(null)} onSaved={saved} />}
   </main>;
 }

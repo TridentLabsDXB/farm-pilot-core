@@ -6,6 +6,7 @@ import { rig } from "./rig.js";
 import { deploymentStatus, usageFlag, termPct, sortByExpiry, effectiveLimits, FREE_LIMITS } from "../src/deployments/calc.js";
 import { FREE_LICENCE } from "../src/licence/free.js";
 import { TIERS } from "../src/deployments/tiers.js";
+import { nextLicenceId, licenceIdError, DEVICE_ID_MSG } from "../web/src/licenceId.js";
 
 const NOW = Date.parse("2026-11-17T10:00:00Z"), D = 86_400_000, iso = (ms: number) => new Date(ms).toISOString().slice(0, 19) + "Z";
 const eod = (daysFromToday: number) => iso(Date.parse("2026-11-17T23:59:59Z") + daysFromToday * D);   // expiry stored as the END of a day, like a signed licence
@@ -154,4 +155,15 @@ test("ENGINEERING: selectable in ISSUE and RENEW, unlimited, no expiry by defaul
   r = await rec({ type: "PRO", licenceId: "FPL-20261118-0033", validUntil: "2027-11-18" }); assert.equal(r.json.deployment.usageFlags.sensors, "over_limit", "RENEW to PRO: bars follow the new type");
   r = await rec({ type: "ENGINEERING", licenceId: "FPL-20261118-0034" }); assert.equal(r.status, 200, "RENEW to ENGINEERING"); assert.equal(r.json.deployment.validUntil, null); assert.equal(r.json.deployment.usageFlags.sensors, "ok");
   assert.equal((await rec({ type: "FREE" })).status, 200);
+});
+
+test("Licence ID prefill: FPL-<issued date>-<next free number for that date>, follows the date, validation text for a Device ID", () => {
+  assert.equal(nextLicenceId("2026-11-18", []), "FPL-20261118-0001"); assert.equal(nextLicenceId("2026-11-18", [null, "FPL-20261117-0005", "FPL-20261118-0001", "FPL-20261118-0007", "junk"]), "FPL-20261118-0008", "highest for THAT date + 1; other dates ignored");
+  assert.equal(nextLicenceId("2026-11-17", ["FPL-20261117-0005", "FPL-20261118-0009"]), "FPL-20261117-0006", "changing the date changes the number"); assert.equal(nextLicenceId("2026-11-19", ["FPL-20261118-0009"]), "FPL-20261119-0001");
+  assert.equal(nextLicenceId("", []), null); assert.equal(nextLicenceId("2026-02-31", []), null); assert.equal(nextLicenceId("2026-11-18", ["FPL-20261118-9999"]), null);
+  assert.equal(licenceIdError("FPL-20261117-0001"), null); assert.match(licenceIdError("")!, /required/); assert.match(licenceIdError("FPL-2026-1")!, /Format FPL-YYYYMMDD-NNNN/);
+  assert.equal(licenceIdError("FP-48F1-40C7-092D"), "That looks like a Device ID. The Device ID goes in Edit deployment; the Licence ID looks like FPL-20261117-0001."); assert.equal(licenceIdError("fp-48f1-40c7-092d"), DEVICE_ID_MSG);
+  const pg = readFileSync("web/src/Licences.tsx", "utf8");
+  assert.match(pg, /nextLicenceId\(todayYmd\(\), usedIds\)/, "prefilled"); assert.match(pg, /o\.idTouched \? o\.licenceId : nextLicenceId\(x, usedIds\)/, "follows the issued date until edited"); assert.match(pg, /onBlur=\{\(\) => setIdErr\(licenceIdError\(v\.licenceId\)\)\}/, "validated on blur");
+  assert.match(pg, /LICENCE_ID_HELP/); assert.match(pg, /role="alert"/); assert.match(pg, /licenceIdError\(v\.licenceId\) !== null/, "RECORD stays disabled for an invalid value");
 });
