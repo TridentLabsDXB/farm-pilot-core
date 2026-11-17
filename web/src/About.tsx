@@ -132,7 +132,7 @@ export default function About({ admin, from }: { admin: boolean; from: string })
   );
 }
 
-/** Phone: the MORE sheet of the 4-item bottom navigation. Admin: the same three groups as the sidebar (SETTINGS, DATA POINTS, SYSTEM) with their badges, then ABOUT for everyone. */
+/** Phone: the MORE sheet of the 4-item bottom navigation. Admin: the same three groups as the sidebar (SETTINGS, DATA SOURCES, SYSTEM) with their badges, then ABOUT for everyone. */
 export function MorePage({ admin, badges }: { admin: boolean; badges: Record<string, Badge> }) {
   const row = (k: string, l: string, to: string, b?: Badge) => <li key={k} style={{ padding: 0 }}><button className="fp-tab" style={{ width: "100%", minHeight: 56, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => go(to)}><span>{l}</span><span style={{ display: "flex", gap: 8, alignItems: "center" }}>{b && <Chip tone={b.tone}>{b.word}</Chip>}<span aria-hidden>›</span></span></button></li>;
   return <main className="fp-page"><h2 style={{ fontFamily: "var(--fp-head)", margin: 0 }}>More</h2>

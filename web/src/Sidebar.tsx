@@ -3,11 +3,11 @@ import { api, type PublicProfile, type Scada } from "./api";
 import { go } from "./App";
 import { Chip, type Tone } from "./ui";
 
-// Menu groups (Admin only), decided 2026-11-17: SETTINGS describes the farm, DATA POINTS says where data comes from, SYSTEM is about the box itself.
+// Menu groups (Admin only), decided 2026-11-17: SETTINGS describes the farm, DATA SOURCES says where data comes from, SYSTEM is about the box itself.
 // Only the grouping in the menu changed; every route (#/settings/<key>) and API path is the same as before.
 export const GROUPS: { title: string; tabs: [string, string][] }[] = [
   { title: "Settings", tabs: [["farm-profile", "FARM PROFILE"], ["farm-structure", "FARM STRUCTURE"]] },
-  { title: "Data points", tabs: [["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["sensors", "SENSORS"]] },
+  { title: "Data sources", tabs: [["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["mqtt-payload", "MQTT PAYLOAD"], ["sensors", "SENSORS"]] },
   { title: "System", tabs: [["users", "USERS"], ["backup", "BACKUP"]] },
 ];
 export const TABS: [string, string][] = GROUPS.flatMap((g) => g.tabs);
@@ -32,7 +32,7 @@ export function useBadges(scada: Scada | null, tab: string | undefined, enabled:
   return badges;
 }
 
-/** Persistent left sidebar: logo and farm name on top, then ALARMS, MONITORING, CONTROL and (Admin) the groups SETTINGS, DATA POINTS and SYSTEM. Panel: always visible. Tablet: drawer. Phone: hidden (bottom nav). */
+/** Persistent left sidebar: logo and farm name on top, then ALARMS, MONITORING, CONTROL and (Admin) the groups SETTINGS, DATA SOURCES and SYSTEM. Panel: always visible. Tablet: drawer. Phone: hidden (bottom nav). */
 export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges }: { version: string; pub: PublicProfile | null; cur: string; tab?: string; admin: boolean; nAlarms: number; badges: Record<string, Badge> }) {
   return (
     <nav className="fp-sb" aria-label="Main">

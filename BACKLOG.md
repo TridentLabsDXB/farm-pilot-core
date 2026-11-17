@@ -13,3 +13,11 @@
 - **Admin screen for the gateway (RTU link) settings.** Serial port, baud, parity, Modbus address, timeout and retries are only shown read-only (Settings > Gateway) and are set through `GW_*` variables in `/etc/farmpilot-core.env`. Installers must not edit env files: add an Admin edit screen (stored in the database, validated, with a "test connection" button, applied without a manual restart) and keep the env values as the defaults.
 - Battery type confirmation also fixes the battery icon bounds and the low-voltage default (README, hardware validation checklist).
 - **Wide layout for the SCADA View.** On very wide screens the zone cards stop at about two thirds of the page width and leave empty space on the right (page max-width 1440 px). Let the grid use the full width, e.g. more columns or a larger max-width above ~1600 px, and review the pump card placement.
+
+## MQTT Payload (raised 2026-11-18)
+- **Real payload format and topic scheme** (owner to supply a sample message): replace the placeholders in `src/mqtt/defaults.ts` (broker, topics, id/ts paths, field rules). Existing databases keep their stored values: change them on the page or reset the `mqtt_*` rows.
+- **Licence counting:** does an MQTT source count as 1 data source / do MQTT devices count against the 10-sensor FREE limit? For now it counts nothing (TODO in `src/mqtt/service.ts`).
+- **Sensors page integration:** ADD AS SENSOR only makes CORE store the device's values; it does not create a Sensors page row (that table is gateway-shaped: serial, slot, interval).
+- Operator read-only view of the page (spec) vs. CORE's Admin-only setup rule: decide.
+- Builds: Online only or all builds (default all).
+

@@ -28,11 +28,13 @@ import { registerLicenceRoutes } from "./licence/routes.js";
 import { registerSupportRoutes } from "./about/support.js";
 import { readBuild } from "./about/build.js";
 import { registerHistoryRoutes } from "./history/routes.js";
+import { MqttSourceService } from "./mqtt/service.js";
+import { registerMqttRoutes } from "./mqtt/routes.js";
 
 const COOKIE = "core_session";
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
-export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null) {
+export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null, mqttSrc: MqttSourceService | null = null) {
   const app = Fastify({ logger: { level: "info" }, trustProxy: config.trustProxy, bodyLimit: 64 * 1024 });
   // Every registered route is recorded, so tests can call ALL of them as an Operator (test/operator-access.test.ts).
   const routes: { method: string; url: string }[] = []; app.addHook("onRoute", (r) => { for (const m of [r.method].flat()) routes.push({ method: String(m), url: r.url }); });
@@ -131,6 +133,8 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof, ports); gw.on("update", () => send({ type: "scada" })); registerHistoryRoutes(app, { db, reg, svc: gw, prof, licence }); }
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
   if (ports) registerPortRoutes(app, ports, admin, () => send({ type: "ports" }));
+  // MQTT Payload source (2026-11-18). index.ts starts it; without one passed in (tests) an idle service is created so the routes still work. It never counts against the licence for now (TODO in mqtt/service.ts).
+  registerMqttRoutes(app, mqttSrc ?? new MqttSourceService(db, ingest), admin);
 
   app.get("/ws", { websocket: true }, (socket, req) => {
     if (!userFromToken(db, req.cookies[COOKIE])) { socket.close(4401, "login required"); return; }

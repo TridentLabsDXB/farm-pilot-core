@@ -1,0 +1,28 @@
+/* MQTT Payload page. All rules scoped under .mq. Uses the shared tokens (tokens.css), so light and dark follow the header toggle. */
+.mq { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.mq h3 { font-family: var(--fp-head); letter-spacing: .08em; margin: 0 0 12px; }
+.mq .mq-num { font-family: var(--fp-mono); }
+.mq-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+.mq-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.mq-lamp { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-family: var(--fp-mono); font-weight: 700; letter-spacing: .1em; color: var(--fp-off); }
+.mq-lamp[data-tone="ok"] { color: var(--fp-ok); } .mq-lamp[data-tone="warn"] { color: var(--fp-warn); } .mq-lamp[data-tone="alarm"] { color: var(--fp-alarm); }
+.mq-shape { width: 14px; height: 14px; flex: none; background: currentColor; }
+.mq-shape[data-shape="circle"] { border-radius: 50%; }
+.mq-shape[data-shape="triangle"] { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.mq-shape[data-shape="square"] { border-radius: 1px; }
+.mq-shape[data-shape="ring"] { background: transparent; border-radius: 50%; box-shadow: inset 0 0 0 2px currentColor; }
+.mq-facts { display: flex; gap: 32px; margin: 0; } .mq-facts dd { margin: 2px 0 0; font-size: 18px; } .mq-facts dt { margin: 0; }
+.mq-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px 24px; align-items: end; margin-bottom: 12px; }
+.mq-form label, .mq-fld { display: flex; flex-direction: column; gap: 6px; font-family: var(--fp-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fp-muted); }
+.mq-lab { font-family: var(--fp-mono); font-size: 12px; letter-spacing: .08em; }
+.mq-form .fp-input { width: 100%; text-transform: none; color: var(--fp-text); }
+.mq-btns { flex-wrap: wrap; margin-top: 8px; }
+.mq-list { list-style: none; margin: 0; padding: 0; } .mq-list li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--fp-border); min-height: 56px; }
+.mq-scroll { overflow-x: auto; } .mq-cell { width: 100%; min-width: 90px; }
+.mq-split { display: flex; flex-wrap: wrap; gap: 24px 48px; margin-top: 16px; }
+.mq-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; padding: 0; }
+.mq-msgs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; } .mq-msgs li { padding: 10px 0; border-top: 1px solid var(--fp-border); min-width: 0; }
+.mq-mh { flex-wrap: wrap; gap: 8px 16px; align-items: center; } .mq-notes { margin: 4px 0 0; text-transform: none; letter-spacing: .02em; }
+.mq-raw { font-family: var(--fp-mono); font-size: 12px; background: var(--fp-inset); border: 1px solid var(--fp-border); border-radius: 6px; padding: 8px; margin: 6px 0 0; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; }
+@media (max-width: 767px) { .mq .fp-btn, .mq .fp-input { min-height: 48px; } .mq-btns .fp-btn { flex: 1 1 140px; } }
+@media (prefers-reduced-motion: reduce) { .mq * { transition: none !important; } }
