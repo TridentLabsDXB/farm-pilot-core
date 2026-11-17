@@ -136,5 +136,5 @@ test("IP list: docker, bridge, veth, virbr, lo, VM and link-local addresses are 
 test("UI polish (source): RELEASED nowrap, chooser text in page font, sidebar compact and pinned ABOUT on short screens, identity card stretches", () => {
   const css = readFileSync("web/src/about.css", "utf8"), core = readFileSync("web/src/core.css", "utf8"), ab = readFileSync("web/src/About.tsx", "utf8");
   assert.match(css, /data-nowrap="1"\] \.ab-val \{ white-space: nowrap/); assert.match(css, /\.ab-chosen \{ font-family: var\(--fp-mono\)/); assert.match(css, /align-items: stretch/); assert.match(ab, /unavailable/);
-  assert.match(core, /\.fp-sb-bottom \{[^}]*position: sticky; bottom: -16px/); assert.match(core, /max-height: 860px\)[\s\S]*\.fp-sb-brand img \{ width: 48px/);
+  assert.match(core, /\.fp-sb-bottom \{[^}]*position: sticky; bottom: -16px/); assert.match(core, /max-height: 860px\)[\s\S]*\.fp-sb \.fp-tab \{ min-height: 38px/);   // 2026-11-18: short screens still compact the MENU, but no longer the logo block (always 104 px, see test/shell-brand.test.ts)
 });

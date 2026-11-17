@@ -37,7 +37,7 @@ test("Online build: Admin has the API, Operator gets 403, no login gets 401; the
   const x = await rig({ online: true, now: () => NOW }); closers.push(() => void x.close());
   assert.equal((await x.call(x.admin, "GET", "/api/licence-deployments")).status, 200);
   assert.equal((await x.call(x.op, "GET", "/api/licence-deployments")).status, 403);
-  for (const [m, u] of [["GET", "/api/licence-deployments/attention"], ["GET", "/api/licence-deployments/1"], ["POST", "/api/licence-deployments"], ["PATCH", "/api/licence-deployments/1"], ["POST", "/api/licence-deployments/1/record"], ["GET", "/api/licence-deployments/1/history"], ["POST", "/api/licence-deployments/1/history"], ["POST", "/api/licence-deployments/1/remove"], ["DELETE", "/api/licence-deployments/1"]])
+  for (const [m, u] of [["GET", "/api/licence-deployments/attention"], ["GET", "/api/licence-deployments/1"], ["POST", "/api/licence-deployments"], ["PATCH", "/api/licence-deployments/1"], ["POST", "/api/licence-deployments/1/record"], ["GET", "/api/licence-deployments/1/history"], ["POST", "/api/licence-deployments/1/history"], ["POST", "/api/licence-deployments/1/remove"], ["DELETE", "/api/licence-deployments/1"], ["POST", "/api/licence-deployments/1/fplic"], ["POST", "/api/licence-deployments/1/clear-expiry"]])
     assert.equal((await x.call(x.op, m, u, m === "GET" ? undefined : {})).status, 403, `Operator ${m} ${u}`);
   assert.equal((await x.call(null, "GET", "/api/licence-deployments")).status, 401);
   assert.equal((await x.call(x.admin, "GET", "/api/me")).json.online, true);
@@ -194,7 +194,7 @@ test("an existing licence_history (first builds) is rebuilt once so REMOVED is a
     CREATE TABLE licence_history (id INTEGER PRIMARY KEY, deployment_id INTEGER NOT NULL REFERENCES licence_deployments(id) ON DELETE CASCADE, ts INTEGER NOT NULL, event TEXT NOT NULL CHECK (event IN ('ISSUED','INSTALLED','RENEWED','NOTE')), note TEXT, username TEXT NOT NULL);
     INSERT INTO licence_deployments(id,device_id,name,limits,usage,created_at) VALUES (1,'${ID(1)}','Old','{}','{}',1); INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES (1,1,'NOTE','kept','admin');`);
   const app = Fastify(); registerDeploymentRoutes(app, db, async () => {}); await app.ready();
-  assert.equal((db.prepare("SELECT COUNT(*) c FROM licence_history").get() as any).c, 1); db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES (1,2,'REMOVED','back to FREE','admin')").run();
+  assert.equal((db.prepare("SELECT COUNT(*) c FROM licence_history").get() as any).c, 1); db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES (1,2,'REMOVED','back to FREE','admin')").run(); db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES (1,3,'DOWNLOADED','.FPLIC','admin')").run();
   assert.equal(db.pragma("foreign_key_check").length, 0); await app.close();
 });
 test("source: REMOVE LICENCE only when not FREE with the exact confirm text; DELETE DEPLOYMENT in a danger zone of EDIT, typed Device ID", () => {

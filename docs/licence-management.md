@@ -8,7 +8,7 @@ When the flag is set the server creates two tables at start-up (`licence_deploym
 
 ## Rules
 - Admin only: Operator gets 403 on every route, no menu entry. Every change is written to `audit_log` (`licence_deployment.create | update | issued | renewed | history`).
-- Record only: deployments, usage and last seen are typed in; RENEW / ISSUE record a licence and a history row, nothing is signed; DOWNLOAD .FPLIC is disabled; there is no REVOKE.
+- Deployments, usage and last seen are typed in; RENEW / ISSUE record a licence and a history row and sign nothing; there is no REVOKE. DOWNLOAD .FPLIC signs (below).
 - Status is computed from `valid_until` against the server clock (`src/deployments/calc.ts`), never stored. The licence is valid while now < valid_until (a date-only input is stored as 23:59:59Z that day, like a signed file). EXPIRING = 30 calendar days or less (UTC), including 0 (expires today).
 - An EXPIRED box is judged against the FREE limits (`src/licence/free.ts`), as the box itself does, so 14 sensors on an expired box is OVER LIMIT against 10.
 - Tiers (owner decision 2026-11-18, `core-licence-tiers.md`; one constant, `src/deployments/tiers.ts`, sent to the page by the list API): FREE 1 data source / 10 sensors, PRO 5 / 50, FULL 25 / 250, ENGINEERING unlimited. DATA SOURCES is the UI word for the existing `gateways` limit; no column or JSON key was renamed. The type fixes the limits: the issue / renew dialog fills them from the table and the API refuses limits that do not match the tier (a limit left out is filled in).
@@ -23,3 +23,14 @@ The mockups and the spec say "FULL", and show gateways and sensors only; the cod
 
 ## Open questions
 Unchanged from the spec (how boxes report to the VPS, whether this page ever signs, re-issue on a replaced box, REVOKE, paid types).
+
+## DOWNLOAD .FPLIC (2026-11-18, `core-licence-file-download.md`)
+Signed on the Online server with the **dev-1 key only** (`src/deployments/signing.ts`). The production key is never on this server.
+- **Setting:** `FP_LICENCE_SIGNING_KEY_FILE` = path of the dev-1 private key (PEM, Ed25519). Unset or unreadable: the button is off with "No signing key on this server".
+- **Placement on the bench:** outside the repo, readable by the service user only. Suggested `/etc/farmpilot-core-signing/dev-1.private.pem` (directory `root:fpcore` 750, file `root:fpcore` 640); the unit runs `ProtectSystem=strict`, which still allows reading under `/etc`. Never under `/opt/farmpilot-core` (the repo) or `/var/lib/farmpilot-core` (backups include it).
+- **Only dev-1:** the key id written into the file is the constant `dev-1`, and the key is accepted only when its public half equals the built-in `DEV_KEYS["dev-1"]`; a production key or any other key is refused. A release build never signs.
+- **Verified before offered:** every file is checked with the box's own `checkLicence` (dev-1 public key, the deployment's Device ID); a failure offers nothing.
+- **When it is off, the reason is shown:** FREE "FREE has no licence file"; FULL "The box does not accept FULL yet"; ENGINEERING with an expiry (the signed format has none) with a CLEAR EXPIRY button; no licensed-to; no key.
+- Every download writes an audit row (`licence_deployment.fplic_downloaded`) and a history row (DOWNLOADED). The key is never logged, returned or stored; nothing is stored of the file.
+- The `licence_history` table is rebuilt once at the next start to allow DOWNLOADED (rows kept), like REMOVED before it.
+- Still open: who signs production licences and where the production key lives.

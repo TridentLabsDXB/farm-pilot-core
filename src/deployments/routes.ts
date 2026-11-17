@@ -11,11 +11,14 @@
 //   GET   /api/licence-deployments/:id/history    newest first (+ a derived EXPIRED row once the term has ended)
 //   POST  /api/licence-deployments/:id/history    append an INSTALLED / NOTE row
 //   POST  /api/licence-deployments/:id/remove     REMOVE LICENCE: back to FREE + a REMOVED row
+//   POST  /api/licence-deployments/:id/fplic        DOWNLOAD .FPLIC: signed with dev-1 only, verified with the box's verifier, audited + history
+//   POST  /api/licence-deployments/:id/clear-expiry ENGINEERING only: clear the expiry so it can be signed
 //   DELETE /api/licence-deployments/:id           delete the record and its history (body: the Device ID, typed)
 import type { FastifyInstance } from "fastify";
 import { audit, type Db } from "../db.js";
 import { DEVICE_ID_RE } from "../licence/device.js";
 import { LICENCE_ID_RE, ENGINEERING } from "../licence/format.js";
+import { FplicError, fplicState, signDeploymentLicence, DEV_KEY_ID, type SigningOpts } from "./signing.js";
 import { TIERS, isTier, PAID_TIERS, type Tier } from "./tiers.js";
 import { FREE_LIMITS, deploymentStatus, effectiveLimits, needsAttention, sortByExpiry, termPct, usageFlag, type DeploymentLimits, type DeploymentUsage } from "./calc.js";
 
@@ -29,7 +32,7 @@ CREATE TABLE IF NOT EXISTS licence_deployments (
   last_seen INTEGER, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS licence_history (
   id INTEGER PRIMARY KEY, deployment_id INTEGER NOT NULL REFERENCES licence_deployments(id) ON DELETE CASCADE, ts INTEGER NOT NULL,
-  event TEXT NOT NULL CHECK (event IN ('ISSUED','INSTALLED','RENEWED','REMOVED','NOTE')), note TEXT, username TEXT NOT NULL);
+  event TEXT NOT NULL CHECK (event IN ('ISSUED','INSTALLED','RENEWED','REMOVED','DOWNLOADED','NOTE')), note TEXT, username TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_licence_history_dep ON licence_history(deployment_id, ts);
 `;
 export const TYPES = ["FREE", "PRO", "FULL", ENGINEERING] as const;
@@ -54,7 +57,7 @@ function upgradeTypeCheck(db: Db) {
 interface Row { id: number; device_id: string; name: string; licensed_to: string | null; licence_id: string | null; type: string; issued_at: string | null; valid_until: string | null; limits: string; usage: string; last_seen: number | null; }
 const parse = <T,>(s: string, d: T): T => { try { return JSON.parse(s) as T; } catch { return d; } };
 
-export function deploymentView(r: Row, now = Date.now()) {
+export function deploymentView(r: Row, now = Date.now(), so: SigningOpts = {}) {
   const limits = parse<DeploymentLimits>(r.limits, FREE_LIMITS), usage = parse<DeploymentUsage>(r.usage, { gateways: 0, sensors: 0 });
   const { status, daysLeft } = deploymentStatus(r.type, r.valid_until, now), eff = effectiveLimits(r.type, limits, status);
   return {
@@ -63,6 +66,7 @@ export function deploymentView(r: Row, now = Date.now()) {
     effectiveLimits: eff,                                              // what the box runs with: the licence's own while valid, FREE when expired
     usageFlags: { gateways: usageFlag(usage.gateways, eff.gateways), sensors: usageFlag(usage.sensors, eff.sensors) },
     lastSeen: r.last_seen,
+    fplic: fplicState(r, so),                                          // DOWNLOAD .FPLIC on / off and the reason when off (never any key information)
   };
 }
 
@@ -79,26 +83,27 @@ function when(v: unknown, what: string, endOfDay: boolean): string | null {
 }
 const deviceId = (v: unknown) => { const s = typeof v === "string" ? v.trim().toUpperCase() : ""; if (!DEVICE_ID_RE.test(s)) throw bad("Device ID must look like FP-XXXX-XXXX-XXXX"); return s; };
 
-/** 2026-11-18: REMOVED joins the history events. Same one-time rebuild as above for a licence_history created before it (nothing references that table, so no foreign-key juggling is needed). */
+/** 2026-11-18: REMOVED and DOWNLOADED join the history events. Same one-time rebuild as above for a licence_history created before it (nothing references that table, so no foreign-key juggling is needed). */
 function upgradeHistoryEvents(db: Db) {
   const sql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='licence_history'").get() as { sql: string } | undefined)?.sql ?? "";
-  if (!sql || sql.includes("'REMOVED'")) return;
+  if (!sql || sql.includes("'DOWNLOADED'")) return;
   db.transaction(() => {
     db.exec(SCHEMA_DEPLOYMENTS.slice(SCHEMA_DEPLOYMENTS.indexOf("CREATE TABLE IF NOT EXISTS licence_history"), SCHEMA_DEPLOYMENTS.indexOf("CREATE INDEX")).replace("licence_history", "licence_history_new"));
     db.exec("INSERT INTO licence_history_new(id,deployment_id,ts,event,note,username) SELECT id,deployment_id,ts,event,note,username FROM licence_history; DROP TABLE licence_history; ALTER TABLE licence_history_new RENAME TO licence_history; CREATE INDEX IF NOT EXISTS idx_licence_history_dep ON licence_history(deployment_id, ts)");
   })();
 }
 
-export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (req: any, reply: any) => Promise<unknown>, now: () => number = Date.now) {
+export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (req: any, reply: any) => Promise<unknown>, now: () => number = Date.now, sg: SigningOpts = {}) {
   db.exec(SCHEMA_DEPLOYMENTS); upgradeTypeCheck(db); upgradeHistoryEvents(db);
+  const view = (r: Row) => deploymentView(r, now(), sg);
   const A = { preHandler: admin }, U = (req: any) => ({ u: req.user.username as string, r: req.user.role as string });
-  const all = () => (db.prepare("SELECT * FROM licence_deployments").all() as Row[]).map((r) => deploymentView(r, now()));
+  const all = () => (db.prepare("SELECT * FROM licence_deployments").all() as Row[]).map((r) => view(r));
   const one = (id: unknown) => db.prepare("SELECT * FROM licence_deployments WHERE id=?").get(Number(id)) as Row | undefined;
   const wrap = (fn: (req: any, reply: any) => unknown) => async (req: any, reply: any) => { try { return await fn(req, reply); } catch (e: any) { if (e?.status === 400) return reply.code(400).send({ error: e.message }); if (/UNIQUE/.test(String(e?.message))) return reply.code(409).send({ error: "A deployment with this Device ID already exists" }); throw e; } };
 
   app.get("/api/licence-deployments", A, async () => ({ deployments: sortByExpiry(all()), now: now(), tiers: TIERS }));
   app.get("/api/licence-deployments/attention", A, async () => ({ count: all().filter((d) => needsAttention(d.status)).length }));
-  app.get<{ Params: { id: string } }>("/api/licence-deployments/:id", A, async (req, reply) => { const r = one(req.params.id); return r ? { deployment: deploymentView(r, now()) } : reply.code(404).send({ error: "not found" }); });
+  app.get<{ Params: { id: string } }>("/api/licence-deployments/:id", A, async (req, reply) => { const r = one(req.params.id); return r ? { deployment: view(r) } : reply.code(404).send({ error: "not found" }); });
 
   app.post<{ Body: any }>("/api/licence-deployments", A, wrap(async (req, reply) => {
     const b = req.body ?? {}, name = text(b.name, 200, "Name"); if (!name) throw bad("Name is required");
@@ -107,7 +112,7 @@ export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (r
     const id = Number(db.prepare("INSERT INTO licence_deployments(device_id,name,licensed_to,type,limits,usage,last_seen,created_at) VALUES(?,?,?,'FREE',?,?,?,?)")
       .run(deviceId(b.deviceId), name, text(b.licensedTo, 200, "Licensed to"), JSON.stringify(FREE_LIMITS), JSON.stringify(usage), seen, now()).lastInsertRowid);
     const { u, r } = U(req); audit(db, u, r, "licence_deployment.create", { id, device_id: deviceId(b.deviceId), name });
-    return reply.code(201).send({ deployment: deploymentView(one(id)!, now()) });
+    return reply.code(201).send({ deployment: view(one(id)!) });
   }));
 
   app.patch<{ Params: { id: string }; Body: any }>("/api/licence-deployments/:id", A, wrap(async (req, reply) => {
@@ -121,7 +126,7 @@ export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (r
     if (!sets.length) throw bad("Nothing to change");
     db.prepare(`UPDATE licence_deployments SET ${sets.join(",")} WHERE id=?`).run(...vals, cur.id);
     const { u, r } = U(req); audit(db, u, r, "licence_deployment.update", { id: cur.id, fields: Object.keys(b) });
-    return { deployment: deploymentView(one(cur.id)!, now()) };
+    return { deployment: view(one(cur.id)!) };
   }));
 
   // RENEW (box already has a licence) or ISSUE (box is FREE): records the licence and appends a history row. Signs nothing.
@@ -140,7 +145,7 @@ export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (r
         db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES(?,?,?,?,?)").run(cur.id, now(), "NOTE", text(b.note, 500, "Note") ?? `Set to FREE, ${tierWord("FREE")}`, u);
         audit(db, u, r, "licence_deployment.free", { id: cur.id, was: cur.type, licence_id: cur.licence_id });
       })();
-      return { deployment: deploymentView(one(cur.id)!, now()) };
+      return { deployment: view(one(cur.id)!) };
     }
     if (!isTier(type)) throw bad("Type must be FREE, PRO, FULL or ENGINEERING");
     const lid = text(b.licenceId, 200, "Licence ID"); if (!lid || !LICENCE_ID_RE.test(lid)) throw bad("Licence ID must look like FPL-20261117-0001");
@@ -155,7 +160,7 @@ export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (r
       db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES(?,?,?,?,?)").run(cur.id, now(), event, note, u);
       audit(db, u, r, `licence_deployment.${event.toLowerCase()}`, { id: cur.id, type, licence_id: lid, valid_until: until });
     })();
-    return { deployment: deploymentView(one(cur.id)!, now()) };
+    return { deployment: view(one(cur.id)!) };
   }));
 
   // REMOVE LICENCE: back to FREE (licence ID, issue date and expiry cleared) and a REMOVED history row. Records only: nothing is signed, nothing reaches the box.
@@ -168,7 +173,7 @@ export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (r
       db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES(?,?,?,?,?)").run(cur.id, now(), "REMOVED", "back to FREE", u);
       audit(db, u, r, "licence_deployment.removed", { id: cur.id, device_id: cur.device_id, was: cur.type, licence_id: cur.licence_id, valid_until: cur.valid_until });
     })();
-    return { deployment: deploymentView(one(cur.id)!, now()) };
+    return { deployment: view(one(cur.id)!) };
   }));
 
   // DELETE DEPLOYMENT: the record and its history. The body must repeat the Device ID (the page asks the person to type it). The audit row keeps what was deleted.
@@ -182,6 +187,33 @@ export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (r
       db.prepare("DELETE FROM licence_history WHERE deployment_id=?").run(cur.id); db.prepare("DELETE FROM licence_deployments WHERE id=?").run(cur.id);
     })();
     return { ok: true };
+  }));
+
+  // DOWNLOAD .FPLIC: signs with the dev-1 key (signing.ts), verifies with the box's own verifier, then offers the file. Every download is audited and written to the history. Nothing is stored.
+  app.post<{ Params: { id: string } }>("/api/licence-deployments/:id/fplic", A, async (req, reply) => {
+    const cur = one(req.params.id); if (!cur) return reply.code(404).send({ error: "not found" });
+    let out: { text: string; fileName: string };
+    try { out = signDeploymentLicence({ ...cur, limits: parse(cur.limits, FREE_LIMITS) }, sg); }
+    catch (e) { if (e instanceof FplicError) return reply.code(e.status).send({ error: e.message, code: e.code }); throw e; }
+    const { u, r } = U(req);
+    db.transaction(() => {
+      db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES(?,?,?,?,?)").run(cur.id, now(), "DOWNLOADED", `.FPLIC ${out.fileName}, key ${DEV_KEY_ID}`, u);
+      audit(db, u, r, "licence_deployment.fplic_downloaded", { id: cur.id, device_id: cur.device_id, licence_id: cur.licence_id, type: cur.type, key_id: DEV_KEY_ID });
+    })();
+    return reply.header("content-type", "application/octet-stream").header("content-disposition", `attachment; filename="${out.fileName}"`).header("cache-control", "no-store").send(out.text);
+  });
+
+  // ENGINEERING with an expiry cannot be signed (the signed format has none). This clears it, audited, with a history row.
+  app.post<{ Params: { id: string } }>("/api/licence-deployments/:id/clear-expiry", A, wrap(async (req, reply) => {
+    const cur = one(req.params.id); if (!cur) return reply.code(404).send({ error: "not found" });
+    if (cur.type !== "ENGINEERING" || !cur.valid_until) throw bad("Only an ENGINEERING licence with an expiry has one to clear");
+    const { u, r } = U(req);
+    db.transaction(() => {
+      db.prepare("UPDATE licence_deployments SET valid_until=NULL WHERE id=?").run(cur.id);
+      db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES(?,?,?,?,?)").run(cur.id, now(), "NOTE", `Expiry cleared (was ${cur.valid_until!.slice(0, 10)})`, u);
+      audit(db, u, r, "licence_deployment.expiry_cleared", { id: cur.id, was: cur.valid_until });
+    })();
+    return { deployment: view(one(cur.id)!) };
   }));
 
   app.get<{ Params: { id: string } }>("/api/licence-deployments/:id/history", A, async (req, reply) => {

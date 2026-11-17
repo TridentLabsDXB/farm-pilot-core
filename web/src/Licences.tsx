@@ -6,11 +6,13 @@ import { LICENCE_ID_HELP, licenceIdError, nextLicenceId } from "./licenceId";
 import "./licences.css";
 
 // 2026-11-17 -- LICENCE MANAGEMENT, Option B (list left, detail right). ONLINE build only (the route and the menu entry need /api/me online:true) and Admin only; the server answers 404 / 403 as well.
-// RECORD ONLY: deployments, usage and "seen" are entered by hand; RENEW / ISSUE record a licence and a history row and sign nothing; DOWNLOAD .FPLIC stays disabled; there is no REVOKE (a box verifies its licence offline).
+// Deployments, usage and "seen" are entered by hand; RENEW / ISSUE record a licence and a history row and sign nothing; there is no REVOKE (a box verifies its licence offline).
+// DOWNLOAD .FPLIC (2026-11-18): the server signs with the dev-1 key only and verifies the file with the box's own verifier first; the page just asks (POST /:id/fplic) and saves the file. When it is off, the server's reason is shown.
 // Status, flags, term and effective limits all come from the server (src/deployments/calc.ts), computed from valid_until against the SERVER clock. Every status is a lamp SHAPE plus a WORD.
 type Status = "active" | "expiring" | "expired" | "free"; type Flag = "ok" | "at_limit" | "over_limit";
 interface Limits { gateways: number | null; sensors: number | null; reports_days: number | null; retention_days: number | null; }
-interface Dep { id: number; name: string; deviceId: string; licensedTo: string | null; licenceId: string | null; type: "FREE" | "PRO" | "FULL" | "ENGINEERING"; issuedAt: string | null; validUntil: string | null; status: Status; daysLeft: number | null; termPct: number | null;
+interface Fplic { available: boolean; code: string; reason: string | null; }
+interface Dep { fplic: Fplic; id: number; name: string; deviceId: string; licensedTo: string | null; licenceId: string | null; type: "FREE" | "PRO" | "FULL" | "ENGINEERING"; issuedAt: string | null; validUntil: string | null; status: Status; daysLeft: number | null; termPct: number | null;
   limits: Limits; usage: { gateways: number; sensors: number }; effectiveLimits: Limits; usageFlags: { gateways: Flag; sensors: Flag }; lastSeen: number | null; }
 /** The tier table comes from the server (src/deployments/tiers.ts, the one constant): the page never repeats the numbers. gateways = DATA SOURCES on screen. */
 type Tiers = Record<"FREE" | "PRO" | "FULL" | "ENGINEERING", { gateways: number | null; sensors: number | null; reports_days: number | null; retention_days: number | null }>;
@@ -142,6 +144,18 @@ export default function Licences({ onChange }: { onChange: () => void }) {
   const sel = all?.find((d) => d.id === selId) ?? null;
   useEffect(() => { if (!sel) { setHist([]); return; } let live = true; api<{ history: Hist[] }>(`/licence-deployments/${sel.id}/history`).then((r) => live && setHist(r.history)).catch(() => live && setHist([])); return () => { live = false; }; }, [sel?.id, sel?.validUntil, sel?.licenceId, sel?.status]);   // eslint-disable-line react-hooks/exhaustive-deps
   const saved = (d: Dep) => { setModal(null); void load(d.id); };
+  const [dlErr, setDlErr] = useState<{ msg: string; code?: string } | null>(null), [dlBusy, setDlBusy] = useState(false);
+  useEffect(() => setDlErr(null), [selId]);
+  async function download() {
+    if (!sel) return; setDlBusy(true); setDlErr(null);
+    try {
+      const r = await fetch(`/api/licence-deployments/${sel.id}/fplic`, { method: "POST", credentials: "same-origin" });
+      if (!r.ok) { const b = await r.json().catch(() => ({})); setDlErr({ msg: b.error || `HTTP ${r.status}`, code: b.code }); return; }
+      const blob = await r.blob(), a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${sel.licenceId}.fplic`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      void load(sel.id);          // the download is in the history now
+    } catch (e) { setDlErr({ msg: errText(e) }); } finally { setDlBusy(false); }
+  }
+  async function clearExpiry() { if (!sel) return; try { await api(`/licence-deployments/${sel.id}/clear-expiry`, { method: "POST" }); setDlErr(null); void load(sel.id); } catch (e) { setDlErr({ msg: errText(e) }); } }
   const copy = async () => { if (sel && (await copyText(sel.deviceId))) { setCopied(true); setTimeout(() => setCopied(false), 1500); } };
 
   return <main className="fp-page lm">
@@ -171,10 +185,12 @@ export default function Licences({ onChange }: { onChange: () => void }) {
           <div><div className="lm-name">{sel.name}</div><div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}><span className="lm-chip lm-st" data-s={sel.status}><Lamp status={sel.status} />{WORD[sel.status]}</span><span className="fp-cap">seen {ago(sel.lastSeen)}</span></div></div>
           <div className="lm-btns">
             <button className="fp-btn" onClick={() => setModal("edit")}>EDIT</button>
-            <button className="fp-btn" disabled title={sel.type === "FREE" ? "No licence file on a FREE box" : "Licence files are signed offline with the Trident Labs tool"}>DOWNLOAD .FPLIC</button>
+            <button className="fp-btn" disabled={!sel.fplic.available || dlBusy} title={sel.fplic.reason ?? "Signed with the dev-1 key, checked with the box's own verifier"} onClick={download}>{dlBusy ? "SIGNING" : "DOWNLOAD .FPLIC"}</button>
             <button className="fp-btn primary" onClick={() => setModal("record")}>{sel.type === "FREE" ? "ISSUE LICENCE" : "RENEW LICENCE"}</button>
           </div>
         </div>
+        {(sel.fplic.reason || dlErr) && <div className="lm-note" role={dlErr ? "alert" : undefined} data-testid="fplic-note">DOWNLOAD .FPLIC: {dlErr ? <span className="lm-err">{dlErr.msg}</span> : sel.fplic.reason}
+          {(sel.fplic.code === "ENGINEERING_EXPIRY" || dlErr?.code === "ENGINEERING_EXPIRY") && <> <button className="fp-btn small" onClick={clearExpiry}>CLEAR EXPIRY</button></>}</div>}
         <div className="fp-card"><div className="fp-cap">Device</div>
           <div className="lm-panel" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}><div><div className="fp-cap">Device ID</div><div className="lm-devid">{sel.deviceId}</div></div><button className="fp-btn" onClick={copy}>{copied ? "COPIED" : "COPY"}</button></div>
           <div className="lm-kv"><div><div className="fp-cap">Licensed to</div><div className="v">{sel.licensedTo ?? "Not activated"}</div></div><div><div className="fp-cap">Last seen</div><div className="v">{ago(sel.lastSeen)}</div></div></div>

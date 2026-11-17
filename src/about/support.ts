@@ -16,7 +16,7 @@ import { makeZip } from "./zip.js";
 
 /** Config keys that may appear in diagnostics. Every key of `config` must be listed here or in CONFIG_EXCLUDED (a test enforces it). */
 export const CONFIG_SHOWN = ["host", "port", "dbPath", "dataDir", "logsDir", "mqttPort", "farm", "cookieSecure", "trustProxy", "retentionDays", "exportMaxRows", "commandTimeoutSec", "dedupeWindowMs", "sessionHours", "gwTransport", "gwHost", "gwPort", "gwSerialPath", "gwBaud", "gwParity", "gwAddress", "gwTimeoutMs", "gwRetries", "gwRegmap", "online"] as const;
-export const CONFIG_EXCLUDED = ["mqttHost"] as const;                  // loopback constant, no information
+export const CONFIG_EXCLUDED = ["mqttHost", "licenceSigningKeyFile"] as const;                  // loopback constant, no information
 const SECRET_NAME = /secret|token|pass|hash|key|cookie|credential/i;       // belt and braces: even an allowed prefix never exports a secret-looking name
 const SETTING_PREFIXES = ["gw.", "cal.", "command_timeout_sec", "backup.", "slots_1based", "serial_decimal_minutes"];
 

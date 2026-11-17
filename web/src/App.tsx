@@ -9,6 +9,7 @@ import type { ControlDevice } from "./control";
 import Settings from "./Settings";
 import About, { MorePage } from "./About";
 import Licences from "./Licences";
+import { BrandMark } from "./Brand";
 import Sidebar, { useBadges } from "./Sidebar";
 import { Chip, hhmm, setFmtCfg, useNow } from "./ui";
 
@@ -89,7 +90,7 @@ export default function App() {
       <div className="fp-main">
         <header className="fp-top">
           <button className="fp-btn small fp-menu" aria-label="Open menu" aria-expanded={drawer} aria-controls="fp-sidebar" onClick={() => setDrawer(true)}>☰</button>
-          <span className="fp-phone-title">{pub?.farm_name ?? ""}</span>
+          <span className="fp-phone-title"><BrandMark pub={pub} /><span className="fp-phone-name">{pub?.farm_name ?? ""}</span></span>
           <span className="fp-grow" />
           {isEngineering(licInfo) && <Chip tone="info" title="Licence for Trident Labs machines: no limits, no expiry">{licWord(licInfo!)}</Chip>}
           {gwChip}

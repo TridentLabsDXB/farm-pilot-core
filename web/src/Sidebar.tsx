@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type PublicProfile, type Scada } from "./api";
 import { go } from "./App";
 import { Chip, type Tone } from "./ui";
+import { BrandMark } from "./Brand";
 
 // Menu groups (Admin only), decided 2026-11-17: SETTINGS describes the farm, DATA POINTS says where data comes from, SYSTEM is about the box itself.
 // Only the grouping in the menu changed; every route (#/settings/<key>) and API path is the same as before.
@@ -36,7 +37,7 @@ export function useBadges(scada: Scada | null, tab: string | undefined, enabled:
 export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges, online = false, nLicences = 0 }: { version: string; pub: PublicProfile | null; cur: string; tab?: string; admin: boolean; nAlarms: number; badges: Record<string, Badge>; online?: boolean; nLicences?: number }) {
   return (
     <nav className="fp-sb" aria-label="Main">
-      <div className="fp-sb-brand">{pub?.logo_url && <img src={pub.logo_url} alt="" />}<span>{pub?.farm_name ?? ""}</span></div>
+      <div className="fp-sb-brand"><BrandMark pub={pub} /><span className="fp-sb-name">{pub?.farm_name ?? ""}</span></div>
       <button className="fp-tab" aria-current={cur === "alarms" ? "page" : undefined} onClick={() => go("/alarms")}><span>ALARMS</span>{nAlarms > 0 && <span className="fp-badge">{nAlarms}</span>}</button>
       <button className="fp-tab" aria-current={cur === "monitoring" ? "page" : undefined} onClick={() => go("/monitoring")}>MONITORING</button>
       <button className="fp-tab" aria-current={cur === "control" ? "page" : undefined} onClick={() => go("/control")}>CONTROL</button>
