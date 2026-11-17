@@ -1,4 +1,4 @@
-export interface Me { username: string; role: "operator" | "admin"; }
+export interface Me { username: string; role: "operator" | "admin"; online?: boolean; }   // online: Online build only (Licence Management); absent on a standalone box
 export interface Sensor { key: string; readings: Record<string, number>; }
 export interface Topic { topic: string; ts: number; sensors: Sensor[]; }
 export interface Cmd { id: string; pump: string; action: "on" | "off"; status: "sent" | "confirmed" | "timeout"; username: string; created_at: number; resolved_at: number | null; note: string | null; }

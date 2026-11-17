@@ -27,5 +27,7 @@ export const config = {
   gwTransport: (env.GW_TRANSPORT || "off") as "off" | "tcp" | "rtu-tcp" | "rtu-serial",
   gwHost: env.GW_HOST || "127.0.0.1", gwPort: int("GW_PORT", 5020), gwSerialPath: env.GW_SERIAL_PATH || "/dev/ttyUSB0", gwBaud: int("GW_BAUD", 9600),
   gwParity: (env.GW_PARITY || "none") as "none" | "even" | "odd", gwAddress: int("GW_ADDRESS", 0), gwTimeoutMs: int("GW_TIMEOUT_MS", 1500), gwRetries: int("GW_RETRIES", 2),
+  // 2026-11-17 -- ONLINE build (the VPS / bench, not a standalone box). FP_ONLINE=1 adds Licence Management (SYSTEM menu, #/licences, /api/licence-deployments, two tables). Unset = standalone: none of it exists.
+  online: ["1", "true", "yes"].includes((env.FP_ONLINE ?? "").toLowerCase()),
   gwRegmap: env.GW_REGMAP || "config/gateway-thingsend.yaml",
 };

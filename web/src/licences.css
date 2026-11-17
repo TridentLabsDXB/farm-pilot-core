@@ -1,0 +1,34 @@
+/* 2026-11-17 -- Licence Management (Online build). Uses the shared CORE tokens (tokens.css), so dark and light both work; nothing here hard-codes a colour. Scoped under .lm. */
+.fp-badge.fp-badge-warn { background: var(--fp-warn); color: #fff; } .core[data-theme="dark"] .fp-badge.fp-badge-warn { color: #1b1403; }
+.lm { display: flex; flex-direction: column; gap: 16px; }
+.lm-title h2 { margin: 2px 0 0; font-family: var(--fp-head); font-size: 28px; letter-spacing: .06em; text-transform: uppercase; }
+.lm-layout { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1024px) { .lm-layout { grid-template-columns: minmax(300px, 380px) 1fr; } .lm-back { display: none !important; } }
+@media (max-width: 1023px) { .lm-layout[data-detail="1"] .lm-list { display: none; } .lm-layout[data-detail="0"] .lm-detail { display: none; } }
+.lm-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.lm-row { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center; min-height: 68px; width: 100%; padding: 8px 12px; text-align: left; background: transparent; border: 0; border-left: 4px solid transparent; border-bottom: 1px solid var(--fp-border); color: var(--fp-text); cursor: pointer; font: inherit; }
+.lm-row[aria-pressed="true"] { background: var(--fp-accent-tint); border-left-color: var(--fp-accent); }
+.lm-row:focus-visible { outline: 2px solid var(--fp-accent); outline-offset: -2px; }
+.lm-nm { font-family: var(--fp-head); font-weight: 700; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lm-mono { font-family: var(--fp-mono); } .lm-sub { font-family: var(--fp-mono); font-size: 12px; color: var(--fp-muted); letter-spacing: .04em; }
+.lm-right { text-align: right; font-size: 13px; } .lm-word { font-weight: 700; letter-spacing: .06em; }
+.lm-lamp { flex: none; } .lm-st { display: inline-flex; align-items: center; gap: 8px; }
+.lm-st[data-s="active"] { color: var(--fp-ok); } .lm-st[data-s="expiring"] { color: var(--fp-warn); } .lm-st[data-s="expired"] { color: var(--fp-alarm); } .lm-st[data-s="free"] { color: var(--fp-off); }
+.lm-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid currentColor; font-family: var(--fp-mono); font-weight: 600; font-size: 14px; letter-spacing: .1em; }
+.lm-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; flex-direction: row; }
+.lm-head .lm-name { font-family: var(--fp-head); font-size: 24px; font-weight: 700; }
+.lm-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.lm-panel { background: var(--fp-inset); border: 1px solid var(--fp-border); border-radius: var(--fp-radius-panel); padding: 16px; }
+.lm-devid { font-family: var(--fp-mono); font-size: 24px; color: var(--fp-accent); word-break: break-all; }
+.lm-kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; } .lm-kv .v { font-size: 18px; margin-top: 4px; word-break: break-word; }
+.lm-bar { height: 12px; background: var(--fp-inset); border: 1px solid var(--fp-border); border-radius: 6px; overflow: hidden; margin: 8px 0 4px; }
+.lm-bar > i { display: block; height: 100%; background: var(--fp-accent); } .lm-bar[data-t="warn"] > i { background: var(--fp-warn); } .lm-bar[data-t="alarm"] > i { background: var(--fp-alarm); }
+.lm-grid2 { display: grid; gap: 16px; grid-template-columns: 1fr; } @media (min-width: 700px) { .lm-grid2 { grid-template-columns: 1fr 1fr; } }
+.lm-flag { margin-left: 12px; font-size: 14px; font-weight: 700; letter-spacing: .06em; display: inline-flex; align-items: center; gap: 6px; } .lm-flag[data-t="warn"] { color: var(--fp-warn); } .lm-flag[data-t="alarm"] { color: var(--fp-alarm); }
+.lm-hist { display: grid; grid-template-columns: 110px 100px 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--fp-border); font-size: 14px; } .lm-hist:last-child { border-bottom: 0; }
+@media (max-width: 520px) { .lm-hist { grid-template-columns: 1fr; gap: 2px; } }
+.lm-note { color: var(--fp-muted); font-size: 14px; } .lm-err { color: var(--fp-alarm); }
+.lm-f { display: block; margin-bottom: 12px; } .lm-f .fp-input { width: 100%; }
+.lm-back { align-self: flex-start; }
+.lm-listhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lm-filters { display: grid; gap: 8px; }

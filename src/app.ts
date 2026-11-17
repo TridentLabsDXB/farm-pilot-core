@@ -28,11 +28,13 @@ import { registerLicenceRoutes } from "./licence/routes.js";
 import { registerSupportRoutes } from "./about/support.js";
 import { readBuild } from "./about/build.js";
 import { registerHistoryRoutes } from "./history/routes.js";
+import { registerDeploymentRoutes } from "./deployments/routes.js";
 
 const COOKIE = "core_session";
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
-export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null) {
+export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null, opts: { online?: boolean; now?: () => number } = {}) {
+  const online = opts.online ?? config.online;   // 2026-11-17: Online build flag (config.online / FP_ONLINE); tests pass it explicitly
   const app = Fastify({ logger: { level: "info" }, trustProxy: config.trustProxy, bodyLimit: 64 * 1024 });
   // Every registered route is recorded, so tests can call ALL of them as an Operator (test/operator-access.test.ts).
   const routes: { method: string; url: string }[] = []; app.addHook("onRoute", (r) => { for (const m of [r.method].flat()) routes.push({ method: String(m), url: r.url }); });
@@ -70,7 +72,8 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
     return { username: row.username, role: row.role };
   });
   app.post("/api/logout", async (req, reply) => { const t = req.cookies[COOKIE]; if (t) destroySession(db, t); reply.clearCookie(COOKIE, { path: "/" }); return { ok: true }; });
-  app.get("/api/me", async (req) => req.user);
+  // `online` tells the web app whether this is the Online build (Licence Management entry and page); a standalone build never sends it as true.
+  app.get("/api/me", async (req) => ({ ...req.user, ...(online ? { online: true } : {}) }));
 
   app.get("/api/state", async () => ({ farm: config.farm, now: Date.now(), topics: ingest.snapshot(), commands: commands.recent(10), commandTimeoutSec: Number(getSetting(db, "command_timeout_sec", String(config.commandTimeoutSec))) }));
 
@@ -131,6 +134,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof, ports); gw.on("update", () => send({ type: "scada" })); registerHistoryRoutes(app, { db, reg, svc: gw, prof, licence }); }
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
   if (ports) registerPortRoutes(app, ports, admin, () => send({ type: "ports" }));
+  if (online) registerDeploymentRoutes(app, db, admin, opts.now);       // Online build only: a standalone build has no table and no route (404)
 
   app.get("/ws", { websocket: true }, (socket, req) => {
     if (!userFromToken(db, req.cookies[COOKIE])) { socket.close(4401, "login required"); return; }

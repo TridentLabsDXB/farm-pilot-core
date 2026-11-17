@@ -34,7 +34,7 @@ test("Operator: group headings and group items render for Admin only (sidebar an
 
 test("Phone: bottom nav ALARMS, MONITORING, CONTROL, MORE for both roles; the MORE sheet shows the same groups (with badges) and ABOUT; the old phone Settings list leads to it", () => {
   assert.ok(!/>SETTINGS<\/button>/.test(app)); assert.match(app, /onClick=\{\(\) => go\("\/more"\)\}>MORE<\/button>/); assert.match(app, /cur === "more" \|\| cur === "about" \|\| cur === "settings"/);
-  assert.match(app, /<MorePage admin=\{admin\} badges=\{badges\} \/>/); assert.match(ab, /GROUPS\.filter/); assert.match(ab, /badges\[k\]/);
+  assert.match(app, /<MorePage admin=\{admin\} badges=\{badges\}/); assert.match(ab, /GROUPS\.filter/); assert.match(ab, /badges\[k\]/);
   assert.match(st, /phone && !t\) return <Redirect to="\/more" \/>/);
 });
 

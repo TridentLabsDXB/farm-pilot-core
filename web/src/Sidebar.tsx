@@ -33,7 +33,7 @@ export function useBadges(scada: Scada | null, tab: string | undefined, enabled:
 }
 
 /** Persistent left sidebar: logo and farm name on top, then ALARMS, MONITORING, CONTROL and (Admin) the groups SETTINGS, DATA POINTS and SYSTEM. Panel: always visible. Tablet: drawer. Phone: hidden (bottom nav). */
-export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges }: { version: string; pub: PublicProfile | null; cur: string; tab?: string; admin: boolean; nAlarms: number; badges: Record<string, Badge> }) {
+export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges, online = false, nLicences = 0 }: { version: string; pub: PublicProfile | null; cur: string; tab?: string; admin: boolean; nAlarms: number; badges: Record<string, Badge>; online?: boolean; nLicences?: number }) {
   return (
     <nav className="fp-sb" aria-label="Main">
       <div className="fp-sb-brand">{pub?.logo_url && <img src={pub.logo_url} alt="" />}<span>{pub?.farm_name ?? ""}</span></div>
@@ -43,6 +43,8 @@ export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges
       {admin && GROUPS.filter((g) => g.tabs.length > 0).map((g) => <div key={g.title} className="fp-sb-grp" role="group" aria-label={g.title}>
         <span className="fp-cap fp-sb-group">{g.title}</span>
         {g.tabs.map(([k, l]) => <button key={k} className="fp-tab" aria-current={cur === "settings" && tab === k ? "page" : undefined} onClick={() => go("/settings/" + k)}><span>{l}</span>{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.word}</Chip>}</button>)}
+        {/* 2026-11-17: Licence Management, Online build only (online comes from /api/me), Admin only (this block). Amber count of EXPIRING + EXPIRED deployments, hidden at 0. */}
+        {g.title === "System" && online && <button className="fp-tab" aria-current={cur === "licences" ? "page" : undefined} onClick={() => go("/licences")}><span>LICENCE MANAGEMENT</span>{nLicences > 0 && <span className="fp-badge fp-badge-warn" aria-label={`${nLicences} need attention`}>{nLicences}</span>}</button>}
       </div>)}
       <div className="fp-sb-bottom">
         <button className="fp-tab" aria-current={cur === "about" ? "page" : undefined} onClick={() => go("/about")}>ABOUT</button>

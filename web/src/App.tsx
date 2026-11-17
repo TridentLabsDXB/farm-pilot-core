@@ -8,6 +8,7 @@ import ControlPage from "./ControlPage";
 import type { ControlDevice } from "./control";
 import Settings from "./Settings";
 import About, { MorePage } from "./About";
+import Licences from "./Licences";
 import Sidebar, { useBadges } from "./Sidebar";
 import { Chip, hhmm, setFmtCfg, useNow } from "./ui";
 
@@ -62,22 +63,28 @@ export default function App() {
   const toggleTheme = () => { const t = theme === "dark" ? "light" : "dark"; setThemePref(t); try { localStorage.setItem("core_theme", t); } catch { /* private mode */ } };
   useEffect(() => { if (me && me.role !== "admin" && page === "settings") go("/monitoring"); }, [me, page]);          // Operators never get Settings (the server answers 403 as well)
   const badges = useBadges(scada, rest[0], !!me && me.role === "admin");
+  // 2026-11-17 -- Licence Management (Online build + Admin only): the route and the entry exist only when /api/me says online. The server answers 403 / 404 as well.
+  useEffect(() => { if (me && (me.role !== "admin" || !me.online) && page === "licences") go("/monitoring"); }, [me, page]);
+  const [nLicences, setNLicences] = useState(0);
+  const loadLicCount = useCallback(() => { api<{ count: number }>("/licence-deployments/attention").then((r) => setNLicences(r.count)).catch(() => {}); }, []);
+  const licOn = !!me && me.role === "admin" && !!me.online;
+  useEffect(() => { if (!licOn) return; loadLicCount(); window.addEventListener("core-licences", loadLicCount); const t = setInterval(loadLicCount, 300_000); return () => { window.removeEventListener("core-licences", loadLicCount); clearInterval(t); }; }, [licOn, loadLicCount, hash]);
   useEffect(() => { setDrawer(false); }, [hash]);                                       // the tablet drawer closes after every navigation
   useEffect(() => { if (!drawer) return; const f = (e: KeyboardEvent) => e.key === "Escape" && setDrawer(false); window.addEventListener("keydown", f); return () => window.removeEventListener("keydown", f); }, [drawer]);
   if (me === undefined) return null;
   if (!me) { const lt = themePref ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); return <div className="core fp-login-root" data-theme={lt}><Login onLogin={setMe} theme={lt} onToggleTheme={() => { const t = lt === "dark" ? "light" : "dark"; setThemePref(t); try { localStorage.setItem("core_theme", t); } catch { /* private mode */ } }} /></div>; }
-  const admin = me.role === "admin"; const cur = page === "alarms" ? "alarms" : page === "control" ? "control" : page === "about" ? "about" : page === "more" ? "more" : page === "settings" && admin ? "settings" : "monitoring";
+  const admin = me.role === "admin"; const cur = page === "alarms" ? "alarms" : page === "control" ? "control" : page === "about" ? "about" : page === "more" ? "more" : page === "licences" && admin && me.online ? "licences" : page === "settings" && admin ? "settings" : "monitoring";
   const nAlarms = scada?.alarms.length ?? 0; const gw = scada?.gateway;
   const gwChip = !gw || !gw.enabled ? <Chip tone="off">NO GATEWAY</Chip> : gw.online ? <Chip tone="ok">GATEWAY ONLINE</Chip> : <Chip tone="alarm">GATEWAY OFFLINE</Chip>;
   const nav = (cls = "") => (<>
     <button className={`fp-navbtn ${cls}`} aria-current={cur === "alarms" ? "page" : undefined} onClick={() => go("/alarms")}>ALARMS{nAlarms > 0 && <span className="fp-badge">{nAlarms}</span>}</button>
     <button className={`fp-navbtn ${cls}`} aria-current={cur === "monitoring" ? "page" : undefined} onClick={() => go("/monitoring")}>MONITORING</button>
     <button className={`fp-navbtn ${cls}`} aria-current={cur === "control" ? "page" : undefined} onClick={() => go("/control")}>CONTROL</button>
-    <button className={`fp-navbtn ${cls}`} aria-current={cur === "more" || cur === "about" || cur === "settings" ? "page" : undefined} onClick={() => go("/more")}>MORE</button>
+    <button className={`fp-navbtn ${cls}`} aria-current={cur === "more" || cur === "about" || cur === "settings" || cur === "licences" ? "page" : undefined} onClick={() => go("/more")}>MORE</button>
   </>);
   return (
     <div className="core" data-theme={theme} data-drawer={drawer ? "open" : "closed"}>
-      <aside className="fp-sidebar" id="fp-sidebar"><Sidebar version={version} pub={pub} cur={cur} tab={rest[0]} admin={admin} nAlarms={nAlarms} badges={badges} /></aside>
+      <aside className="fp-sidebar" id="fp-sidebar"><Sidebar version={version} pub={pub} cur={cur} tab={rest[0]} admin={admin} nAlarms={nAlarms} badges={badges} online={!!me.online} nLicences={nLicences} /></aside>
       {drawer && <div className="fp-scrim" onClick={() => setDrawer(false)} aria-hidden />}
       <div className="fp-main">
         <header className="fp-top">
@@ -92,7 +99,7 @@ export default function App() {
           <button className="fp-btn small" onClick={() => api("/logout", { method: "POST" }).finally(() => setMe(null))}>Logout</button>
         </header>
         {cur === "settings" ? <Settings tab={rest[0]} serial={rest[1]} focus={rest[2]} scada={scada} reload={() => { load(); loadScada(); }} onProfile={loadPub} badges={badges} />
-          : cur === "about" ? <About admin={admin} from="/more" /> : cur === "more" ? <MorePage admin={admin} badges={badges} />
+          : cur === "licences" ? <Licences onChange={() => window.dispatchEvent(new Event("core-licences"))} /> : cur === "about" ? <About admin={admin} from="/more" /> : cur === "more" ? <MorePage admin={admin} badges={badges} online={!!me.online} nLicences={nLicences} />
           : cur === "alarms" ? <Alarms scada={scada} /> : cur === "control" ? <ControlPage devices={control} error={controlErr} onRetry={loadControl} state={state} scada={scada} reload={() => { load(); loadScada(); }} /> : <ScadaView state={state} scada={scada} control={control} controlError={controlErr} onRetry={loadControl} query={hquery} />}
         <nav className="fp-bottom" aria-label="Main">{nav()}</nav>
       </div>
