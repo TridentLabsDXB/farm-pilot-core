@@ -14,9 +14,11 @@ Shown on the About page (RELEASE NOTES). Plain text, newest first. No network is
 - Farm Profile, alarm history with acknowledgement, calibration, farm structure, backup and restore.
 - Sidebar navigation (drawer on tablet, bottom navigation on phone) and a new login page.
 
+- MQTT Payload page (Data sources): connect CORE to an external MQTT broker as a client, subscribe to topics, map JSON fields to measurements, review new devices and the last 20 messages. Admin edits, Operators can read it. Starts disabled. The payload format is a placeholder until the real one is decided.
+
 ### Changed
 - The database file now defaults to core.db inside the data folder (DATA_DIR); DB_PATH still overrides it. The server prints the database path it opened as the first log line.
-- Main menu grouped (Admin): SETTINGS (Farm Profile, Farm Structure), DATA POINTS (RS-485 Ports, Sensors Gateway, Sensors), SYSTEM (Users, Backup); ABOUT stays at the bottom. Operators see no groups. On the phone the fourth bottom-nav item is MORE for everyone and lists the same groups. Addresses of the pages do not change.
+- Main menu grouped (Admin): SETTINGS (Farm Profile, Farm Structure), DATA SOURCES (RS-485 Ports, Sensors Gateway, MQTT Payload, Sensors), SYSTEM (Users, Backup); ABOUT stays at the bottom. Operators see no groups. On the phone the fourth bottom-nav item is MORE for everyone and lists the same groups. Addresses of the pages do not change.
 - Slots are numbered from 1. Serials are the plain decimal number printed on the sensor. Temperature and humidity intervals are in minutes (5 to 240).
 
 ### Known limits

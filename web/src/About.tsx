@@ -132,10 +132,10 @@ export default function About({ admin, from }: { admin: boolean; from: string })
   );
 }
 
-/** Phone: the MORE sheet of the 4-item bottom navigation. Admin: the same three groups as the sidebar (SETTINGS, DATA POINTS, SYSTEM) with their badges, then ABOUT for everyone. */
+/** Phone: the MORE sheet of the 4-item bottom navigation. Admin: the same three groups as the sidebar (SETTINGS, DATA SOURCES, SYSTEM) with their badges, then ABOUT for everyone. */
 export function MorePage({ admin, badges, online = false, nLicences = 0 }: { admin: boolean; badges: Record<string, Badge>; online?: boolean; nLicences?: number }) {
   const row = (k: string, l: string, to: string, b?: Badge) => <li key={k} style={{ padding: 0 }}><button className="fp-tab" style={{ width: "100%", minHeight: 56, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => go(to)}><span>{l}</span><span style={{ display: "flex", gap: 8, alignItems: "center" }}>{b && <Chip tone={b.tone}>{b.word}</Chip>}<span aria-hidden>›</span></span></button></li>;
   return <main className="fp-page"><h2 style={{ fontFamily: "var(--fp-head)", margin: 0 }}>More</h2>
     {admin && GROUPS.filter((g) => g.tabs.length > 0).map((g) => <section key={g.title} role="group" aria-label={g.title}><span className="fp-cap fp-sb-group" style={{ display: "block", margin: "14px 0 4px" }}>{g.title}</span><ul className="fp-list">{g.tabs.map(([k, l]) => row(k, l, "/settings/" + k, badges[k]))}{g.title === "System" && admin && online && row("licences", "LICENCE MANAGEMENT", "/licences", nLicences > 0 ? { tone: "warn", word: String(nLicences) } : undefined)}</ul></section>)}
-    <ul className="fp-list" style={{ marginTop: admin ? 14 : undefined }}>{row("about", "ABOUT", "/about")}</ul></main>;
+    <ul className="fp-list" style={{ marginTop: admin ? 14 : undefined }}>{!admin && row("mqtt-payload", "MQTT PAYLOAD", "/settings/mqtt-payload")}{row("about", "ABOUT", "/about")}</ul></main>;
 }

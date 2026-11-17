@@ -4,11 +4,11 @@ import { go } from "./App";
 import { Chip, type Tone } from "./ui";
 import { BrandMark } from "./Brand";
 
-// Menu groups (Admin only), decided 2026-11-17: SETTINGS describes the farm, DATA POINTS says where data comes from, SYSTEM is about the box itself.
+// Menu groups (Admin only), decided 2026-11-17: SETTINGS describes the farm, DATA SOURCES says where data comes from, SYSTEM is about the box itself.
 // Only the grouping in the menu changed; every route (#/settings/<key>) and API path is the same as before.
 export const GROUPS: { title: string; tabs: [string, string][] }[] = [
   { title: "Settings", tabs: [["farm-profile", "FARM PROFILE"], ["farm-structure", "FARM STRUCTURE"]] },
-  { title: "Data points", tabs: [["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["sensors", "SENSORS"]] },
+  { title: "Data sources", tabs: [["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["mqtt-payload", "MQTT PAYLOAD"], ["sensors", "SENSORS"]] },
   { title: "System", tabs: [["users", "USERS"], ["backup", "BACKUP"]] },
 ];
 export const TABS: [string, string][] = GROUPS.flatMap((g) => g.tabs);
@@ -33,7 +33,7 @@ export function useBadges(scada: Scada | null, tab: string | undefined, enabled:
   return badges;
 }
 
-/** Persistent left sidebar: logo and farm name on top, then ALARMS, MONITORING, CONTROL and (Admin) the groups SETTINGS, DATA POINTS and SYSTEM. Panel: always visible. Tablet: drawer. Phone: hidden (bottom nav). */
+/** Persistent left sidebar: logo and farm name on top, then ALARMS, MONITORING, CONTROL and (Admin) the groups SETTINGS, DATA SOURCES and SYSTEM. Panel: always visible. Tablet: drawer. Phone: hidden (bottom nav). */
 export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges, online = false, nLicences = 0 }: { version: string; pub: PublicProfile | null; cur: string; tab?: string; admin: boolean; nAlarms: number; badges: Record<string, Badge>; online?: boolean; nLicences?: number }) {
   return (
     <nav className="fp-sb" aria-label="Main">
@@ -47,6 +47,7 @@ export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges
         {/* 2026-11-17: Licence Management, Online build only (online comes from /api/me), Admin only (this block). Amber count of EXPIRING + EXPIRED deployments, hidden at 0. */}
         {g.title === "System" && online && <button className="fp-tab" aria-current={cur === "licences" ? "page" : undefined} onClick={() => go("/licences")}><span>LICENCE MANAGEMENT</span>{nLicences > 0 && <span className="fp-badge fp-badge-warn" aria-label={`${nLicences} need attention`}>{nLicences}</span>}</button>}
       </div>)}
+      {!admin && <button className="fp-tab" aria-current={cur === "settings" && tab === "mqtt-payload" ? "page" : undefined} onClick={() => go("/settings/mqtt-payload")}>MQTT PAYLOAD</button>}   {/* Operators: read-only page, no group heading */}
       <div className="fp-sb-bottom">
         <button className="fp-tab" aria-current={cur === "about" ? "page" : undefined} onClick={() => go("/about")}>ABOUT</button>
         <span className="fp-cap fp-sb-ver">FARM-PILOT CORE{version ? ` · v${version}` : ""}</span>

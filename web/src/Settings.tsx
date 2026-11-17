@@ -6,6 +6,7 @@ import SensorDetail from "./SensorDetail";
 import StructurePage from "./StructurePage";
 import GatewayPage from "./GatewayPage";
 import PortsPage from "./PortsPage";
+import MqttPayloadPage from "./MqttPayloadPage";
 import FarmProfilePage from "./FarmProfilePage";
 import { Chip, Modal, dt, errText } from "./ui";
 import { LEGACY, TABS, type Badge } from "./Sidebar";
@@ -13,12 +14,12 @@ import { LEGACY, TABS, type Badge } from "./Sidebar";
 const Redirect = ({ to }: { to: string }) => { useEffect(() => { go(to); }, [to]); return null; };
 const useMedia = (q: string) => { const [m, setM] = useState(() => window.matchMedia(q).matches); useEffect(() => { const l = window.matchMedia(q); const f = () => setM(l.matches); l.addEventListener("change", f); return () => l.removeEventListener("change", f); }, [q]); return m; };
 
-export default function Settings({ tab, serial, focus, scada, reload, onProfile, badges }: { tab?: string; serial?: string; focus?: string; scada: Scada | null; reload: () => void; onProfile: () => void; badges: Record<string, Badge> }) {
+export default function Settings({ tab, serial, focus, scada, reload, onProfile, badges, admin = true }: { admin?: boolean; tab?: string; serial?: string; focus?: string; scada: Scada | null; reload: () => void; onProfile: () => void; badges: Record<string, Badge> }) {
   const phone = useMedia("(max-width: 767px)"); const redirect = tab ? LEGACY[tab] : undefined; const known = TABS.some(([k]) => k === tab);
   useEffect(() => { if (redirect) go("/settings/" + redirect); else if ((!tab && !phone) || (tab && !known)) go("/settings/farm-profile"); }, [redirect, tab, phone, known]);
   const t = known ? tab! : undefined;
   const body = t === "sensors" ? (serial ? <SensorDetail serial={serial} focus={focus} scada={scada} reload={reload} /> : <SensorsPage scada={scada} reload={reload} />)
-    : t === "farm-structure" ? <StructurePage reload={reload} /> : t === "rs485-ports" ? <PortsPage reload={reload} /> : t === "sensors-gateway" ? <GatewayPage scada={scada} reload={reload} /> : t === "farm-profile" ? <FarmProfilePage onChanged={onProfile} /> : t === "users" ? <UsersPage /> : t === "backup" ? <BackupPage reload={reload} /> : null;
+    : t === "farm-structure" ? <StructurePage reload={reload} /> : t === "rs485-ports" ? <PortsPage reload={reload} /> : t === "sensors-gateway" ? <GatewayPage scada={scada} reload={reload} /> : t === "mqtt-payload" ? <MqttPayloadPage readOnly={!admin} /> : t === "farm-profile" ? <FarmProfilePage onChanged={onProfile} /> : t === "users" ? <UsersPage /> : t === "backup" ? <BackupPage reload={reload} /> : null;
   if (phone && !t) return <Redirect to="/more" />;                                  // the phone list of Settings items is now the MORE sheet (grouped)
   return (
     <main className="fp-page"><div className="fp-settings">

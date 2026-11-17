@@ -15,7 +15,7 @@ const map = loadRegMap("config/gateway-thingsend.yaml"); const A = { username: "
 const SERIALS = ["112600310", "112600311", "112600312"];
 
 // Routes an Operator legitimately uses. Everything else must refuse.
-const OPERATOR_OK = new Set(["GET /api/me", "GET /api/about", "GET /api/state", "GET /api/control", "GET /api/history", "GET /api/history/export.csv", "GET /api/reports/meta", "GET /api/scada", "GET /api/alarms", "GET /api/alarms/history", "GET /api/gateway/status", "GET /api/farm-profile/public", "GET /api/branding", "GET /api/farm-profile/logo", "GET /api/farm-contacts/alarm-view", "POST /api/commands", "POST /api/alarms/:id/ack", "POST /api/logout"]);
+const OPERATOR_OK = new Set(["GET /api/me", "GET /api/mqtt", "GET /api/about", "GET /api/state", "GET /api/control", "GET /api/history", "GET /api/history/export.csv", "GET /api/reports/meta", "GET /api/scada", "GET /api/alarms", "GET /api/alarms/history", "GET /api/gateway/status", "GET /api/farm-profile/public", "GET /api/branding", "GET /api/farm-profile/logo", "GET /api/farm-contacts/alarm-view", "POST /api/commands", "POST /api/alarms/:id/ack", "POST /api/logout"]);
 const PUBLIC = new Set(["POST /api/login", "GET /api/health"]);
 // Keys that may never appear in an Operator response, at any depth.
 const FORBIDDEN_KEYS = new Set(["serial", "slot", "raw", "temperature_raw", "humidity_raw", "offset", "gain", "calibratedBy", "calibratedAt", "calDueAt", "calibrated", "calibrated_by", "intervalSec", "offlineAfterSec", "lowVoltage", "intervalOk", "applying",
@@ -45,7 +45,7 @@ function leaks(txt: string, json: any, ctx: { serials: string[]; rawOnly: number
   const out: string[] = []; const low = txt.toLowerCase();
   for (const s of ctx.serials) if (low.includes(s.toLowerCase())) out.push(`serial ${s} appears`);
   if (/_raw/.test(txt)) out.push("a *_raw field appears"); if (/gateway\//.test(txt)) out.push("a gateway/<type> topic appears");
-  const walk = (v: any, path: string) => { if (Array.isArray(v)) v.forEach((x, i) => walk(x, path + "[" + i + "]")); else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { if (FORBIDDEN_KEYS.has(k)) out.push(`forbidden key "${k}" at ${path}.${k}`); if (k === "source" && x !== "") out.push(`source is not blank at ${path}`); walk(x, path + "." + k); } else if (typeof v === "number" && ctx.rawOnly.some((r) => Math.abs(r - v) < 1e-9)) out.push(`raw value ${v} at ${path}`); };
+  const walk = (v: any, path: string) => { if (Array.isArray(v)) v.forEach((x, i) => walk(x, path + "[" + i + "]")); else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { if (FORBIDDEN_KEYS.has(k) && !(k === "offset" && path.includes(".mapping.rules"))) out.push(`forbidden key "${k}" at ${path}.${k}`); if (k === "source" && x !== "") out.push(`source is not blank at ${path}`); walk(x, path + "." + k); } else if (typeof v === "number" && ctx.rawOnly.some((r) => Math.abs(r - v) < 1e-9)) out.push(`raw value ${v} at ${path}`); };
   if (json !== null) walk(json, "$"); return out;
 }
 const sub = (url: string, ctx: { serial: string }) => url.replace(":serial", ctx.serial).replace(/:id/g, "1").replace(":type", "th");

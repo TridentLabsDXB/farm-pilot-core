@@ -30,11 +30,13 @@ import { readBuild } from "./about/build.js";
 import { registerHistoryRoutes } from "./history/routes.js";
 import { registerDeploymentRoutes } from "./deployments/routes.js";
 import type { SigningOpts } from "./deployments/signing.js";
+import { MqttSourceService } from "./mqtt/service.js";
+import { registerMqttRoutes } from "./mqtt/routes.js";
 
 const COOKIE = "core_session";
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
-export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null, opts: { online?: boolean; now?: () => number; signing?: SigningOpts } = {}) {
+export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null, opts: { online?: boolean; now?: () => number; signing?: SigningOpts; mqtt?: MqttSourceService | null } = {}) {
   const online = opts.online ?? config.online;   // 2026-11-17: Online build flag (config.online / FP_ONLINE); tests pass it explicitly
   const app = Fastify({ logger: { level: "info" }, trustProxy: config.trustProxy, bodyLimit: 64 * 1024 });
   // Every registered route is recorded, so tests can call ALL of them as an Operator (test/operator-access.test.ts).
@@ -136,6 +138,8 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
   if (ports) registerPortRoutes(app, ports, admin, () => send({ type: "ports" }));
   if (online) registerDeploymentRoutes(app, db, admin, opts.now, { keyFile: config.licenceSigningKeyFile, ...opts.signing });       // Online build only: a standalone build has no table and no route (404)
+  // MQTT Payload source (2026-11-18). index.ts starts it; without one passed in (tests) an idle service is created so the routes still work. It never counts against the licence for now (TODO in mqtt/service.ts).
+  registerMqttRoutes(app, opts.mqtt ?? new MqttSourceService(db, ingest), admin);
 
   app.get("/ws", { websocket: true }, (socket, req) => {
     if (!userFromToken(db, req.cookies[COOKIE])) { socket.close(4401, "login required"); return; }

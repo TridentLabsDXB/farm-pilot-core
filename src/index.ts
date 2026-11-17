@@ -14,6 +14,7 @@ import { PortStore } from "./ports/store.js";
 import { PortManager } from "./ports/manager.js";
 import { installLogCapture } from "./about/logbuf.js";
 import { LicenceService } from "./licence/service.js";
+import { MqttSourceService } from "./mqtt/service.js";
 
 installLogCapture();                       // keeps a sanitised copy of the last log lines for diagnostics (about/logbuf.ts)
 console.log(`database: ${config.dbPath} (data folder: ${config.dataDir})`);       // the resolved path, so a wrong DATA_DIR / DB_PATH is visible in the first log line
@@ -54,7 +55,10 @@ if (portStore.migrateFromEnv({ transport: config.gwTransport, host: config.gwHos
 const ports = new PortManager(db, portStore, map, gw);
 await ports.start();
 const lic = new LicenceService(db);       // FREE until a licence is installed; re-read now and every 24 h (expiry is also checked live on every use)
-const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError, ports, lic);
+// MQTT Payload source: connects only when an Admin enabled it; a broker that is down never blocks start-up (it reconnects with backoff in the background).
+const mqttSrc = new MqttSourceService(db, ingest);
+mqttSrc.start();
+const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError, ports, lic, { mqtt: mqttSrc });
 pushTelemetry = pt; pushCommand = pc;
 await app.listen({ host: config.host, port: config.port });
 
@@ -69,7 +73,7 @@ setTimeout(() => runLicenceRetention(db, lic).catch((e) => console.error("retent
 let stopping = false;
 async function shutdown() {
   if (stopping) return; stopping = true; timers.forEach(clearInterval);
-  await ports.stop(); await gw?.stop(); await app.close(); client.end(true); await broker.stop(); db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); process.exit(0);
+  await mqttSrc.stop(); await ports.stop(); await gw?.stop(); await app.close(); client.end(true); await broker.stop(); db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); process.exit(0);
 }
 process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
 void getSetting;

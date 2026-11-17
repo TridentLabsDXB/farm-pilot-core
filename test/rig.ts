@@ -3,9 +3,9 @@ import "./isolate.js";
 import type { AddressInfo } from "node:net";
 import { openDb, type Db } from "../src/db.js"; import { Ingest } from "../src/ingest.js"; import { hashPassword, createSession } from "../src/auth.js"; import { buildApp } from "../src/app.js"; import { Commands } from "../src/commands.js";
 
-export async function rig(opts: { db?: Db; lic?: any; online?: boolean; now?: () => number; signing?: any } = {}) {
+export async function rig(opts: { db?: Db; lic?: any; online?: boolean; now?: () => number; signing?: any; mq?: any } = {}) {
   const db = opts.db ?? openDb(":memory:"); const commands = new Commands(db, { publish() {} } as any, () => {});
-  const built = await (buildApp as any)(db, new Ingest(db), commands, null, null, null, null, opts.lic, { online: opts.online ?? false, now: opts.now, signing: opts.signing });
+  const built = await (buildApp as any)(db, new Ingest(db), commands, null, null, null, null, opts.lic, { online: opts.online ?? false, now: opts.now, signing: opts.signing, mqtt: opts.mq });
   await built.app.listen({ port: 0, host: "127.0.0.1" }); const port = (built.app.server.address() as AddressInfo).port;
   const mk = (name: string, role: string) => { const id = Number(db.prepare("INSERT INTO users(username,pass_hash,role,created_at) VALUES(?,?,?,?)").run(name, hashPassword("x".repeat(10)), role, 1).lastInsertRowid); return { id, cookie: "core_session=" + createSession(db, id) }; };
   const admin = mk("admin", "admin"), op = mk("op1", "operator");
