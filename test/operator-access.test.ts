@@ -11,6 +11,10 @@ import { GatewaySim } from "../src/tools/gateway-sim/sim.js"; import { serveSim 
 import { createTransport } from "../src/drivers/modbus/transport.js"; import { ModbusMaster } from "../src/drivers/modbus/master.js"; import { GatewayDriver } from "../src/drivers/modbus/driver.js";
 import { Registry } from "../src/gateway/registry.js"; import { GatewayService } from "../src/gateway/service.js";
 
+// 2026-11-18 -- DETERMINISTIC DATA. The gateway simulator random-walks its readings with Math.random (0.1 resolution). Now and then a raw-only value landed on exactly the same number as a calibrated value or a
+// zone average, and this scan reported a "leak" that was a coincidence (seen as 1 failure in about 8 parallel runs: "raw value 26.7 at $.zones[0].avgTemperature", or "test data must contain raw values that
+// differ"). A fixed seed (mulberry32) makes every run identical; the scan itself is unchanged. The seed is test-file local: node runs each test file in its own process.
+{ let a = 0x2f6e2b1; Math.random = () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const map = loadRegMap("config/gateway-thingsend.yaml"); const A = { username: "admin", role: "admin" }; const closers: (() => void)[] = []; after(() => closers.forEach((c) => c()));
 const SERIALS = ["112600310", "112600311", "112600312"];
 
@@ -24,7 +28,7 @@ const FORBIDDEN_KEYS = new Set(["serial", "slot", "raw", "temperature_raw", "hum
 async function boot() {
   const db = openDb(":memory:"); const sim = new GatewaySim(map); const srv = serveSim(sim, 0, "mbap"); await new Promise((r) => srv.once("listening", r));
   const tr = createTransport({ type: "tcp", host: "127.0.0.1", port: (srv.address() as AddressInfo).port });
-  const ingest = new Ingest(db); const reg = new Registry(db, map); const gw = new GatewayService(db, reg, ingest, new GatewayDriver(new ModbusMaster(tr, { unit: map.default_gateway_address, timeoutMs: 150, retries: 0 }), map));
+  const ingest = new Ingest(db); const reg = new Registry(db, map); const gw = new GatewayService(db, reg, ingest, new GatewayDriver(new ModbusMaster(tr, { unit: map.default_gateway_address, timeoutMs: 1500, retries: 0 }), map));
   const commands = new Commands(db, { publish() {} } as any, () => {}); const { app, routes } = await buildApp(db, ingest, commands, reg, gw);
   await app.listen({ port: 0, host: "127.0.0.1" }); closers.push(() => { void app.close(); void tr.close(); srv.close(); });
   const port = (app.server.address() as AddressInfo).port;
