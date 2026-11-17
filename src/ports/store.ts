@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS serial_ports (
   id INTEGER PRIMARY KEY, label TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, transport TEXT NOT NULL DEFAULT 'serial' CHECK (transport IN ('serial','tcp')),
   device_path TEXT NOT NULL DEFAULT '', tcp_host TEXT NOT NULL DEFAULT '', tcp_port INTEGER NOT NULL DEFAULT 502, tcp_framing TEXT NOT NULL DEFAULT 'rtu' CHECK (tcp_framing IN ('rtu','mbap')),
   baud INTEGER NOT NULL DEFAULT 9600, data_bits INTEGER NOT NULL DEFAULT 8, parity TEXT NOT NULL DEFAULT 'none', stop_bits INTEGER NOT NULL DEFAULT 1,
-  timeout_ms INTEGER NOT NULL DEFAULT 1000, retries INTEGER NOT NULL DEFAULT 2, turnaround_ms INTEGER NOT NULL DEFAULT 50,
+  timeout_ms INTEGER NOT NULL DEFAULT 1500, retries INTEGER NOT NULL DEFAULT 2, turnaround_ms INTEGER NOT NULL DEFAULT 50,
   last_good TEXT,                       -- JSON of the last settings that answered, used by REVERT
   updated_at INTEGER, updated_by TEXT);
 CREATE TABLE IF NOT EXISTS bus_devices (
@@ -46,6 +46,13 @@ export class PortStore {
   }
   private insertPort(p: PortRow) { this.db.prepare("INSERT INTO serial_ports(id,label) VALUES(?,?)").run(p.id, p.label); }
 
+  /** One-time repair (flag in `settings`): until 2026-11-17 the UI could not switch a device off, so every device row with enabled=0 is the old "env gateway off" seed, not a decision. Switch them on;
+   *  the port's own Enabled flag still decides whether anything is opened. Returns the number of rows changed. */
+  repairDeviceFlags(): number {
+    const KEY = "bus_devices_on_by_default"; if (this.db.prepare("SELECT 1 FROM settings WHERE key=?").get(KEY)) return 0;
+    const n = this.db.prepare("UPDATE bus_devices SET enabled=1 WHERE enabled=0").run().changes; this.db.prepare("INSERT INTO settings(key,value) VALUES(?,?)").run(KEY, "1"); return n;
+  }
+
   /** First start: today's gateway link (environment file) becomes Port 1 + the LoRa Sensor Gateway device, so a running box changes nothing. Port 2 and the weather station are created OFF
    *  (NOT CONNECTED until the Admin picks a device). Runs once: later changes live in the database, and the environment values are only these initial defaults. */
   migrateFromEnv(env: EnvLink, defaultGatewayAddress: number) {
@@ -53,11 +60,13 @@ export class PortStore {
     const off = env.transport === "off", serial = env.transport === "rtu-serial";
     const p1: PortRow = { id: 1, label: "Port 1 - LoRa gateway", enabled: !off, transport: serial ? "serial" : "tcp", device_path: serial ? env.serialPath : "", tcp_host: serial ? "" : env.host, tcp_port: serial ? 502 : env.port,
       tcp_framing: env.transport === "tcp" ? "mbap" : "rtu", baud: env.baud, data_bits: 8, parity: env.parity, stop_bits: 1, timeout_ms: env.timeoutMs, retries: env.retries, turnaround_ms: PORT_DEFAULTS.turnaround_ms };
-    const p2: PortRow = { id: 2, label: "Port 2 - Weather station", enabled: false, transport: "serial", device_path: "", tcp_host: "", tcp_port: 502, tcp_framing: "rtu", baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1000, retries: 2, turnaround_ms: 50 };
+    const p2: PortRow = { id: 2, label: "Port 2 - Weather station", enabled: false, transport: "serial", device_path: "", tcp_host: "", tcp_port: 502, tcp_framing: "rtu", baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1500, retries: 2, turnaround_ms: 50 };
     this.db.transaction(() => {
       for (const p of [p1, p2]) { this.insertPort(p); this.savePort(p, "migration"); this.setLastGood(p.id, p); }
       const ins = this.db.prepare("INSERT INTO bus_devices(kind,model,port_id,modbus_address,poll_interval_s,enabled) VALUES(?,?,?,?,?,?)");
-      ins.run("lora_gateway", "XZ-DS-MUS2", 1, env.address || defaultGatewayAddress, 30, off ? 0 : 1);
+      // 2026-11-17 (Windows lab): the device was seeded OFF when GW_TRANSPORT=off, and the Devices table has no switch for it, so ticking Enabled on Port 1 never started polling
+      // ("(switched off)" on the Gateway page, NO GATEWAY, counters 0/0). The PORT is the switch; the device row is seeded ON. See repairDeviceFlags() for boxes that already have the old seed.
+      ins.run("lora_gateway", "XZ-DS-MUS2", 1, env.address || defaultGatewayAddress, 30, 1);
       ins.run("weather", "WN90LP", 2, 144, 30, 1);                 // 144 = 0x90, probably the factory address (to verify with the manual)
     })();
     return true;

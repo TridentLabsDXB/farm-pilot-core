@@ -5,15 +5,16 @@ import { Chip, Modal, ago, errText, useNow, type Tone } from "./ui";
 // Settings > RS-485 PORTS (Admin only). Two port cards (line settings, timing, status, TEST PORT, SAVE), then "Devices on ports" (which device sits on which port, at which address).
 // Changes apply without restarting CORE. If a device that was online stops answering afterwards, a dialog asks to KEEP THESE SETTINGS; after 30 s CORE reverts by itself.
 interface Port { id: number; label: string; enabled: boolean; transport: "serial" | "tcp"; device_path: string; tcp_host: string; tcp_port: number; tcp_framing: "rtu" | "mbap"; baud: number; data_bits: number; parity: string; stop_bits: number; timeout_ms: number; retries: number; turnaround_ms: number;
-  status: "OPEN" | "CLOSED" | "ERROR" | "NOT FOUND"; lastError: string | null; counters: { requests: number; errors: number; lastOk: number | null }; devices: number; }
+  status: "OPEN" | "CLOSED" | "ERROR" | "NOT FOUND" | "ACCESS DENIED" | "NOT OPEN"; notPolled?: boolean; lastError: string | null; counters: { requests: number; errors: number; lastOk: number | null }; devices: number; }
 interface Dev { id: number; kind: string; model: string; port_id: number; modbus_address: number; poll_interval_s: number; enabled: boolean; state: "online" | "offline" | "not_connected" | "unknown"; lastOk: number | null; lastMs: number | null; }
-interface View { ports: Port[]; devices: Dev[]; shared: number[]; sharedRules: string[]; pending: { deadline: number; ports: number[] } | null; revertWindowSec: number; bauds: number[]; defaults: Record<string, number | string>; }
-interface Found { path: string; kind: string; target: string; accessible: boolean; }
+interface View { platform?: string; ports: Port[]; devices: Dev[]; shared: number[]; sharedRules: string[]; pending: { deadline: number; ports: number[] } | null; revertWindowSec: number; bauds: number[]; defaults: Record<string, number | string>; }
+interface Found { path: string; kind: string; target: string; accessible: boolean; label?: string; }
+interface Summary { tone: "ok" | "warn" | "err"; text: string; }
 interface TestRes { deviceId: number; model: string; address: number; result: string; ms: number | null; detail?: string; }
 
-const PORT_TONE: Record<string, Tone> = { OPEN: "ok", CLOSED: "off", ERROR: "alarm", "NOT FOUND": "warn" };
+const PORT_TONE: Record<string, Tone> = { OPEN: "ok", CLOSED: "off", ERROR: "alarm", "NOT FOUND": "warn", "ACCESS DENIED": "alarm", "NOT OPEN": "warn" };
 const DEV_STATE: Record<string, [Tone, string]> = { online: ["ok", "ONLINE"], offline: ["alarm", "OFFLINE"], not_connected: ["off", "NOT CONNECTED"], unknown: ["info", "WAITING"] };
-const TEST_WORD: Record<string, [Tone, string]> = { ok: ["ok", "OK"], no_answer: ["alarm", "NO ANSWER"], crc_error: ["alarm", "CRC ERROR"], error: ["alarm", "ERROR"], not_connected: ["off", "NOT CONNECTED"] };
+const TEST_WORD: Record<string, [Tone, string]> = { ok: ["ok", "OK"], no_answer: ["alarm", "NO ANSWER"], crc_error: ["alarm", "CRC ERROR"], error: ["alarm", "ERROR"], not_connected: ["off", "NOT CONNECTED"], off: ["warn", "SWITCHED OFF"], open_error: ["alarm", "CANNOT OPEN"], invalid: ["alarm", "INVALID SETTINGS"] };
 const KIND_LABEL: Record<string, string> = { lora_gateway: "LoRa Sensor Gateway", weather: "Weather Station", fan_link: "Fan command link", io_module: "Modbus I/O module" };
 const FIELDS = ["label", "enabled", "transport", "device_path", "tcp_host", "tcp_port", "tcp_framing", "baud", "data_bits", "parity", "stop_bits", "timeout_ms", "retries", "turnaround_ms"] as const;
 const pick = (p: Port) => Object.fromEntries(FIELDS.map((k) => [k, p[k]]));
@@ -34,22 +35,31 @@ export default function PortsPage({ reload }: { reload: () => void }) {
   if (!v) return <section className="fp-card"><p className="fp-msg">Loading...</p></section>;
 
   const set = (id: number, patch: Partial<Port>) => setDrafts((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+  // Choosing a serial device on a port that is switched off and had no device yet also ticks Enabled (the first SAVE then opens it). The checkbox stays visible and can be unticked.
+  const pickDevice = (p: Port, path: string): Partial<Port> => (!p.enabled && !p.device_path && path ? { device_path: path, enabled: true } : { device_path: path });
   const num = (s: string) => (s === "" ? NaN : Number(s));
   const run = async (key: string, f: () => Promise<void>) => { setBusy(key); try { await f(); } catch (e) { say(key, "err", errText(e)); } finally { setBusy(null); } };
   const savePort = (p: Port) => run("p" + p.id, async () => {
-    const r = await api<{ results: TestRes[]; pending: unknown; unchanged?: boolean }>("/ports/" + p.id, { method: "PUT", json: pick(drafts[p.id]) });
+    const r = await api<{ results: TestRes[]; pending: unknown; unchanged?: boolean; summary?: Summary }>("/ports/" + p.id, { method: "PUT", json: pick(drafts[p.id]) });
     setTests((t) => ({ ...t, [p.id]: r.results })); await load(true); reload();
-    say("p" + p.id, r.pending ? "err" : "ok", r.unchanged ? "Nothing changed." : r.pending ? "Saved, but a device that was online is not answering. Keep or revert." : "Saved. The port was reopened and tested.");
+    // The sentence comes from the server and is built from the real test result (2026-11-17: it used to say "reopened and tested" whatever happened).
+    say("p" + p.id, r.pending ? "err" : r.summary?.tone ?? "ok", (r.pending ? "A device that was online is not answering: keep or revert. " : "") + (r.summary?.text ?? (r.unchanged ? "Nothing changed." : "Saved.")));
   });
-  const testPort = (p: Port) => run("t" + p.id, async () => { const r = await api<{ results: TestRes[] }>("/ports/" + p.id + "/test", { method: "POST" }); setTests((t) => ({ ...t, [p.id]: r.results })); await load(); say("t" + p.id, "ok", r.results.length ? "" : "No device is assigned to this port."); });
-  const revert = (p: Port) => run("p" + p.id, async () => { const r = await api<{ results: TestRes[] }>("/ports/" + p.id + "/revert", { method: "POST" }); setTests((t) => ({ ...t, [p.id]: r.results })); await load(true); say("p" + p.id, "ok", "Reverted to the last working settings."); });
+  // TEST PORT runs on what the form shows now (saved or not): the port fields and the address / poll / enabled of the devices on it. The answer is always a sentence plus one row per device.
+  const testPort = (p: Port) => run("t" + p.id, async () => {
+    const devs: Record<number, unknown> = {}; for (const d of Object.values(devDrafts)) devs[d.id] = { port_id: d.port_id, modbus_address: d.modbus_address, poll_interval_s: d.poll_interval_s, enabled: d.enabled };
+    const r = await api<{ results: TestRes[]; summary: Summary }>("/ports/" + p.id + "/test", { method: "POST", json: { port: pick(drafts[p.id] ?? p), devices: devs } });
+    setTests((t) => ({ ...t, [p.id]: r.results })); await load(); say("t" + p.id, r.summary.tone === "err" ? "err" : r.summary.tone === "warn" ? "warn" : "ok", r.summary.text);
+  });
+  const revert = (p: Port) => run("p" + p.id, async () => { const r = await api<{ results: TestRes[]; summary?: Summary }>("/ports/" + p.id + "/revert", { method: "POST" }); setTests((t) => ({ ...t, [p.id]: r.results })); await load(true); say("p" + p.id, r.summary?.tone ?? "ok", r.summary?.text ?? "Reverted to the last working settings."); });
   const keep = () => run("keep", async () => { await api("/ports/1/keep", { method: "POST" }); await load(true); });
   const revertPending = () => run("keep", async () => { await api("/ports/" + (v.pending?.ports[0] ?? 1) + "/revert", { method: "POST" }); await load(true); });
   const saveDev = (d: Dev) => run("d" + d.id, async () => {
-    const x = devDrafts[d.id]; const r = await api<{ results: TestRes[]; pending: unknown; unchanged?: boolean }>("/devices/" + d.id, { method: "PUT", json: { port_id: x.port_id, modbus_address: x.modbus_address, poll_interval_s: x.poll_interval_s, enabled: x.enabled } });
-    await load(true); reload(); say("d" + d.id, r.pending ? "err" : "ok", r.unchanged ? "Nothing changed." : r.pending ? "Saved, but the device is not answering on this port. Keep or revert." : "Saved. Polling paused, applied, tested and resumed.");
+    const x = devDrafts[d.id]; const r = await api<{ results: TestRes[]; pending: unknown; unchanged?: boolean; summary?: Summary }>("/devices/" + d.id, { method: "PUT", json: { port_id: x.port_id, modbus_address: x.modbus_address, poll_interval_s: x.poll_interval_s, enabled: x.enabled } });
+    await load(true); reload(); say("d" + d.id, r.pending ? "err" : r.summary?.tone ?? "ok", (r.pending ? "The device is not answering on this port: keep or revert. " : "") + (r.summary?.text ?? "Saved."));
   });
 
+  const win = v.platform === "win32";
   const secs = v.pending ? Math.max(0, Math.ceil((v.pending.deadline - now) / 1000)) : 0;
   const withCur = (p: Port) => (p.device_path && !found.some((f) => f.path === p.device_path) ? [{ path: p.device_path, kind: "saved", target: "", accessible: true } as Found, ...found] : found);
 
@@ -60,17 +70,17 @@ export default function PortsPage({ reload }: { reload: () => void }) {
         <button className="fp-btn small" type="button" disabled={p[k] === d[k]} onClick={() => set(p.id, { [k]: d[k] } as Partial<Port>)}>Reset</button></div><span className="fp-hint">{hint} (default {String(d[k])})</span></label>);
     return (
       <section className="fp-card" key={srv.id} aria-label={`Port ${srv.id}`}>
-        <div className="fp-row fp-spread"><h3>Port {srv.id}</h3><div className="fp-row" style={{ gap: 8 }}>{changed && <Chip tone="warn">CHANGED</Chip>}<Chip tone={PORT_TONE[srv.status]} title={srv.lastError ?? undefined}>{srv.status}</Chip></div></div>
+        <div className="fp-row fp-spread"><h3>Port {srv.id}</h3><div className="fp-row" style={{ gap: 8 }}>{changed && <Chip tone="warn">CHANGED</Chip>}<Chip tone={srv.notPolled ? "warn" : PORT_TONE[srv.status]} title={srv.lastError ?? undefined}>{srv.notPolled ? "OPEN, NOT POLLED" : srv.status}</Chip></div></div>
         <div className="fp-form">
           <label className="fp-field"><span className="fp-cap">Name</span><input className="fp-input" value={p.label} maxLength={60} onChange={(e) => set(p.id, { label: e.target.value })} /></label>
           <label className="fp-field"><span className="fp-cap">Enabled</span><span className="fp-row" style={{ minHeight: 44 }}><input type="checkbox" style={{ width: 24, height: 24 }} checked={p.enabled} onChange={(e) => set(p.id, { enabled: e.target.checked })} aria-label={`Port ${p.id} enabled`} />{p.enabled ? "ON" : "OFF"}</span></label>
           <label className="fp-field"><span className="fp-cap">Connection type</span><select className="fp-input" value={p.transport} onChange={(e) => set(p.id, { transport: e.target.value as Port["transport"] })}><option value="serial">Serial device</option><option value="tcp">TCP (RS-485 to Ethernet converter, bench simulator)</option></select></label>
           {p.transport === "serial" ? <>
-            <label className="fp-field wide"><span className="fp-cap">Serial device</span>
-              <div className="fp-row" style={{ gap: 8, flexWrap: "nowrap" }}><select className="fp-input" style={{ flex: 1 }} value={p.device_path} onChange={(e) => set(p.id, { device_path: e.target.value })}><option value="">Choose a device...</option>{withCur(p).map((f) => <option key={f.path} value={f.path}>{f.path}{f.accessible ? "" : "  (no permission)"}</option>)}</select>
+            <label className="fp-field wide"><span className="fp-cap">{win ? "Serial port (COM)" : "Serial device"}</span>
+              <div className="fp-row" style={{ gap: 8, flexWrap: "nowrap" }}><select className="fp-input" style={{ flex: 1 }} value={p.device_path} onChange={(e) => set(p.id, pickDevice(p, e.target.value))}><option value="">Choose a device...</option>{withCur(p).map((f) => <option key={f.path} value={f.path}>{f.label ?? f.path}{f.accessible ? "" : "  (no permission)"}</option>)}</select>
                 <button className="fp-btn small" type="button" onClick={() => void refreshList()}>Refresh list</button></div>
-              <input className="fp-input" value={p.device_path} placeholder="/dev/serial/by-id/... (advanced: type a path)" onChange={(e) => set(p.id, { device_path: e.target.value.trim() })} aria-label="Serial device path" />
-              <span className="fp-hint">Stable by-id names are listed first: ttyUSB numbers can change after a reboot.</span></label></> : <>
+              <input className="fp-input" value={p.device_path} placeholder={win ? "COM3 (type the COM port name if it is not in the list)" : "/dev/serial/by-id/... (advanced: type a path)"} onChange={(e) => set(p.id, pickDevice(p, e.target.value.trim()))} aria-label={win ? "COM port name" : "Serial device path"} />
+              <span className="fp-hint">{win ? "Windows gives a USB adapter a COM number that can change when it is plugged into another USB socket. Check Device Manager > Ports (COM & LPT) if the port is not found." : "Stable by-id names are listed first: ttyUSB numbers can change after a reboot."}</span></label></> : <>
             <label className="fp-field"><span className="fp-cap">Host</span><input className="fp-input" value={p.tcp_host} onChange={(e) => set(p.id, { tcp_host: e.target.value.trim() })} placeholder="192.168.1.50" /></label>
             <label className="fp-field"><span className="fp-cap">TCP port</span><input className="fp-input" inputMode="numeric" value={Number.isNaN(p.tcp_port) ? "" : p.tcp_port} onChange={(e) => set(p.id, { tcp_port: num(e.target.value) })} /></label>
             <label className="fp-field"><span className="fp-cap">Framing</span><select className="fp-input" value={p.tcp_framing} onChange={(e) => set(p.id, { tcp_framing: e.target.value as Port["tcp_framing"] })}><option value="rtu">RTU over TCP (converter)</option><option value="mbap">Modbus TCP (bench simulator)</option></select></label></>}
@@ -84,7 +94,7 @@ export default function PortsPage({ reload }: { reload: () => void }) {
           {timing("timeout_ms", "Response timeout (ms)", "100 to 10000")}{timing("retries", "Retries", "0 to 5")}{timing("turnaround_ms", "Turnaround delay (ms)", "pause between requests")}
         </div>
         <ul className="fp-list"><li><span>Requests / errors</span><span className="fp-num">{srv.counters.requests} / {srv.counters.errors}</span></li><li><span>Last success</span><span>{ago(srv.counters.lastOk, now)}</span></li><li><span>Devices on this port</span><span className="fp-num">{srv.devices}</span></li></ul>
-        {srv.lastError && srv.status !== "OPEN" && <p className="fp-msg err" role="status">{srv.lastError}</p>}
+        {srv.lastError && (srv.status !== "OPEN" || srv.notPolled) && <p className={`fp-msg ${srv.notPolled ? "warn" : "err"}`} role="status">{srv.lastError}</p>}
         <div className="fp-row"><button className="fp-btn" disabled={busy !== null} onClick={() => void testPort(srv)}>{busy === "t" + srv.id ? "Testing..." : "Test port"}</button>
           <button className="fp-btn primary" disabled={busy !== null || !changed} onClick={() => void savePort(srv)}>{busy === "p" + srv.id ? "Applying..." : "Save"}</button>
           <button className="fp-btn" disabled={busy !== null || !changed} onClick={() => set(srv.id, srv)}>Discard</button>
@@ -99,7 +109,7 @@ export default function PortsPage({ reload }: { reload: () => void }) {
       <p className="fp-hint">Each bus device sits on one port at one Modbus address. Move a device with the Port menu: polling pauses, the change is applied and tested, then polling resumes.</p>
       {v.shared.length > 0 && <div className="fp-banner" data-tone="warn" role="status"><b>TWO DEVICES ON ONE PORT ({v.shared.map((i) => "Port " + i).join(", ")})</b><ul style={{ margin: "6px 0 0 18px", padding: 0 }}>{v.sharedRules.map((r) => <li key={r}>{r}</li>)}</ul></div>}
       <div className="fp-devs" role="table" aria-label="Device assignment">
-        <div className="fp-devrow fp-devhead" role="row"><span className="fp-cap">Device</span><span className="fp-cap">Port</span><span className="fp-cap">Modbus address</span><span className="fp-cap">Poll (s)</span><span className="fp-cap">Status</span><span /></div>
+        <div className="fp-devrow fp-devhead" role="row"><span className="fp-cap">Device</span><span className="fp-cap">Port</span><span className="fp-cap">Modbus address</span><span className="fp-cap">Poll (s)</span><span className="fp-cap">Enabled</span><span className="fp-cap">Status</span><span /></div>
         {v.devices.map((srv) => {
           const x = devDrafts[srv.id] ?? srv; const changed = x.port_id !== srv.port_id || x.modbus_address !== srv.modbus_address || x.poll_interval_s !== srv.poll_interval_s || x.enabled !== srv.enabled; const [tone, word] = DEV_STATE[srv.state]; const m = msg["d" + srv.id];
           const setD = (patch: Partial<Dev>) => setDevDrafts((d) => ({ ...d, [srv.id]: { ...x, ...patch } }));
@@ -109,6 +119,7 @@ export default function PortsPage({ reload }: { reload: () => void }) {
               <span role="cell"><select className="fp-input" value={x.port_id} aria-label={`${srv.model} port`} onChange={(e) => setD({ port_id: Number(e.target.value) })}>{v.ports.map((p) => <option key={p.id} value={p.id}>Port {p.id}</option>)}</select></span>
               <span role="cell"><input className="fp-input" inputMode="numeric" value={Number.isNaN(x.modbus_address) ? "" : x.modbus_address} aria-label={`${srv.model} Modbus address`} onChange={(e) => setD({ modbus_address: num(e.target.value) })} /></span>
               <span role="cell"><input className="fp-input" inputMode="numeric" value={Number.isNaN(x.poll_interval_s) ? "" : x.poll_interval_s} aria-label={`${srv.model} poll interval`} onChange={(e) => setD({ poll_interval_s: num(e.target.value) })} /></span>
+              <span role="cell"><label className="fp-row" style={{ gap: 6, minHeight: 44 }}><input type="checkbox" style={{ width: 24, height: 24 }} checked={x.enabled} onChange={(e) => setD({ enabled: e.target.checked })} aria-label={`${srv.model} enabled`} />{x.enabled ? "ON" : "OFF"}</label></span>
               <span role="cell" className="fp-row" style={{ gap: 6 }}><Chip tone={tone}>{word}</Chip>{changed && <Chip tone="warn">CHANGED</Chip>}</span>
               <span role="cell" className="fp-row" style={{ gap: 6 }}><button className="fp-btn small primary" disabled={busy !== null || !changed} onClick={() => void saveDev(srv)}>{busy === "d" + srv.id ? "Applying..." : "Save"}</button>{changed && <button className="fp-btn small" onClick={() => setDevDrafts((d) => ({ ...d, [srv.id]: srv }))}>Discard</button>}</span>
             </div>{m && m.s && <p className={`fp-msg ${m.t}`} role="status" style={{ gridColumn: "1 / -1" }}>{m.s}</p>}</div>);
@@ -130,5 +141,5 @@ export default function PortsPage({ reload }: { reload: () => void }) {
 function TestList({ rows }: { rows: TestRes[] }) {
   if (!rows.length) return null;
   return <ul className="fp-list" aria-label="Test result">{rows.map((r) => { const [tone, word] = TEST_WORD[r.result] ?? ["off", r.result.toUpperCase()]; return (
-    <li key={r.deviceId}><span>{r.model} (address {r.address})</span><span className="fp-row" style={{ gap: 8 }}><Chip tone={tone} title={r.detail}>{word}</Chip><span className="fp-num">{r.ms === null ? "--" : r.ms + " ms"}</span></span></li>); })}</ul>;
+    <li key={r.deviceId}><span>{r.model} (address {r.address})</span><span className="fp-row" style={{ gap: 8 }}><Chip tone={tone} title={r.detail}>{word}</Chip><span className="fp-num">{r.ms === null ? "--" : r.ms + " ms"}</span></span>{r.detail && r.result !== "ok" && <span className="fp-hint" style={{ flexBasis: "100%" }}>{r.detail}</span>}</li>); })}</ul>;
 }

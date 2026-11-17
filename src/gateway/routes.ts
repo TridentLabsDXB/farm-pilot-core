@@ -42,7 +42,9 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
     // The link settings now live in the RS-485 Ports page (database). This is the read-only summary; without a manager (tests) the old environment values are shown.
     const link = ports ? ports.gatewayLink() : config.gwTransport === "off" ? null : { transport: config.gwTransport, host: config.gwHost, port: config.gwPort, serialPath: config.gwSerialPath, baud: config.gwBaud, parity: config.gwParity, dataBits: 8, stopBits: 1,
       address: config.gwAddress || reg.map.default_gateway_address, timeoutMs: config.gwTimeoutMs, retries: config.gwRetries };
-    return { enabled: svc.enabled, online: svc.online, lastOk: svc.lastOk, lastError: svc.lastError, link, model: reg.map.gateway_model, manual: reg.map.manual_version, mapVersion: reg.map.map_version, info: svc.info,
+    return { enabled: svc.enabled, online: svc.online, lastOk: svc.lastOk, lastError: svc.lastError, link, model: reg.map.gateway_model, manual: reg.map.manual_version, mapVersion: reg.map.map_version,
+      // 2026-11-17 -- the system registers are only read after a poll succeeds, so while the gateway is offline info.address was empty and the card showed "--" although the LINK card showed 7: fall back to the address CORE is configured to use.
+      info: { ...svc.info, address: svc.info.address ?? (link as { address?: number } | null)?.address ?? reg.map.default_gateway_address },
       types: typesInfo(), unsent: pend, pending: db.prepare("SELECT type,serial,slot FROM pending_removals").all(), lastSync: svc.lastSync(), unassigned: svc.unassigned(), syncing: svc.syncing, settings: reg.settings() };
   });
   app.put("/api/gateway/settings", { preHandler: admin }, async (req) => guard(() => { reg.saveSettings(A(req), req.body); return { ok: true }; }));
@@ -105,5 +107,5 @@ export function registerGatewayRoutes(app: FastifyInstance, db: Db, reg: Registr
   // ---- backup ----
   app.get("/api/backup", { preHandler: admin }, async (req, reply) => { audit(db, (req as any).user.username, "admin", "backup.export", {}); reply.header("content-disposition", 'attachment; filename="farmpilot-core-backup.json"'); return { ...reg.exportAll(), ...prof.exportParts(), ...(ports ? ports.exportParts() : {}) }; });
   app.get("/api/backup/status", { preHandler: admin }, async () => { const r = db.prepare("SELECT MAX(ts) t FROM audit_log WHERE action='backup.export'").get() as { t: number | null }; return { lastExportAt: r?.t ?? null, warnDays: Number(getSetting(db, "backup.warn_days", "7")) }; });
-  app.post("/api/backup/restore", { preHandler: admin, bodyLimit: 2 * 1024 * 1024 }, async (req) => { const b = req.body as any; if (b && typeof b === "object") { prof.checkBackup(b); ports?.checkBackup(b); } reg.restore(A(req), req.body); prof.restoreParts(A(req), b); await ports?.restoreParts(A(req), b); push(); return { ok: true }; });
+  app.post("/api/backup/restore", { preHandler: admin, bodyLimit: 2 * 1024 * 1024 }, async (req) => { const b = req.body as any; let warnings: string[] = []; if (b && typeof b === "object") { prof.checkBackup(b); warnings = ports?.checkBackup(b) ?? []; } reg.restore(A(req), req.body); prof.restoreParts(A(req), b); await ports?.restoreParts(A(req), b, warnings); push(); return warnings.length ? { ok: true, warnings } : { ok: true }; });
 }

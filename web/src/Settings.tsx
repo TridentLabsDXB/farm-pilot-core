@@ -61,6 +61,6 @@ function BackupPage({ reload }: { reload: () => void }) {
       <input type="file" className="fp-file" accept="application/json,.json" aria-label="Backup file" onChange={(e) => pick(e.target.files?.[0])} /></section>
     {msg && <p className="fp-msg" role="status">{msg}</p>}
     {pending && <Modal title="Restore backup?" onClose={() => setPending(null)}><p className="fp-msg">This replaces {pending.sensors?.length ?? "?"} sensors, {pending.zones?.length ?? "?"} zones and {pending.calibrations?.length ?? "?"} calibration rows on this box.</p>
-      <div className="fp-row"><button className="fp-btn danger" onClick={async () => { try { await api("/backup/restore", { method: "POST", json: pending }); setMsg("Restored. Now press SEND TO GATEWAY."); setPending(null); reload(); } catch (e) { setMsg(errText(e)); setPending(null); } }}>Replace and restore</button><button className="fp-btn" onClick={() => setPending(null)}>Cancel</button></div></Modal>}
+      <div className="fp-row"><button className="fp-btn danger" onClick={async () => { try { const r = await api<{ warnings?: string[] }>("/backup/restore", { method: "POST", json: pending }); setMsg("Restored. Now press SEND TO GATEWAY." + (r?.warnings?.length ? " WARNING: " + r.warnings.join(" ") : "")); setPending(null); reload(); } catch (e) { setMsg(errText(e)); setPending(null); } }}>Replace and restore</button><button className="fp-btn" onClick={() => setPending(null)}>Cancel</button></div></Modal>}
   </>);
 }

@@ -12,9 +12,11 @@ export interface QueueStats { requests: number; errors: number; lastOk: number |
 export class PortQueue {
   private q: { write: Job[]; poll: Job[] } = { write: [], poll: [] }; private running = false;
   stats: QueueStats = { requests: 0, errors: 0, lastOk: null, lastError: null, lastErrorKind: null, lastErrAt: null };
+  private gate: Promise<unknown> = Promise.resolve();
   constructor(public tr: ModbusTransport, public opts: QueueOptions) {}
-  /** Swap the transport (new line settings). The old one is closed; jobs already queued run on the new one. */
-  async replace(tr: ModbusTransport, opts: QueueOptions) { const old = this.tr; this.tr = tr; this.opts = opts; await old.close().catch(() => {}); }
+  /** Swap the transport (new line settings). The old one is closed; jobs already queued run on the new one, but only after the old handle is released
+   *  (Windows allows one handle per COM port: opening the new line while the old one is still open would fail with "access denied"). */
+  async replace(tr: ModbusTransport, opts: QueueOptions) { const old = this.tr; this.tr = tr; this.opts = opts; const g = old.close().catch(() => {}); this.gate = g; await g; }
   submit(unit: number, prio: Priority, pdu: Buffer): Promise<number[]> {
     return new Promise((resolve, reject) => { this.q[prio].push({ prio, unit, pdu, resolve, reject }); void this.pump(); });
   }
@@ -30,7 +32,7 @@ export class PortQueue {
     } finally { this.running = false; }
   }
   private async exec(j: Job): Promise<number[]> {
-    let last: unknown;
+    let last: unknown; await this.gate;
     for (let a = 0; a <= this.opts.retries; a++) {
       this.stats.requests++;
       try { const r = parseResponse(j.pdu, await this.tr.request(j.unit, j.pdu, this.opts.timeoutMs)); this.stats.lastOk = Date.now(); return r; }

@@ -1,15 +1,15 @@
 // FARM-PILOT CORE -- runtime configuration, all from environment (systemd EnvironmentFile). No file is ever required.
-import { join } from "node:path";
+import { defaultPaths } from "./platform.js";
 const env = process.env;
+const paths = defaultPaths();               // Linux: /var/lib/farmpilot-core. Windows: C:\FarmPilot-Core\{data,logs}. DATA_DIR / DB_PATH override both.
 const int = (k: string, d: number) => { const n = Number(env[k]); return Number.isFinite(n) && env[k] !== undefined && env[k] !== "" ? n : d; };
 
 export const config = {
   host: env.HOST_BIND_IP || "127.0.0.1",
   port: int("PORT", 4100),
-  // 2026-11-17 -- DB_PATH defaults to <DATA_DIR>/core.db. It used to default to /var/lib/farmpilot-core/core.db whatever DATA_DIR said, so a throwaway instance started with only DATA_DIR
-  // opened the LIVE bench database (docs/ops-notes.md, audit row 373). Set DB_PATH explicitly only to put the database somewhere else than the data folder.
-  dbPath: env.DB_PATH || join(env.DATA_DIR || "/var/lib/farmpilot-core", "core.db"),
-  dataDir: env.DATA_DIR || "/var/lib/farmpilot-core",
+  dbPath: paths.dbPath,
+  dataDir: paths.dataDir,
+  logsDir: paths.logsDir,
   mqttHost: "127.0.0.1",                    // loopback ONLY, never configurable to a public address
   mqttPort: int("MQTT_PORT", 1884),         // 1883 is EMQX on the test bench
   farm: env.FARM_SLUG || "demo-farm",
@@ -25,7 +25,7 @@ export const config = {
   sessionHours: int("SESSION_HOURS", 12),
   // Milestone 2 gateway (XZ-DS-MUS2). GW_TRANSPORT unset or "off" = no gateway polling (the runtime behaves as in Milestone 1).
   gwTransport: (env.GW_TRANSPORT || "off") as "off" | "tcp" | "rtu-tcp" | "rtu-serial",
-  gwHost: env.GW_HOST || "127.0.0.1", gwPort: int("GW_PORT", 5020), gwSerialPath: env.GW_SERIAL_PATH || "/dev/ttyUSB0", gwBaud: int("GW_BAUD", 9600),
+  gwHost: env.GW_HOST || "127.0.0.1", gwPort: int("GW_PORT", 5020), gwSerialPath: env.GW_SERIAL_PATH || paths.serialPath, gwBaud: int("GW_BAUD", 9600),
   gwParity: (env.GW_PARITY || "none") as "none" | "even" | "odd", gwAddress: int("GW_ADDRESS", 0), gwTimeoutMs: int("GW_TIMEOUT_MS", 1500), gwRetries: int("GW_RETRIES", 2),
   // 2026-11-17 -- ONLINE build (the VPS / bench, not a standalone box). FP_ONLINE=1 adds Licence Management (SYSTEM menu, #/licences, /api/licence-deployments, two tables). Unset = standalone: none of it exists.
   // 2026-11-18 -- DOWNLOAD .FPLIC (Online build): path of the DEV-1 private key file (outside the repo, never logged, never returned, not shown in diagnostics). Unset = no signing: the button stays off with "No signing key on this server".

@@ -12,6 +12,7 @@ import { Registry } from "./gateway/registry.js";
 import { GatewayService } from "./gateway/service.js";
 import { PortStore } from "./ports/store.js";
 import { PortManager } from "./ports/manager.js";
+import { isWin, shutdownSignals } from "./platform.js";
 import { installLogCapture } from "./about/logbuf.js";
 import { LicenceService } from "./licence/service.js";
 import { MqttSourceService } from "./mqtt/service.js";
@@ -52,6 +53,7 @@ try {
 const portStore = new PortStore(db);
 if (portStore.migrateFromEnv({ transport: config.gwTransport, host: config.gwHost, port: config.gwPort, serialPath: config.gwSerialPath, baud: config.gwBaud, parity: config.gwParity, address: config.gwAddress, timeoutMs: config.gwTimeoutMs, retries: config.gwRetries }, map?.default_gateway_address ?? 1))
   console.log("RS-485 ports: migrated the gateway link settings from the environment into Port 1");
+{ const fixed = portStore.repairDeviceFlags(); if (fixed) console.log(`RS-485 ports: switched ${fixed} bus device(s) ON (they were seeded OFF with no way to change it); the port's Enabled flag decides what is opened`); }
 const ports = new PortManager(db, portStore, map, gw);
 await ports.start();
 const lic = new LicenceService(db);       // FREE until a licence is installed; re-read now and every 24 h (expiry is also checked live on every use)
@@ -72,8 +74,10 @@ setTimeout(() => runLicenceRetention(db, lic).catch((e) => console.error("retent
 
 let stopping = false;
 async function shutdown() {
-  if (stopping) return; stopping = true; timers.forEach(clearInterval);
+  if (stopping) return; stopping = true; if (isWin()) setTimeout(() => process.exit(1), 15_000).unref(); timers.forEach(clearInterval);
   await mqttSrc.stop(); await ports.stop(); await gw?.stop(); await app.close(); client.end(true); await broker.stop(); db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); process.exit(0);
 }
-process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
+// Windows (W1): there is no SIGTERM. Ctrl+C = SIGINT, Ctrl+Break and a service stop wrapper (NSSM/WinSW send Ctrl+C first) = SIGINT/SIGBREAK, closing the console = SIGHUP.
+// A 15 s guard makes sure a hung close cannot keep the process alive. WAL is crash-safe, so a hard kill still loses nothing already committed.
+for (const sig of shutdownSignals()) process.on(sig, shutdown);
 void getSetting;

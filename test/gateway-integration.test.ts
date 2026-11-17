@@ -1,6 +1,6 @@
 import "./isolate.js";   // test data folder is a temp dir, never /var/lib/farmpilot-core (see isolate.ts)
 import { test, after } from "node:test"; import assert from "node:assert/strict";
-import type { AddressInfo } from "node:net"; import { rmSync } from "node:fs";
+import type { AddressInfo } from "node:net"; import { rmSync } from "node:fs"; import { tmpdir } from "node:os"; import { join } from "node:path";
 import { openDb } from "../src/db.js"; import { Ingest } from "../src/ingest.js";
 import { loadRegMap } from "../src/drivers/modbus/regmap.js";
 import { GatewaySim } from "../src/tools/gateway-sim/sim.js"; import { serveSim } from "../src/tools/gateway-sim/server.js";
@@ -123,7 +123,7 @@ test("slots are 1..30: first sensor gets 1, the 30th gets 30, the 31st is refuse
   assert.equal(sim.state().sensors.length, 8);
 });
 test("migration: a 0-based database from the first M2 build becomes 1-based exactly once", () => {
-  const path = "/tmp/claude-0/migrate-test.db"; for (const x of ["", "-wal", "-shm"]) rmSync(path + x, { force: true });
+  const path = join(tmpdir(), "core-migrate-test.db"); for (const x of ["", "-wal", "-shm"]) rmSync(path + x, { force: true });
   const db = openDb(path); db.prepare("DELETE FROM settings WHERE key='slots_1based'").run();
   for (const [i, s] of ["100000001", "100000002", "100000003"].entries()) db.prepare("INSERT INTO sensors(serial,type,slot,sent_slot,reporting_interval,created_at) VALUES(?,?,?,?,?,?)").run(s, "th", i, i === 2 ? null : i, 300, 1);
   db.prepare("INSERT INTO pending_removals(type,serial,slot) VALUES('th','OLD',5)").run(); db.close();
@@ -152,7 +152,7 @@ test("slot allocation: a new sensor takes the LOWEST free slot; a gap left by a 
 });
 
 test("migration: a database from the hex-serial / seconds build becomes decimal serials / minutes exactly once, history follows the serial", () => {
-  const path = "/tmp/claude-0/migrate-dec-test.db"; for (const x of ["", "-wal", "-shm"]) rmSync(path + x, { force: true });
+  const path = join(tmpdir(), "core-migrate-dec-test.db"); for (const x of ["", "-wal", "-shm"]) rmSync(path + x, { force: true });
   const db = openDb(path); db.prepare("DELETE FROM settings WHERE key='serial_decimal_minutes'").run();
   db.prepare("INSERT INTO sensors(serial,type,slot,sent_slot,reporting_interval,sent_interval,created_at) VALUES('06B624FD','th',1,1,300,300,1)").run();
   db.prepare("INSERT INTO sensors(serial,type,slot,reporting_interval,created_at) VALUES('00AB8CFC','th',2,60,1)").run();

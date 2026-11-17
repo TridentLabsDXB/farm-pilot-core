@@ -1,3 +1,5 @@
+import { isWin, type Platform } from "../platform.js";
+import { canonicalSerialPath } from "./serialPath.js";
 // RS-485 Ports: pure validation (no database, no sockets), so it is unit-tested on its own. Everything here returns a list of plain-English errors.
 export const BAUDS = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200] as const;
 export const PARITIES = ["none", "even", "odd"] as const;
@@ -14,14 +16,18 @@ export interface PortRow {
 }
 export interface DeviceRow { id: number; kind: DeviceKind; model: string; port_id: number; modbus_address: number; poll_interval_s: number; enabled: boolean; }
 
-export const PORT_DEFAULTS = { baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1000, retries: 2, turnaround_ms: 50 } as const;
+export const PORT_DEFAULTS = { baud: 9600, data_bits: 8, parity: "none", stop_bits: 1, timeout_ms: 1500, retries: 2, turnaround_ms: 50 } as const;
 
 const intIn = (v: unknown, lo: number, hi: number) => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
 const HOST = /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 /** Only real device nodes under /dev: no relative paths, no "..", no spaces. */
 export const DEVICE_PATH = /^\/dev\/[A-Za-z0-9_.:@+-]+(?:\/[A-Za-z0-9_.:@+-]+)*$/;
 
-export function validatePort(p: PortRow): string[] {
+/** Is this a serial device name for the given platform? Linux: a node under /dev. Windows: COMn. Used by validatePort and by the cross-platform restore. */
+export const serialPathValid = (path: string, platform: Platform = process.platform): boolean => (isWin(platform) ? !!canonicalSerialPath(path, platform) : DEVICE_PATH.test(path) && !path.split("/").includes(".."));
+export const PATH_INVALID_HERE = "port path not valid on this platform, please reassign";
+
+export function validatePort(p: PortRow, platform: Platform = process.platform): string[] {
   const e: string[] = [];
   if (![1, 2].includes(p.id) && !(Number.isInteger(p.id) && p.id > 0 && p.id < 10)) e.push("port id must be 1 to 9");
   if (!p.label || p.label.length > 60) e.push("name must be 1 to 60 characters");
@@ -35,6 +41,7 @@ export function validatePort(p: PortRow): string[] {
   if (!intIn(p.turnaround_ms, 0, 1000)) e.push("turnaround delay must be 0 to 1000 ms");
   if (p.enabled && p.transport === "serial") {
     if (!p.device_path) e.push("choose a serial device");
+    else if (isWin(platform)) { if (!canonicalSerialPath(p.device_path, platform)) e.push("serial port must be a COM port name, for example COM3 or COM10"); }   // Windows (W1)
     else if (!DEVICE_PATH.test(p.device_path) || p.device_path.split("/").includes("..")) e.push("serial device must be a path under /dev, for example /dev/serial/by-id/usb-...");
   }
   if (p.transport === "tcp" && p.enabled) {
@@ -46,10 +53,10 @@ export function validatePort(p: PortRow): string[] {
 }
 
 /** Cross-port rules: two enabled ports must not use the same serial device (or the same TCP target). */
-export function validatePorts(ports: PortRow[]): string[] {
+export function validatePorts(ports: PortRow[], platform: Platform = process.platform): string[] {
   const e: string[] = []; const seen = new Map<string, number>();
   for (const p of ports) {
-    if (!p.enabled) continue; const key = p.transport === "serial" ? (p.device_path ? "s:" + p.device_path : "") : `t:${p.tcp_host}:${p.tcp_port}`; if (!key) continue;
+    if (!p.enabled) continue; const key = p.transport === "serial" ? (p.device_path ? "s:" + (canonicalSerialPath(p.device_path, platform) ?? p.device_path) : "") : `t:${p.tcp_host}:${p.tcp_port}`; if (!key) continue;
     const other = seen.get(key); if (other !== undefined) e.push(`Port ${other} and Port ${p.id} use the same ${p.transport === "serial" ? "serial device" : "TCP target"}: each port needs its own`); else seen.set(key, p.id);
   }
   return e;
@@ -80,10 +87,10 @@ export const SHARED_BUS_RULES = ["One RS-485 line, daisy-chained from device to 
 export const sharedPorts = (devices: DeviceRow[]) => { const n = new Map<number, number>(); for (const d of devices) if (d.enabled) n.set(d.port_id, (n.get(d.port_id) ?? 0) + 1); return [...n].filter(([, c]) => c > 1).map(([id]) => id); };
 
 /** Accepts the loose JSON an API client sends and returns a complete row (missing fields keep the old value). Throws nothing: validatePort reports problems. */
-export function mergePort(old: PortRow, patch: Record<string, any>): PortRow {
+export function mergePort(old: PortRow, patch: Record<string, any>, platform: Platform = process.platform): PortRow {
   const n = (k: keyof PortRow) => (patch[k] === undefined || patch[k] === null || patch[k] === "" ? old[k] : Number(patch[k]));
   const s = (k: keyof PortRow) => (patch[k] === undefined || patch[k] === null ? String(old[k]) : String(patch[k]).trim());
-  return { id: old.id, label: s("label"), enabled: patch.enabled === undefined ? old.enabled : !!patch.enabled, transport: s("transport") as PortRow["transport"], device_path: s("device_path"), tcp_host: s("tcp_host"), tcp_port: n("tcp_port") as number,
+  return { id: old.id, label: s("label"), enabled: patch.enabled === undefined ? old.enabled : !!patch.enabled, transport: s("transport") as PortRow["transport"], device_path: canonicalSerialPath(s("device_path"), platform) ?? s("device_path"), tcp_host: s("tcp_host"), tcp_port: n("tcp_port") as number,
     tcp_framing: s("tcp_framing") as PortRow["tcp_framing"], baud: n("baud") as number, data_bits: n("data_bits") as number, parity: s("parity") as PortRow["parity"], stop_bits: n("stop_bits") as number, timeout_ms: n("timeout_ms") as number, retries: n("retries") as number, turnaround_ms: n("turnaround_ms") as number };
 }
 export function mergeDevice(old: DeviceRow, patch: Record<string, any>): DeviceRow {
