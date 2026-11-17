@@ -42,8 +42,8 @@ z = zipfile.ZipFile(sys.argv[1]); top = z.namelist()[0].split("/")[0]
 for n in ("node.exe", "LICENSE"): open(f"{sys.argv[2]}/{n}", "wb").write(z.read(f"{top}/{n}"))
 PY
 crlf() { sed 's/$/\r/' "$1" > "$2"; }          # .cmd and text files with Windows line endings
-crlf start-core.cmd "$APP/start-core.cmd"; crlf deploy/windows/check.cmd "$APP/check.cmd"; crlf deploy/windows/upgrade.cmd "$APP/upgrade.cmd"
-cp deploy/windows/check.mjs deploy/windows/urls.mjs deploy/windows/upgrade.mjs "$APP/"
+crlf start-core.cmd "$APP/start-core.cmd"; crlf deploy/windows/check.cmd "$APP/check.cmd"; crlf deploy/windows/upgrade.cmd "$APP/upgrade.cmd"; crlf deploy/windows/serial-probe.cmd "$APP/serial-probe.cmd"
+cp deploy/windows/check.mjs deploy/windows/urls.mjs deploy/windows/upgrade.mjs deploy/windows/serial-probe.mjs "$APP/"
 BUILD="$(cat dist/BUILD)"; DATE="$(node -p "require('./dist/BUILD.json').released")"
 crlf deploy/windows/core.env.example "$TOP/core.env.example"
 { cat deploy/windows/README-LAB.txt; printf '\nBUILD\n    version %s, build %s (%s), build date %s, Node %s win-x64, NOT a release build (dev-1 licence key trusted)\n' "$VERSION" "$BUILD" "$BRANCH" "$DATE" "$VER"; } | sed 's/$/\r/' > "$TOP/README-LAB.txt"
@@ -53,7 +53,7 @@ echo "==> verify"
 FAIL=0
 echo "    PE checks (x86-64, imports, AVX marker)"; python3 scripts/verify-pe.py "$W/src.tmp/$SQL" "$W/src.tmp/$SER" "$APP/node/node.exe" | sed 's/^/      /' || FAIL=1
 if grep -rIl "FarmPilotCore" "$TOP" 2>/dev/null | grep -q .; then echo "    leftover FarmPilotCore path in:"; grep -rIl "FarmPilotCore" "$TOP"; FAIL=1; else echo "    no leftover \"FarmPilotCore\" path in any text file"; fi
-for f in dist/index.js dist/platform.js web/dist/index.html config/gateway-thingsend.yaml node/node.exe node_modules/better-sqlite3/prebuilds/win32-x64.node start-core.cmd check.cmd upgrade.cmd upgrade.mjs check.mjs urls.mjs dist/BUILD dist/BUILD.json package.json; do [ -f "$APP/$f" ] || { echo "    MISSING app/$f"; FAIL=1; }; done
+for f in dist/index.js dist/platform.js web/dist/index.html config/gateway-thingsend.yaml node/node.exe node_modules/better-sqlite3/prebuilds/win32-x64.node start-core.cmd check.cmd serial-probe.cmd serial-probe.mjs upgrade.cmd upgrade.mjs check.mjs urls.mjs dist/BUILD dist/BUILD.json package.json; do [ -f "$APP/$f" ] || { echo "    MISSING app/$f"; FAIL=1; }; done
 for f in README-LAB.txt core.env.example; do [ -f "$TOP/$f" ] || { echo "    MISSING $f"; FAIL=1; }; done
 for bad in tools test .git; do [ ! -e "$APP/$bad" ] || { echo "    unexpected app/$bad"; FAIL=1; }; done
 [ -z "$(find "$APP" -name '*.map' -print -quit)" ] || { echo "    source maps left in the bundle"; FAIL=1; }

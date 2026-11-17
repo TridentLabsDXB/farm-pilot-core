@@ -12,7 +12,7 @@ WHAT IS IN THE ZIP (unpack at C:\ so everything lands under C:\FarmPilot-Core)
     C:\FarmPilot-Core\app\                 the program
         node\node.exe                      Node.js 22 for Windows x64 (nothing else to install)
         dist\  web\dist\  node_modules\    server, web pages, libraries (Windows binaries for SQLite and serial ports)
-        start-core.cmd   check.cmd   upgrade.cmd   upgrade.mjs   check.mjs   urls.mjs
+        start-core.cmd   check.cmd   serial-probe.cmd   upgrade.cmd   upgrade.mjs   check.mjs   serial-probe.mjs   urls.mjs
 Created later, never in the zip:
     C:\FarmPilot-Core\data\                core.db (+ -wal -shm), initial-admin-password, licence\, backups   (local disk only)
     C:\FarmPilot-Core\logs\core.log        only when started as: start-core.cmd log
@@ -33,6 +33,10 @@ FIRST-RUN CHECKLIST (tick each one; write down what happened where it did not ma
         On the first start Windows Defender Firewall asks to allow node.exe: tick BOTH "Private networks" AND "Public networks", then click "Allow access".
         The tablet's own hotspot network is often classified as Public; if only Private is ticked, a phone on the hotspot cannot reach CORE.
         (If you clicked Cancel by mistake: Control Panel > Windows Defender Firewall > Allow an app > Change settings > node.exe > tick Private and Public.)
+ [ ] 4a. Serial check without CORE (do this BEFORE blaming CORE): close every other program using the COM port (the vendor tool, a serial monitor, CORE itself), then in
+        C:\FarmPilot-Core\app run   serial-probe.cmd COM11   (your COM number; optional: serial-probe.cmd COM11 7 9600 = port, gateway address, baud rate).
+        It lists the COM ports, opens the port, sends the same read as the vendor tool and prints every byte sent (TX) and received (RX) in hex. The last line is either
+        "PASS: gateway answered" or "FAIL: no answer after N tries, check wiring A/B". Copy the whole window and send it. It needs no database and does not change anything.
  [ ] 5. Web address: http://127.0.0.1:4100 on the tablet itself (port 4100), and http://<tablet IP>:4100 from a phone.
         To find the tablet's IP: open Command Prompt and type  ipconfig  . Look for "IPv4 Address" under the adapter the phone is connected through.
         With the Mobile Hotspot on, the tablet's own address on the hotspot is usually 192.168.137.1 (start-core.cmd prints all of them under "From a phone").
@@ -54,7 +58,8 @@ FIRST-RUN CHECKLIST (tick each one; write down what happened where it did not ma
 STOP, DATA, LOGS
     Stop:    Ctrl+C in the start-core.cmd window. Closing the window also stops it (the database is closed cleanly).
     Data:    C:\FarmPilot-Core\data   (keep it on the tablet's internal disk, never on a USB stick or network drive; check.cmd refuses those)
-    Logs:    start-core.cmd log   writes C:\FarmPilot-Core\logs\core.log ; normal start prints to the window only.
+    Logs:    start-core.cmd log   writes C:\FarmPilot-Core\logs\core.log ; normal start prints to the window only. The serial port lines (opening / opened / closing /
+             ERROR could not open COM11: <Windows error>) are in the window and in core.log. For the hex request and answer bytes put  LOG_MODBUS=1  in core.env and restart.
     Backup:  Settings > BACKUP in the program, or copy C:\FarmPilot-Core\data while CORE is stopped.
     Sleep:   disable sleep in Windows power settings for the whole lab (step 2). If the tablet sleeps, readings and alarms stop until it wakes.
     Settings file (optional): C:\FarmPilot-Core\core.env  (see core.env.example). Restart CORE after changing it.

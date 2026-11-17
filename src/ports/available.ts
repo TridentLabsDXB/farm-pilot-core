@@ -2,6 +2,7 @@
 import { accessSync, constants, existsSync, readdirSync, realpathSync } from "node:fs";
 import { isWin, type Platform } from "../platform.js";
 import { canonicalSerialPath } from "./serialPath.js";
+import { loadSerial } from "../drivers/modbus/transport.js";
 
 export interface FoundSerial { path: string; kind: "by-id" | "usb" | "acm" | "tty" | "com"; target: string; accessible: boolean; /** Windows: friendly name from the driver, e.g. "USB Serial Port (COM4)". */ label?: string; }
 const canOpen = (p: string) => { try { accessSync(p, constants.R_OK | constants.W_OK); return true; } catch { return false; } };
@@ -22,7 +23,7 @@ export function listSerial(dev = "/dev"): FoundSerial[] {
 // ---------- Windows (W1): serial ports come from SerialPort.list(), there is no /dev to scan ----------
 export interface WinPortInfo { path: string; friendlyName?: string; manufacturer?: string; }
 type WinLister = () => Promise<WinPortInfo[]>;
-const defaultWinLister: WinLister = async () => { const { SerialPort } = await import("serialport"); return (await SerialPort.list()) as WinPortInfo[]; };
+const defaultWinLister: WinLister = async () => { const { SerialPort } = await loadSerial(); return (await SerialPort.list()) as WinPortInfo[]; };
 let winCache: { at: number; ports: Set<string> } | null = null;
 
 /** COM ports present now, sorted by number. Also refreshes the presence cache used by serialPresent(). A missing serialport module gives an empty list. */

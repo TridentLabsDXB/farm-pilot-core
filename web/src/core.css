@@ -44,7 +44,7 @@ body { background: #F3F5F7; }
 .fp-btn:focus-visible, .fp-input:focus-visible, .fp-navbtn:focus-visible, .fp-tab:focus-visible { outline: 2px solid var(--fp-accent); outline-offset: 2px; }
 .fp-input { min-height: 44px; padding: 0 12px; font-family: var(--fp-mono); font-size: 14px; background: var(--fp-card); border: 1px solid var(--fp-border); border-radius: var(--fp-radius-btn); min-width: 0; }
 textarea.fp-input { padding: 10px 12px; min-height: 120px; width: 100%; }
-.fp-msg { margin: 0; font-size: 15px; } .fp-msg.err { color: var(--fp-alarm); } .fp-msg.ok { color: var(--fp-ok); } .fp-muted { color: var(--fp-muted); }
+.fp-msg { margin: 0; font-size: 15px; } .fp-msg.err { color: var(--fp-alarm); } .fp-msg.ok { color: var(--fp-ok); } .fp-msg.warn { color: var(--fp-warn-text); } .fp-muted { color: var(--fp-muted); }
 /* lamp + word status chip. Shape differs per tone so colour is never the only cue. */
 .fp-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--fp-border); background: var(--fp-inset); font-family: var(--fp-mono); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .fp-lamp { width: 10px; height: 10px; flex: none; background: currentColor; border-radius: 50%; }
@@ -158,7 +158,7 @@ textarea.fp-input { padding: 10px 12px; min-height: 120px; width: 100%; }
 /* RS-485 Ports page */
 .fp-ports { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .fp-ports .fp-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.fp-devs { display: grid; grid-template-columns: minmax(180px, 1.4fr) 110px 130px 100px minmax(170px, 1fr) auto; gap: 12px 14px; align-items: center; overflow-x: auto; }
+.fp-devs { display: grid; grid-template-columns: minmax(180px, 1.4fr) 110px 130px 100px 90px minmax(170px, 1fr) auto; gap: 12px 14px; align-items: center; overflow-x: auto; }
 .fp-devrow { display: contents; } .fp-devhead { display: contents; }
 @media (max-width: 1099px) { .fp-ports { grid-template-columns: 1fr; } }
 @media (max-width: 767px) {

@@ -4,7 +4,14 @@ Shown on the About page (RELEASE NOTES). Plain text, newest first. No network is
 
 ## 0.1.0 (in preparation)
 
+### Fixed
+- RS-485 Ports on Windows: a serial port shows OPEN only while Windows really holds the handle (it is opened when the port is saved or CORE starts, not on the first request). A failed open shows ACCESS DENIED, NOT FOUND or ERROR with the Windows error text and is logged. An open port with a device assigned but no request for 60 s shows OPEN, NOT POLLED.
+- A fresh database no longer starts with the gateway device switched off while its port is on (the cause of "(switched off)", NO GATEWAY and counters 0 / 0). The Devices table has an Enabled switch, the Gateway page says which of the two is off, and databases made by the earlier build are repaired once.
+- TEST PORT tests the settings in the form even when they are not saved, and always answers: OK with the response time, NO ANSWER, CRC ERROR, CANNOT OPEN with the Windows error, SWITCHED OFF, or why the settings are invalid. SAVE no longer claims "reopened and tested" unless the test passed.
+- Serial logging (open, close, errors) on the console and in core.log; LOG_MODBUS=1 adds hex request and answer frames.
+
 ### Added
+- Lab bundle: serial-probe.cmd COM11 [address] [baud], a standalone COM port and gateway check that needs no database (README-LAB step 4a).
 - About page for every role: product identity, version and build, licence summary with usage, and (Admin) details of this computer.
 - Licensing: a built-in FREE licence (1 gateway, 10 sensors in total). A licence file bound to the box's Device ID lifts the limits. Limits only block ADDING sensors or gateways; monitoring, alarms and pump commands never stop because of a licence.
 - Support tools for Admin: copy diagnostics and a support bundle.

@@ -52,6 +52,7 @@ try {
 const portStore = new PortStore(db);
 if (portStore.migrateFromEnv({ transport: config.gwTransport, host: config.gwHost, port: config.gwPort, serialPath: config.gwSerialPath, baud: config.gwBaud, parity: config.gwParity, address: config.gwAddress, timeoutMs: config.gwTimeoutMs, retries: config.gwRetries }, map?.default_gateway_address ?? 1))
   console.log("RS-485 ports: migrated the gateway link settings from the environment into Port 1");
+{ const fixed = portStore.repairDeviceFlags(); if (fixed) console.log(`RS-485 ports: switched ${fixed} bus device(s) ON (they were seeded OFF with no way to change it); the port's Enabled flag decides what is opened`); }
 const ports = new PortManager(db, portStore, map, gw);
 await ports.start();
 const lic = new LicenceService(db);       // FREE until a licence is installed; re-read now and every 24 h (expiry is also checked live on every use)

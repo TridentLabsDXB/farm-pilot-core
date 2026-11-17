@@ -69,14 +69,16 @@ test("backupDb: a copy that is not a database fails the integrity step", () => {
 
 // ---- the bundle contract (source) ----
 test("bundle scripts: top folder FarmPilot-Core\\app, no leftover FarmPilotCore path anywhere in the Windows files, tools/tests/.git/source maps excluded, build stamp is not a release", () => {
-  const files = ["start-core.cmd", "deploy/windows/check.cmd", "deploy/windows/check.mjs", "deploy/windows/upgrade.cmd", "deploy/windows/upgrade.mjs", "deploy/windows/urls.mjs", "deploy/windows/README-LAB.txt", "deploy/windows/core.env.example"];
+  const files = ["start-core.cmd", "deploy/windows/check.cmd", "deploy/windows/check.mjs", "deploy/windows/upgrade.cmd", "deploy/windows/upgrade.mjs", "deploy/windows/urls.mjs", "deploy/windows/serial-probe.cmd", "deploy/windows/serial-probe.mjs", "deploy/windows/README-LAB.txt", "deploy/windows/core.env.example"];
   for (const f of files) assert.ok(!/FarmPilotCore/.test(readFileSync(f, "utf8")), `${f} still mentions FarmPilotCore`);
   const sh = readFileSync("scripts/make-lab-bundle.sh", "utf8"); assert.deepEqual(sh.split("\n").filter((l) => /FarmPilotCore/.test(l) && !/grep -rIl "FarmPilotCore"|leftover FarmPilotCore|no leftover/.test(l)), [], "the build script only names the old folder inside its own leftover check"); assert.match(sh, /TOP="\$W\/FarmPilot-Core"; APP="\$TOP\/app"/); assert.match(sh, /farmpilot-core-lab-\$VERSION-\$SHA-win-x64\.zip/); assert.match(sh, /release: false/); assert.match(sh, /\*\.map/); assert.match(sh, /for bad in tools test \.git/); assert.match(sh, /assert tops == \{"FarmPilot-Core"\}/);
   assert.ok(!existsSync("scripts/make-windows-bundle.sh"), "the old bundle script (wrong top folder) is gone");
   const start = readFileSync("start-core.cmd", "utf8"); assert.match(start, /HOST_BIND_IP=0\.0\.0\.0/); assert.match(start, /urls\.mjs/); assert.match(start, /FARMPILOT_CORE_HOME=C:\\FarmPilot-Core/);
+  const sh2 = readFileSync("scripts/make-lab-bundle.sh", "utf8"); assert.match(sh2, /serial-probe\.cmd "\$APP\/serial-probe\.cmd"/); assert.match(sh2, /serial-probe\.mjs "\$APP\/"/); assert.match(sh2, /check\.cmd serial-probe\.cmd serial-probe\.mjs/, "verified in the bundle");
+  assert.match(readFileSync("deploy/windows/serial-probe.cmd", "utf8"), /serial-probe\.mjs" %\*/);
   const up = readFileSync("deploy/windows/upgrade.cmd", "utf8"); assert.match(up, /\/rollback/); assert.match(up, /%TEMP%\\fp-upgrade/);
 });
 test("README-LAB.txt: numbered first-run checklist with every step asked for, stop / data / logs / sleep, upgrade and rollback", () => {
-  const t = readFileSync("deploy/windows/README-LAB.txt", "utf8"); assert.equal((t.match(/^ \[ \] \d+\./gm) ?? []).length, 12);
+  const t = readFileSync("deploy/windows/README-LAB.txt", "utf8"); assert.equal((t.match(/^ \[ \] \d+\./gm) ?? []).length, 12); assert.match(t, /^ \[ \] 4a\. Serial check without CORE/m); assert.match(t, /close every other program using the COM port/); assert.match(t, /serial-probe\.cmd COM11/); assert.match(t, /LOG_MODBUS=1/);
   for (const s of ["Unblock and unzip", "check.cmd", "start-core.cmd", "http://127.0.0.1:4100", "First login", "RS-485 PORTS", "TEST PORT", "Replug test", "COM10+ test", "Ctrl+C", "Sleep = Never", "initial-admin-password", "upgrade.cmd /rollback", "C:\\FarmPilot-Core\\logs\\core.log", "BOTH \"Private networks\" AND \"Public networks\"", "ipconfig", "192.168.137.1", "http://<tablet IP>:4100"]) assert.ok(t.includes(s), s);
 });

@@ -12,7 +12,7 @@ export function registerPortRoutes(app: FastifyInstance, ports: PortManager, adm
   app.get("/api/ports", { preHandler: admin }, async () => { await ports.refreshSerial(); return { ...ports.view(), bauds: BAUDS, defaults: PORT_DEFAULTS }; });
   app.get("/api/ports/available", { preHandler: admin }, async () => ({ devices: await ports.available() }));
   app.put<{ Params: { id: string }; Body: Record<string, any> }>("/api/ports/:id", { preHandler: admin }, async (req) => ports.applyPort(A(req), id(req), req.body ?? {}));
-  app.post<{ Params: { id: string } }>("/api/ports/:id/test", { preHandler: admin }, async (req) => ports.test(id(req)));
+  app.post<{ Params: { id: string }; Body: Record<string, any> | undefined }>("/api/ports/:id/test", { preHandler: admin }, async (req) => ports.test(id(req), (req.body ?? undefined) as any));
   app.post<{ Params: { id: string } }>("/api/ports/:id/revert", { preHandler: admin }, async (req) => ports.revert(A(req), id(req)));
   app.post<{ Params: { id: string } }>("/api/ports/:id/keep", { preHandler: admin }, async (req) => { id(req); return ports.keep(A(req)); });
   app.get("/api/devices", { preHandler: admin }, async () => ports.view().devices);
