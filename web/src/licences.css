@@ -32,3 +32,6 @@
 .lm-back { align-self: flex-start; }
 .lm-listhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .lm-filters { display: grid; gap: 8px; }
+.lm-types { display: flex; flex-direction: column; gap: 8px; } .lm-types legend { margin-bottom: 6px; padding: 0; }
+.lm-type { display: grid; grid-template-columns: 24px auto 1fr; gap: 10px; align-items: center; min-height: 44px; padding: 6px 12px; border: 1px solid var(--fp-border); border-radius: var(--fp-radius-btn); cursor: pointer; }
+.lm-type[data-on="1"] { border-color: var(--fp-accent); background: var(--fp-accent-tint); } .lm-type input { width: 20px; height: 20px; } .lm-type:focus-within { outline: 2px solid var(--fp-accent); outline-offset: 2px; }

@@ -1,7 +1,7 @@
 // 2026-11-17 -- Licence Management (Online build only): pure status / usage rules, `now` injected so the tests can pin the clock. See docs/licence-management.md.
 // Status is NEVER stored: it is computed from valid_until against the SERVER clock. Same rule as the box itself (licence/service.ts): the licence is valid while now < valid_until
 // (valid_until is an ISO UTC timestamp, a date-only input is stored as 23:59:59Z of that day, like the signed licence files).
-import { FREE_LICENCE } from "../licence/free.js";
+import { TIERS } from "./tiers.js";
 
 export type DeploymentStatus = "active" | "expiring" | "expired" | "free";
 export type UsageFlag = "ok" | "at_limit" | "over_limit";
@@ -13,7 +13,7 @@ const utcDay = (ms: number) => Math.floor(ms / DAY);
 export interface DeploymentLimits { gateways: number | null; sensors: number | null; reports_days: number | null; retention_days: number | null; }
 export interface DeploymentUsage { gateways: number; sensors: number; }
 /** What a FREE box (and an EXPIRED one) really runs with. Numbers come from licence/free.ts, the one place that holds them. */
-export const FREE_LIMITS: DeploymentLimits = { gateways: FREE_LICENCE.gateways, sensors: FREE_LICENCE.sensors, reports_days: FREE_LICENCE.reportsDays, retention_days: FREE_LICENCE.retentionDays };
+export const FREE_LIMITS: DeploymentLimits = { ...TIERS.FREE };
 
 /** daysLeft = whole UTC calendar days from today to the expiry day (0 = it expires today but is still valid, negative = expired). */
 export function deploymentStatus(type: string, validUntil: string | null, now = Date.now()): { status: DeploymentStatus; daysLeft: number | null } {

@@ -9,8 +9,13 @@ import "./licences.css";
 // Status, flags, term and effective limits all come from the server (src/deployments/calc.ts), computed from valid_until against the SERVER clock. Every status is a lamp SHAPE plus a WORD.
 type Status = "active" | "expiring" | "expired" | "free"; type Flag = "ok" | "at_limit" | "over_limit";
 interface Limits { gateways: number | null; sensors: number | null; reports_days: number | null; retention_days: number | null; }
-interface Dep { id: number; name: string; deviceId: string; licensedTo: string | null; licenceId: string | null; type: "FREE" | "PRO" | "ENGINEERING"; issuedAt: string | null; validUntil: string | null; status: Status; daysLeft: number | null; termPct: number | null;
+interface Dep { id: number; name: string; deviceId: string; licensedTo: string | null; licenceId: string | null; type: "FREE" | "PRO" | "FULL" | "ENGINEERING"; issuedAt: string | null; validUntil: string | null; status: Status; daysLeft: number | null; termPct: number | null;
   limits: Limits; usage: { gateways: number; sensors: number }; effectiveLimits: Limits; usageFlags: { gateways: Flag; sensors: Flag }; lastSeen: number | null; }
+/** The tier table comes from the server (src/deployments/tiers.ts, the one constant): the page never repeats the numbers. gateways = DATA SOURCES on screen. */
+type Tiers = Record<"FREE" | "PRO" | "FULL", { gateways: number; sensors: number; reports_days: number | null; retention_days: number | null }>;
+const tierWord = (t: Tiers[keyof Tiers]) => `${t.gateways} data ${t.gateways === 1 ? "source" : "sources"}, ${t.sensors} sensors`;
+const todayYmd = () => new Date().toISOString().slice(0, 10);
+const addYear = (ymd: string) => { const [y, m, d] = ymd.split("-").map(Number); return new Date(Date.UTC(y + 1, m - 1, d)).toISOString().slice(0, 10); };
 interface Hist { id: number | string; ts: number; event: string; note: string | null; }
 
 const WORD: Record<Status, string> = { active: "ACTIVE", expiring: "EXPIRING", expired: "EXPIRED", free: "FREE" };
@@ -25,7 +30,7 @@ const lim = (n: number | null) => (n === null ? "unlimited" : String(n));
 const ago = (ts: number | null) => { if (!ts) return "never"; const m = Math.max(0, Math.round((Date.now() - ts) / 60000)); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 const F = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="lm-f"><span className="fp-cap" style={{ display: "block" }}>{label}</span>{children}</label>;
 
-function DeploymentForm({ initial, onClose, onSaved }: { initial?: Dep; onClose: () => void; onSaved: (d: Dep) => void }) {
+function DeploymentForm({ initial, tiers, onClose, onSaved, onChangeType }: { initial?: Dep; tiers: Tiers; onClose: () => void; onSaved: (d: Dep) => void; onChangeType?: () => void }) {
   const [v, setV] = useState({ name: initial?.name ?? "", deviceId: initial?.deviceId ?? "", licensedTo: initial?.licensedTo ?? "", gw: String(initial?.usage.gateways ?? 0), sn: String(initial?.usage.sensors ?? 0), seen: "" });
   const [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   async function save() {
@@ -41,42 +46,47 @@ function DeploymentForm({ initial, onClose, onSaved }: { initial?: Dep; onClose:
     <F label="Name"><input className="fp-input" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></F>
     <F label="Device ID"><input className="fp-input" placeholder="FP-XXXX-XXXX-XXXX" value={v.deviceId} onChange={(e) => setV({ ...v, deviceId: e.target.value.toUpperCase() })} /></F>
     <F label="Licensed to"><input className="fp-input" value={v.licensedTo} onChange={(e) => setV({ ...v, licensedTo: e.target.value })} /></F>
-    <div className="lm-grid2"><F label="Gateways in use"><input className="fp-input" type="number" min={0} value={v.gw} onChange={(e) => setV({ ...v, gw: e.target.value })} /></F>
+    <div className="lm-grid2"><F label="Data sources in use"><input className="fp-input" type="number" min={0} value={v.gw} onChange={(e) => setV({ ...v, gw: e.target.value })} /></F>
       <F label="Sensors in use"><input className="fp-input" type="number" min={0} value={v.sn} onChange={(e) => setV({ ...v, sn: e.target.value })} /></F></div>
+    {initial && <div className="lm-f"><span className="fp-cap" style={{ display: "block" }}>Licence type</span><div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}><span className="lm-mono" style={{ fontSize: 18 }}>{initial.type === "ENGINEERING" ? "ENGINEERING LICENCE" : initial.type}</span>{onChangeType && <button className="fp-btn small" type="button" onClick={onChangeType}>CHANGE TYPE</button>}</div></div>}
     <F label="Last seen"><select className="fp-input" value={v.seen} onChange={(e) => setV({ ...v, seen: e.target.value })}><option value="">{initial ? "KEEP AS IT IS" : "NEVER"}</option><option value="now">SET TO NOW</option></select></F>
-    {!initial && <p className="lm-note">A new deployment starts as FREE (1 gateway, 10 sensors). Use ISSUE LICENCE to record a licence. Usage and last seen are entered by hand.</p>}
+    {!initial && <p className="lm-note">A new deployment starts as FREE ({tierWord(tiers.FREE)}). Use ISSUE LICENCE to record a licence. Usage and last seen are entered by hand.</p>}
     {err && <div className="lm-err" role="alert">{err}</div>}
     <button className="fp-btn primary" disabled={busy || !v.name.trim()} onClick={save}>{busy ? "SAVING" : "SAVE"}</button>
   </Modal>;
 }
 
-function RecordForm({ d, onClose, onSaved }: { d: Dep; onClose: () => void; onSaved: (d: Dep) => void }) {
-  const issue = d.type === "FREE", n = (x: number | null) => (x === null ? "" : String(x));
-  const [v, setV] = useState({ type: (issue ? "PRO" : d.type) as "PRO" | "ENGINEERING", licenceId: "", issuedAt: "", validUntil: day(d.validUntil) === "--" ? "" : day(d.validUntil), gw: issue ? "1" : n(d.limits.gateways), sn: issue ? "10" : n(d.limits.sensors), rd: issue ? "" : n(d.limits.reports_days), rt: issue ? "365" : n(d.limits.retention_days), note: "" });
-  const [err, setErr] = useState(""), [busy, setBusy] = useState(false); const eng = v.type === "ENGINEERING"; const num = (s: string) => (s.trim() === "" ? null : Number(s));
+function RecordForm({ d, tiers, onClose, onSaved }: { d: Dep; tiers: Tiers; onClose: () => void; onSaved: (d: Dep) => void }) {
+  const issue = d.type === "FREE", eng = d.type === "ENGINEERING", types = (eng ? ["ENGINEERING"] : ["FREE", "PRO", "FULL"]) as ("FREE" | "PRO" | "FULL" | "ENGINEERING")[];
+  // Defaults (owner decision 2026-11-18): issued today, valid until one year after it (editable, "no expiry" allowed). Limits are fixed by the type, never typed.
+  const [v, setV] = useState({ type: (issue ? "PRO" : d.type) as "FREE" | "PRO" | "FULL" | "ENGINEERING", licenceId: "", issuedAt: todayYmd(), validUntil: addYear(todayYmd()), untilTouched: false, noExpiry: eng, note: "" });
+  const [err, setErr] = useState(""), [busy, setBusy] = useState(false), free = v.type === "FREE", lim = v.type === "ENGINEERING" ? null : tiers[v.type];
+  const setIssued = (x: string) => setV((o) => ({ ...o, issuedAt: x, validUntil: !o.untilTouched && /^\d{4}-\d{2}-\d{2}$/.test(x) ? addYear(x) : o.validUntil }));
   async function save() {
     setBusy(true); setErr("");
     try {
-      const r = await api<{ deployment: Dep }>(`/licence-deployments/${d.id}/record`, { method: "POST", json: { type: v.type, licenceId: v.licenceId.trim(), issuedAt: v.issuedAt || undefined, validUntil: eng ? null : v.validUntil || null, limitGateways: eng ? null : num(v.gw), limitSensors: eng ? null : num(v.sn), limitReportsDays: eng ? null : num(v.rd), limitRetentionDays: eng ? null : num(v.rt), note: v.note || null } });
-      onSaved(r.deployment);
+      const body = free ? { type: "FREE", note: v.note || null } : { type: v.type, licenceId: v.licenceId.trim(), issuedAt: v.issuedAt || undefined, validUntil: v.noExpiry ? null : v.validUntil || null, note: v.note || null };
+      onSaved((await api<{ deployment: Dep }>(`/licence-deployments/${d.id}/record`, { method: "POST", json: body })).deployment);
     } catch (e) { setErr(errText(e)); } finally { setBusy(false); }
   }
   return <Modal title={issue ? "Issue licence" : "Renew licence"} onClose={onClose}>
     <p className="lm-note">Records the licence on this page only. The .fplic file is signed with the offline Trident Labs tool; nothing is signed or sent to the box here.</p>
-    <div className="lm-grid2">
-      <F label="Type"><select className="fp-input" value={v.type} onChange={(e) => setV({ ...v, type: e.target.value as "PRO" | "ENGINEERING" })}><option>PRO</option><option>ENGINEERING</option></select></F>
-      <F label="Licence ID"><input className="fp-input" placeholder="FPL-YYYYMMDD-NNNN" value={v.licenceId} onChange={(e) => setV({ ...v, licenceId: e.target.value })} /></F>
-      <F label="Issued (blank = today)"><input className="fp-input" type="date" value={v.issuedAt} onChange={(e) => setV({ ...v, issuedAt: e.target.value })} /></F>
-      <F label="Valid until (blank = no expiry)"><input className="fp-input" type="date" disabled={eng} value={eng ? "" : v.validUntil} onChange={(e) => setV({ ...v, validUntil: e.target.value })} /></F>
-      <F label="Gateway limit (blank = unlimited)"><input className="fp-input" type="number" min={0} disabled={eng} value={eng ? "" : v.gw} onChange={(e) => setV({ ...v, gw: e.target.value })} /></F>
-      <F label="Sensor limit (blank = unlimited)"><input className="fp-input" type="number" min={0} disabled={eng} value={eng ? "" : v.sn} onChange={(e) => setV({ ...v, sn: e.target.value })} /></F>
-      <F label="Reports days (blank = unlimited)"><input className="fp-input" type="number" min={1} disabled={eng} value={eng ? "" : v.rd} onChange={(e) => setV({ ...v, rd: e.target.value })} /></F>
-      <F label="Retention days (blank = never prune)"><input className="fp-input" type="number" min={1} disabled={eng} value={eng ? "" : v.rt} onChange={(e) => setV({ ...v, rt: e.target.value })} /></F>
-    </div>
-    {eng && <p className="lm-note">ENGINEERING: every limit unlimited, no expiry (same rule as the signed file).</p>}
-    <F label="Note (optional)"><input className="fp-input" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></F>
+    <fieldset className="lm-types" role="radiogroup" aria-label="Licence type" style={{ border: 0, padding: 0, margin: "0 0 12px" }}>
+      <legend className="fp-cap">Type</legend>
+      {types.map((t) => <label key={t} className="lm-type" data-on={v.type === t ? 1 : 0}><input type="radio" name="lm-type" checked={v.type === t} onChange={() => setV({ ...v, type: t })} /><b>{t === "ENGINEERING" ? "ENGINEERING LICENCE" : t}</b><span className="lm-sub">{t === "ENGINEERING" ? "unlimited, no expiry" : tierWord(tiers[t])}</span></label>)}
+    </fieldset>
+    {free ? <p className="lm-note">FREE has no licence ID, issue date or expiry. Saving clears them from this deployment and writes a history row.</p> : <>
+      <div className="lm-grid2">
+        <F label="Licence ID"><input className="fp-input" placeholder="FPL-YYYYMMDD-NNNN" value={v.licenceId} onChange={(e) => setV({ ...v, licenceId: e.target.value })} /></F>
+        <F label="Issued"><input className="fp-input" type="date" value={v.issuedAt} onChange={(e) => setIssued(e.target.value)} /></F>
+        <F label="Valid until"><input className="fp-input" type="date" disabled={v.noExpiry} value={v.noExpiry ? "" : v.validUntil} onChange={(e) => setV({ ...v, validUntil: e.target.value, untilTouched: true })} /></F>
+        <label className="lm-f" style={{ alignSelf: "end", minHeight: 44, display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" disabled={eng} checked={v.noExpiry} onChange={(e) => setV({ ...v, noExpiry: e.target.checked })} />NO EXPIRY</label>
+      </div>
+      {lim && <p className="lm-note">Limits are fixed by the type: {tierWord(lim)}.{v.type === "FULL" ? " Reports reach and history kept for FULL are to be confirmed (shown like PRO)." : ""}</p>}
+    </>}
+    <F label="Notes (optional)"><input className="fp-input" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></F>
     {err && <div className="lm-err" role="alert">{err}</div>}
-    <button className="fp-btn primary" disabled={busy || !v.licenceId.trim()} onClick={save}>{busy ? "SAVING" : "RECORD"}</button>
+    <button className="fp-btn primary" disabled={busy || (!free && !v.licenceId.trim())} onClick={save}>{busy ? "SAVING" : free ? "SET TO FREE" : "RECORD"}</button>
   </Modal>;
 }
 
@@ -92,10 +102,10 @@ function UsageBar({ label, used, limit, flag }: { label: string; used: number; l
 }
 
 export default function Licences({ onChange }: { onChange: () => void }) {
-  const [all, setAll] = useState<Dep[] | null>(null), [err, setErr] = useState(""), [q, setQ] = useState(""), [filter, setFilter] = useState<"ALL" | Status>("ALL");
+  const [tiers, setTiers] = useState<Tiers | null>(null), [all, setAll] = useState<Dep[] | null>(null), [err, setErr] = useState(""), [q, setQ] = useState(""), [filter, setFilter] = useState<"ALL" | Status>("ALL");
   const [selId, setSelId] = useState<number | null>(null), [detail, setDetail] = useState(false), [hist, setHist] = useState<Hist[]>([]), [modal, setModal] = useState<null | "add" | "edit" | "record">(null), [copied, setCopied] = useState(false);
   const load = useCallback(async (keep?: number) => {
-    try { const r = await api<{ deployments: Dep[] }>("/licence-deployments"); setAll(r.deployments); setSelId((cur) => keep ?? (cur !== null && r.deployments.some((d) => d.id === cur) ? cur : (r.deployments.find((d) => d.status === "expiring" || d.status === "expired") ?? r.deployments[0])?.id ?? null)); setErr(""); onChange(); }
+    try { const r = await api<{ deployments: Dep[]; tiers: Tiers }>("/licence-deployments"); setAll(r.deployments); setTiers(r.tiers); setSelId((cur) => keep ?? (cur !== null && r.deployments.some((d) => d.id === cur) ? cur : (r.deployments.find((d) => d.status === "expiring" || d.status === "expired") ?? r.deployments[0])?.id ?? null)); setErr(""); onChange(); }
     catch (e) { setErr(errText(e)); }
   }, [onChange]);
   useEffect(() => { void load(); }, []);       // eslint-disable-line react-hooks/exhaustive-deps
@@ -108,8 +118,8 @@ export default function Licences({ onChange }: { onChange: () => void }) {
   return <main className="fp-page lm">
     <div className="lm-title"><div className="fp-cap">FARM-PILOT CORE</div><h2>Licence Management</h2></div>
     {err && <div className="lm-err" role="alert">{err}</div>}
-    {all === null && !err && <div className="lm-note">Loading...</div>}
-    {all && <div className="lm-layout" data-detail={detail && sel ? 1 : 0}>
+    {(all === null || tiers === null) && !err && <div className="lm-note">Loading...</div>}
+    {all && tiers && <div className="lm-layout" data-detail={detail && sel ? 1 : 0}>
       <div className="fp-card lm-list">
         <div className="lm-listhead"><div><div style={{ fontSize: 18, fontWeight: 700 }}>{all.length} {all.length === 1 ? "DEPLOYMENT" : "DEPLOYMENTS"}</div><div className="fp-cap">sorted by expiry</div></div><button className="fp-btn small" onClick={() => setModal("add")}>+ ADD</button></div>
         <div className="lm-filters">
@@ -146,15 +156,16 @@ export default function Licences({ onChange }: { onChange: () => void }) {
             <div><div className="fp-cap">Licence ID</div><div className="v lm-mono">{sel.licenceId ?? "--"}</div></div>
             <div><div className="fp-cap">Issued</div><div className="v">{day(sel.issuedAt)}</div></div>
             <div><div className="fp-cap">Valid until</div><div className="v">{sel.type === "FREE" ? "--" : sel.validUntil ? day(sel.validUntil) : "No expiry"}</div></div>
+            <div><div className="fp-cap">Data sources / sensors</div><div className="v">{sel.effectiveLimits.gateways ?? "unlimited"} / {sel.effectiveLimits.sensors ?? "unlimited"}{sel.status === "expired" ? " (FREE, expired)" : ""}</div></div>
             <div><div className="fp-cap">Reports reach</div><div className="v">{sel.type === "FREE" ? `${sel.effectiveLimits.reports_days} days (FREE)` : sel.limits.reports_days === null ? "unlimited" : `${sel.limits.reports_days} days`}</div></div>
             <div><div className="fp-cap">History kept</div><div className="v">{sel.type === "FREE" ? `${sel.effectiveLimits.retention_days} days (FREE)` : sel.limits.retention_days === null ? "never pruned" : `${sel.limits.retention_days} days`}</div></div>
           </div>
           {sel.termPct !== null && sel.daysLeft !== null && <div><div className="lm-bar" data-t={sel.status === "expired" ? "alarm" : sel.status === "expiring" ? "warn" : undefined} role="progressbar" aria-label="Licence term used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={sel.termPct}><i style={{ width: sel.termPct + "%" }} /></div>
             <div className="lm-mono lm-note">{sel.termPct}% of term used, {sel.daysLeft >= 0 ? `${sel.daysLeft} days left` : `expired ${-sel.daysLeft} days ago`}</div></div>}
-          {sel.status === "expired" && <div className="lm-note">The box falls back to FREE limits ({sel.effectiveLimits.gateways} gateway, {sel.effectiveLimits.sensors} sensors). Monitoring, alarms and pump commands keep running; only adding sensors is blocked.</div>}
+          {sel.status === "expired" && <div className="lm-note">The box falls back to FREE limits ({sel.effectiveLimits.gateways} data {sel.effectiveLimits.gateways === 1 ? "source" : "sources"}, {sel.effectiveLimits.sensors} sensors). Monitoring, alarms and pump commands keep running; only adding sensors is blocked.</div>}
         </div>
         <div className="lm-grid2">
-          <UsageBar label="Gateways" used={sel.usage.gateways} limit={sel.effectiveLimits.gateways} flag={sel.usageFlags.gateways} />
+          <UsageBar label="Data sources" used={sel.usage.gateways} limit={sel.effectiveLimits.gateways} flag={sel.usageFlags.gateways} />
           <UsageBar label="Sensors (all types)" used={sel.usage.sensors} limit={sel.effectiveLimits.sensors} flag={sel.usageFlags.sensors} />
         </div>
         <div className="fp-card"><div className="fp-cap">History</div>
@@ -164,8 +175,8 @@ export default function Licences({ onChange }: { onChange: () => void }) {
         <div className="lm-note">Licence files are checked on the box without internet. Usage and last seen are entered by hand. Features list: reserved, empty for now.</div>
       </div>}
     </div>}
-    {modal === "add" && <DeploymentForm onClose={() => setModal(null)} onSaved={saved} />}
-    {modal === "edit" && sel && <DeploymentForm initial={sel} onClose={() => setModal(null)} onSaved={saved} />}
-    {modal === "record" && sel && <RecordForm d={sel} onClose={() => setModal(null)} onSaved={saved} />}
+    {modal === "add" && tiers && <DeploymentForm tiers={tiers} onClose={() => setModal(null)} onSaved={saved} />}
+    {modal === "edit" && sel && tiers && <DeploymentForm initial={sel} tiers={tiers} onClose={() => setModal(null)} onSaved={saved} onChangeType={() => setModal("record")} />}
+    {modal === "record" && sel && tiers && <RecordForm d={sel} tiers={tiers} onClose={() => setModal(null)} onSaved={saved} />}
   </main>;
 }

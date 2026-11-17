@@ -14,13 +14,14 @@ import type { FastifyInstance } from "fastify";
 import { audit, type Db } from "../db.js";
 import { DEVICE_ID_RE } from "../licence/device.js";
 import { LICENCE_ID_RE, ENGINEERING } from "../licence/format.js";
+import { TIERS, isTier, PAID_TIERS, type Tier } from "./tiers.js";
 import { FREE_LIMITS, deploymentStatus, effectiveLimits, needsAttention, sortByExpiry, termPct, usageFlag, type DeploymentLimits, type DeploymentUsage } from "./calc.js";
 
 // Additive and idempotent, applied only when the Online build starts (there are no numbered migrations in this repo: every table is CREATE IF NOT EXISTS in db.ts; this one lives here so a standalone build never gets it).
 export const SCHEMA_DEPLOYMENTS = `
 CREATE TABLE IF NOT EXISTS licence_deployments (
   id INTEGER PRIMARY KEY, device_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, licensed_to TEXT, licence_id TEXT,
-  type TEXT NOT NULL DEFAULT 'FREE' CHECK (type IN ('FREE','PRO','ENGINEERING')),
+  type TEXT NOT NULL DEFAULT 'FREE' CHECK (type IN ('FREE','PRO','FULL','ENGINEERING')),
   issued_at TEXT, valid_until TEXT,                -- ISO UTC, valid_until NULL = no expiry
   limits TEXT NOT NULL, usage TEXT NOT NULL,       -- JSON: limits {gateways,sensors,reports_days,retention_days} (null = unlimited), usage {gateways,sensors}
   last_seen INTEGER, created_at INTEGER NOT NULL);
@@ -29,7 +30,24 @@ CREATE TABLE IF NOT EXISTS licence_history (
   event TEXT NOT NULL CHECK (event IN ('ISSUED','INSTALLED','RENEWED','NOTE')), note TEXT, username TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_licence_history_dep ON licence_history(deployment_id, ts);
 `;
-export const TYPES = ["FREE", "PRO", ENGINEERING] as const;
+export const TYPES = ["FREE", "PRO", "FULL", ENGINEERING] as const;
+const SCHEMA_OLD_TYPE_CHECK = "'FREE','PRO','ENGINEERING'";
+
+/** 2026-11-18: the first Online build (2026-11-17) created licence_deployments with CHECK (type IN FREE, PRO, ENGINEERING). SQLite cannot alter a CHECK, so a table that still has it is rebuilt once
+ *  (SQLite's documented 12-step way: foreign keys off, copy, drop, rename). Rows and history are kept as they are. No-op on a new or already rebuilt table. */
+function upgradeTypeCheck(db: Db) {
+  const sql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='licence_deployments'").get() as { sql: string } | undefined)?.sql ?? "";
+  if (!sql.includes(SCHEMA_OLD_TYPE_CHECK)) return;
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(SCHEMA_DEPLOYMENTS.split("CREATE TABLE IF NOT EXISTS licence_history")[0].replace("licence_deployments", "licence_deployments_new"));
+      db.exec("INSERT INTO licence_deployments_new(id,device_id,name,licensed_to,licence_id,type,issued_at,valid_until,limits,usage,last_seen,created_at) SELECT id,device_id,name,licensed_to,licence_id,type,issued_at,valid_until,limits,usage,last_seen,created_at FROM licence_deployments");
+      db.exec("DROP TABLE licence_deployments; ALTER TABLE licence_deployments_new RENAME TO licence_deployments");
+      if ((db.prepare("PRAGMA foreign_key_check").all() as unknown[]).length) throw new Error("licence_deployments rebuild left a broken reference");
+    })();
+  } finally { db.pragma("foreign_keys = ON"); }
+}
 
 interface Row { id: number; device_id: string; name: string; licensed_to: string | null; licence_id: string | null; type: string; issued_at: string | null; valid_until: string | null; limits: string; usage: string; last_seen: number | null; }
 const parse = <T,>(s: string, d: T): T => { try { return JSON.parse(s) as T; } catch { return d; } };
@@ -60,13 +78,13 @@ function when(v: unknown, what: string, endOfDay: boolean): string | null {
 const deviceId = (v: unknown) => { const s = typeof v === "string" ? v.trim().toUpperCase() : ""; if (!DEVICE_ID_RE.test(s)) throw bad("Device ID must look like FP-XXXX-XXXX-XXXX"); return s; };
 
 export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (req: any, reply: any) => Promise<unknown>, now: () => number = Date.now) {
-  db.exec(SCHEMA_DEPLOYMENTS);
+  db.exec(SCHEMA_DEPLOYMENTS); upgradeTypeCheck(db);
   const A = { preHandler: admin }, U = (req: any) => ({ u: req.user.username as string, r: req.user.role as string });
   const all = () => (db.prepare("SELECT * FROM licence_deployments").all() as Row[]).map((r) => deploymentView(r, now()));
   const one = (id: unknown) => db.prepare("SELECT * FROM licence_deployments WHERE id=?").get(Number(id)) as Row | undefined;
   const wrap = (fn: (req: any, reply: any) => unknown) => async (req: any, reply: any) => { try { return await fn(req, reply); } catch (e: any) { if (e?.status === 400) return reply.code(400).send({ error: e.message }); if (/UNIQUE/.test(String(e?.message))) return reply.code(409).send({ error: "A deployment with this Device ID already exists" }); throw e; } };
 
-  app.get("/api/licence-deployments", A, async () => ({ deployments: sortByExpiry(all()), now: now() }));
+  app.get("/api/licence-deployments", A, async () => ({ deployments: sortByExpiry(all()), now: now(), tiers: TIERS }));
   app.get("/api/licence-deployments/attention", A, async () => ({ count: all().filter((d) => needsAttention(d.status)).length }));
   app.get<{ Params: { id: string } }>("/api/licence-deployments/:id", A, async (req, reply) => { const r = one(req.params.id); return r ? { deployment: deploymentView(r, now()) } : reply.code(404).send({ error: "not found" }); });
 
@@ -94,22 +112,42 @@ export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (r
     return { deployment: deploymentView(one(cur.id)!, now()) };
   }));
 
-  // RENEW (box already has a licence) or ISSUE (box is FREE): records the licence fields and appends a history row. Signs nothing.
+  // RENEW (box already has a licence) or ISSUE (box is FREE): records the licence and appends a history row. Signs nothing.
+  // 2026-11-18: the type decides the limits (TIERS). The API refuses limits that do not match the tier; a limit left out is filled from the tier. Type FREE clears licence ID, issue date and expiry.
   app.post<{ Params: { id: string }; Body: any }>("/api/licence-deployments/:id/record", A, wrap(async (req, reply) => {
     const cur = one(req.params.id); if (!cur) return reply.code(404).send({ error: "not found" });
-    const b = req.body ?? {}; if (!(TYPES as readonly string[]).includes(b.type) || b.type === "FREE") throw bad("Type must be PRO or ENGINEERING");
+    const b = req.body ?? {}, type = b.type as string, { u, r } = U(req), tierWord = (t: Tier) => `${TIERS[t].gateways} data sources, ${TIERS[t].sensors} sensors`;
+    const sameTier = (t: Tier) => {
+      for (const [k, key] of [["limitDataSources", "gateways"], ["limitSensors", "sensors"], ["limitReportsDays", "reports_days"], ["limitRetentionDays", "retention_days"]] as const)
+        if (k in b && b[k] !== undefined && b[k] !== TIERS[t][key]) throw bad(`${t} has ${tierWord(t)}: the limits are fixed by the type`);
+    };
+    if (type === "FREE") {
+      sameTier("FREE");
+      db.transaction(() => {
+        db.prepare("UPDATE licence_deployments SET type='FREE', licence_id=NULL, issued_at=NULL, valid_until=NULL, limits=? WHERE id=?").run(JSON.stringify(TIERS.FREE), cur.id);
+        db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES(?,?,?,?,?)").run(cur.id, now(), "NOTE", text(b.note, 500, "Note") ?? `Set to FREE, ${tierWord("FREE")}`, u);
+        audit(db, u, r, "licence_deployment.free", { id: cur.id, was: cur.type, licence_id: cur.licence_id });
+      })();
+      return { deployment: deploymentView(one(cur.id)!, now()) };
+    }
+    // ENGINEERING is an internal type for Trident Labs boxes: not offered, only kept (re-recorded) on a deployment that already has it.
+    if (type === ENGINEERING && cur.type !== ENGINEERING) throw bad("ENGINEERING is an internal type and cannot be chosen here");
+    if (!isTier(type) && type !== ENGINEERING) throw bad("Type must be FREE, PRO or FULL");
     const lid = text(b.licenceId, 200, "Licence ID"); if (!lid || !LICENCE_ID_RE.test(lid)) throw bad("Licence ID must look like FPL-20261117-0001");
     const issued = when(b.issuedAt, "Issued", false) ?? new Date(now()).toISOString().slice(0, 10) + "T00:00:00Z", until = when(b.validUntil, "Valid until", true);
     if (until && Date.parse(until) <= Date.parse(issued)) throw bad("Valid until must be after the issue date");
-    const limits: DeploymentLimits = { gateways: limit(b.limitGateways, "Gateway limit", 0, 1000), sensors: limit(b.limitSensors, "Sensor limit", 0, 100000), reports_days: limit(b.limitReportsDays, "Reports days", 1, 3650), retention_days: limit(b.limitRetentionDays, "Retention days", 1, 3650) };
-    // Same rule as the signed file (licence/format.ts): ENGINEERING = every limit null and no expiry. A PRO licence has no unlimited gateways / sensors on this page unless typed so.
-    if (b.type === ENGINEERING && (until !== null || Object.values(limits).some((x) => x !== null))) throw bad("An ENGINEERING licence has every limit empty (unlimited) and no expiry");
-    const event = cur.type === "FREE" ? "ISSUED" : "RENEWED", licensedTo = text(b.licensedTo, 200, "Licensed to") ?? cur.licensed_to, note = text(b.note, 500, "Note") ?? `${b.type} licence ${lid}${until ? ` valid until ${until.slice(0, 10)}` : ", no expiry"}`;
-    const { u, r } = U(req);
+    let limits: DeploymentLimits;
+    if (type === ENGINEERING) {      // same rule as the signed file (licence/format.ts): every limit null, no expiry
+      if (until !== null) throw bad("An ENGINEERING licence has no expiry");
+      limits = { gateways: null, sensors: null, reports_days: null, retention_days: null };
+    } else { sameTier(type as Tier); limits = { ...TIERS[type as Tier] }; }
+    const event = cur.type === "FREE" ? "ISSUED" : "RENEWED", licensedTo = text(b.licensedTo, 200, "Licensed to") ?? cur.licensed_to;
+    const until_ = until ? `until ${new Date(Date.parse(until)).getUTCDate()} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][new Date(Date.parse(until)).getUTCMonth()]} ${new Date(Date.parse(until)).getUTCFullYear()}` : "no expiry";
+    const extra = text(b.note, 500, "Note"), note = `${type}, ${type === ENGINEERING ? "unlimited" : tierWord(type as Tier)}, ${until_}${extra ? `. ${extra}` : ""}`;   // "ISSUED" + "PRO, 5 data sources, 50 sensors, until 18 Nov 2027"
     db.transaction(() => {
-      db.prepare("UPDATE licence_deployments SET type=?, licence_id=?, licensed_to=?, issued_at=?, valid_until=?, limits=? WHERE id=?").run(b.type, lid, licensedTo, issued, until, JSON.stringify(limits), cur.id);
+      db.prepare("UPDATE licence_deployments SET type=?, licence_id=?, licensed_to=?, issued_at=?, valid_until=?, limits=? WHERE id=?").run(type, lid, licensedTo, issued, until, JSON.stringify(limits), cur.id);
       db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES(?,?,?,?,?)").run(cur.id, now(), event, note, u);
-      audit(db, u, r, `licence_deployment.${event.toLowerCase()}`, { id: cur.id, type: b.type, licence_id: lid, valid_until: until });
+      audit(db, u, r, `licence_deployment.${event.toLowerCase()}`, { id: cur.id, type, licence_id: lid, valid_until: until });
     })();
     return { deployment: deploymentView(one(cur.id)!, now()) };
   }));
