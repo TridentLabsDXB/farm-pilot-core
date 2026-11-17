@@ -12,8 +12,8 @@ interface Limits { gateways: number | null; sensors: number | null; reports_days
 interface Dep { id: number; name: string; deviceId: string; licensedTo: string | null; licenceId: string | null; type: "FREE" | "PRO" | "FULL" | "ENGINEERING"; issuedAt: string | null; validUntil: string | null; status: Status; daysLeft: number | null; termPct: number | null;
   limits: Limits; usage: { gateways: number; sensors: number }; effectiveLimits: Limits; usageFlags: { gateways: Flag; sensors: Flag }; lastSeen: number | null; }
 /** The tier table comes from the server (src/deployments/tiers.ts, the one constant): the page never repeats the numbers. gateways = DATA SOURCES on screen. */
-type Tiers = Record<"FREE" | "PRO" | "FULL", { gateways: number; sensors: number; reports_days: number | null; retention_days: number | null }>;
-const tierWord = (t: Tiers[keyof Tiers]) => `${t.gateways} data ${t.gateways === 1 ? "source" : "sources"}, ${t.sensors} sensors`;
+type Tiers = Record<"FREE" | "PRO" | "FULL" | "ENGINEERING", { gateways: number | null; sensors: number | null; reports_days: number | null; retention_days: number | null }>;
+const tierWord = (t: Tiers[keyof Tiers]) => t.gateways === null ? "unlimited data sources, unlimited sensors" : `${t.gateways} data ${t.gateways === 1 ? "source" : "sources"}, ${t.sensors} sensors`;
 const todayYmd = () => new Date().toISOString().slice(0, 10);
 const addYear = (ymd: string) => { const [y, m, d] = ymd.split("-").map(Number); return new Date(Date.UTC(y + 1, m - 1, d)).toISOString().slice(0, 10); };
 interface Hist { id: number | string; ts: number; event: string; note: string | null; }
@@ -57,10 +57,10 @@ function DeploymentForm({ initial, tiers, onClose, onSaved, onChangeType }: { in
 }
 
 function RecordForm({ d, tiers, onClose, onSaved }: { d: Dep; tiers: Tiers; onClose: () => void; onSaved: (d: Dep) => void }) {
-  const issue = d.type === "FREE", eng = d.type === "ENGINEERING", types = (eng ? ["ENGINEERING"] : ["FREE", "PRO", "FULL"]) as ("FREE" | "PRO" | "FULL" | "ENGINEERING")[];
+  const issue = d.type === "FREE", types = ["FREE", "PRO", "FULL", "ENGINEERING"] as ("FREE" | "PRO" | "FULL" | "ENGINEERING")[];
   // Defaults (owner decision 2026-11-18): issued today, valid until one year after it (editable, "no expiry" allowed). Limits are fixed by the type, never typed.
-  const [v, setV] = useState({ type: (issue ? "PRO" : d.type) as "FREE" | "PRO" | "FULL" | "ENGINEERING", licenceId: "", issuedAt: todayYmd(), validUntil: addYear(todayYmd()), untilTouched: false, noExpiry: eng, note: "" });
-  const [err, setErr] = useState(""), [busy, setBusy] = useState(false), free = v.type === "FREE", lim = v.type === "ENGINEERING" ? null : tiers[v.type];
+  const [v, setV] = useState({ type: (issue ? "PRO" : d.type) as "FREE" | "PRO" | "FULL" | "ENGINEERING", licenceId: "", issuedAt: todayYmd(), validUntil: addYear(todayYmd()), untilTouched: false, noExpiry: d.type === "ENGINEERING", note: "" });
+  const [err, setErr] = useState(""), [busy, setBusy] = useState(false), free = v.type === "FREE", lim = tiers[v.type];
   const setIssued = (x: string) => setV((o) => ({ ...o, issuedAt: x, validUntil: !o.untilTouched && /^\d{4}-\d{2}-\d{2}$/.test(x) ? addYear(x) : o.validUntil }));
   async function save() {
     setBusy(true); setErr("");
@@ -73,14 +73,14 @@ function RecordForm({ d, tiers, onClose, onSaved }: { d: Dep; tiers: Tiers; onCl
     <p className="lm-note">Records the licence on this page only. The .fplic file is signed with the offline Trident Labs tool; nothing is signed or sent to the box here.</p>
     <fieldset className="lm-types" role="radiogroup" aria-label="Licence type" style={{ border: 0, padding: 0, margin: "0 0 12px" }}>
       <legend className="fp-cap">Type</legend>
-      {types.map((t) => <label key={t} className="lm-type" data-on={v.type === t ? 1 : 0}><input type="radio" name="lm-type" checked={v.type === t} onChange={() => setV({ ...v, type: t })} /><b>{t === "ENGINEERING" ? "ENGINEERING LICENCE" : t}</b><span className="lm-sub">{t === "ENGINEERING" ? "unlimited, no expiry" : tierWord(tiers[t])}</span></label>)}
+      {types.map((t) => <label key={t} className="lm-type" data-on={v.type === t ? 1 : 0}><input type="radio" name="lm-type" checked={v.type === t} onChange={() => setV({ ...v, type: t, noExpiry: t === "ENGINEERING" ? true : v.type === "ENGINEERING" ? false : v.noExpiry })} /><b>{t}</b><span className="lm-sub">{tierWord(tiers[t])}{t === "ENGINEERING" ? ", no expiry by default" : ""}</span></label>)}
     </fieldset>
     {free ? <p className="lm-note">FREE has no licence ID, issue date or expiry. Saving clears them from this deployment and writes a history row.</p> : <>
       <div className="lm-grid2">
         <F label="Licence ID"><input className="fp-input" placeholder="FPL-YYYYMMDD-NNNN" value={v.licenceId} onChange={(e) => setV({ ...v, licenceId: e.target.value })} /></F>
         <F label="Issued"><input className="fp-input" type="date" value={v.issuedAt} onChange={(e) => setIssued(e.target.value)} /></F>
         <F label="Valid until"><input className="fp-input" type="date" disabled={v.noExpiry} value={v.noExpiry ? "" : v.validUntil} onChange={(e) => setV({ ...v, validUntil: e.target.value, untilTouched: true })} /></F>
-        <label className="lm-f" style={{ alignSelf: "end", minHeight: 44, display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" disabled={eng} checked={v.noExpiry} onChange={(e) => setV({ ...v, noExpiry: e.target.checked })} />NO EXPIRY</label>
+        <label className="lm-f" style={{ alignSelf: "end", minHeight: 44, display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={v.noExpiry} onChange={(e) => setV({ ...v, noExpiry: e.target.checked })} />NO EXPIRY</label>
       </div>
       {lim && <p className="lm-note">Limits are fixed by the type: {tierWord(lim)}.{v.type === "FULL" ? " Reports reach and history kept for FULL are to be confirmed (shown like PRO)." : ""}</p>}
     </>}

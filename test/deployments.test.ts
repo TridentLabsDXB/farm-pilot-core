@@ -72,7 +72,7 @@ test("create, list, badge count, search data, record (ISSUE then RENEW), history
   const h = (await c("GET", `/api/licence-deployments/${id1}/history`)).json.history as any[]; assert.deepEqual(h.map((e) => e.event), ["RENEWED", "ISSUED"]);
   assert.equal((await c("POST", `/api/licence-deployments/${id1}/history`, { event: "INSTALLED", note: "on site" })).status, 201); assert.equal((await c("POST", `/api/licence-deployments/${id1}/history`, { event: "ISSUED" })).status, 400);
   assert.equal((await c("POST", `/api/licence-deployments/${id1}/record`, { type: "GOLD", licenceId: "x" })).status, 400); assert.equal((await c("POST", `/api/licence-deployments/${id1}/record`, { type: "PRO", licenceId: "x" })).status, 400, "licence id format");
-  assert.equal((await c("POST", `/api/licence-deployments/${id1}/record`, { type: "ENGINEERING", licenceId: "FPL-20261117-0003" })).status, 400, "ENGINEERING is internal: not offered for a deployment that does not have it");
+  assert.equal((await c("POST", `/api/licence-deployments/${id1}/record`, { type: "ENGINEERING", licenceId: "FPL-20261117-0003", limitSensors: 5 })).status, 400, "ENGINEERING limits are fixed too (unlimited)");
   assert.equal((await c("PATCH", `/api/licence-deployments/${id1}`, { usedSensors: 5, lastSeen: NOW - 120_000 })).json.deployment.usage.sensors, 5); assert.equal((await c("PATCH", `/api/licence-deployments/${id1}`, {})).status, 400); assert.equal((await c("PATCH", "/api/licence-deployments/999", { name: "z" })).status, 404);
   // the expired box shows a derived EXPIRED history row, never stored
   const gone = list[0].id; assert.equal(((await c("GET", `/api/licence-deployments/${gone}/history`)).json.history as any[])[0].event, "EXPIRED"); assert.equal(x.db.prepare("SELECT COUNT(*) c FROM licence_history WHERE event='EXPIRED'").get().c, 0);
@@ -91,6 +91,7 @@ test("source: standalone gating in the web app (no entry, no route) and the Admi
 
 const REC = (type: string, extra: object = {}) => ({ type, licenceId: "FPL-20261118-0001", issuedAt: "2026-11-18", validUntil: "2027-11-18", ...extra });
 test("tiers: one constant, FREE 1/10, PRO 5/50, FULL 25/250; FREE comes from licence/free.ts; FULL reports/retention shown like PRO until confirmed", () => {
+  assert.deepEqual(TIERS.ENGINEERING, { gateways: null, sensors: null, reports_days: null, retention_days: null }, "ENGINEERING: unlimited");
   assert.deepEqual([TIERS.FREE.gateways, TIERS.FREE.sensors, TIERS.PRO.gateways, TIERS.PRO.sensors, TIERS.FULL.gateways, TIERS.FULL.sensors], [1, 10, 5, 50, 25, 250]);
   assert.deepEqual(TIERS.FREE, { gateways: FREE_LICENCE.gateways, sensors: FREE_LICENCE.sensors, reports_days: FREE_LICENCE.reportsDays, retention_days: FREE_LICENCE.retentionDays });
   assert.deepEqual([TIERS.FULL.reports_days, TIERS.FULL.retention_days], [TIERS.PRO.reports_days, TIERS.PRO.retention_days]);
@@ -99,11 +100,10 @@ test("API: each tier sets its limits; mismatched limits are refused; ENGINEERING
   const x = await rig({ online: true, now: () => NOW }); closers.push(() => void x.close()); const c = (m: string, u: string, b?: unknown) => x.call(x.admin, m, u, b);
   assert.deepEqual((await c("GET", "/api/licence-deployments")).json.tiers, TIERS, "the page gets the table from the server");
   const id = (await c("POST", "/api/licence-deployments", { name: "T", deviceId: ID(7) })).json.deployment.id, rec = (b: object) => c("POST", `/api/licence-deployments/${id}/record`, b);
-  for (const t of ["PRO", "FULL"] as const) { const r = await rec(REC(t)); assert.equal(r.status, 200, t); assert.deepEqual(r.json.deployment.limits, TIERS[t]); assert.equal(r.json.deployment.type, t); }
+  for (const t of ["PRO", "FULL", "ENGINEERING"] as const) { const r = await rec(REC(t)); assert.equal(r.status, 200, t); assert.deepEqual(r.json.deployment.limits, TIERS[t]); assert.equal(r.json.deployment.type, t); }
   assert.equal((await rec(REC("FULL", { limitDataSources: 25, limitSensors: 250 }))).status, 200, "matching limits are accepted");
   for (const bad of [{ limitDataSources: 26 }, { limitSensors: 251 }, { limitDataSources: null }, { limitReportsDays: 7 }]) assert.equal((await rec(REC("FULL", bad))).status, 400, JSON.stringify(bad));
   assert.equal((await rec(REC("PRO", { limitDataSources: 25, limitSensors: 250 }))).status, 400, "PRO with FULL limits");
-  assert.equal((await rec(REC("ENGINEERING"))).status, 400, "ENGINEERING cannot be chosen");
   const h = ((await c("GET", `/api/licence-deployments/${id}/history`)).json.history as any[]);
   assert.equal(h.at(-1).event, "ISSUED"); assert.equal(h.at(-1).note, "PRO, 5 data sources, 50 sensors, until 18 Nov 2027"); assert.equal(h[0].event, "RENEWED");
   assert.equal((await rec(REC("PRO", { validUntil: null, note: "paid" }))).json.deployment.validUntil, null, "no expiry allowed"); assert.equal(((await c("GET", `/api/licence-deployments/${id}/history`)).json.history as any[])[0].note, "PRO, 5 data sources, 50 sensors, no expiry. paid");
@@ -135,7 +135,23 @@ test("an existing table with the old type CHECK (first Online build) is rebuilt 
 test("source: the page says DATA SOURCES, not gateways; type selector with FREE / PRO / FULL; defaults today and one year; edit dialog can change type", () => {
   const pg = readFileSync("web/src/Licences.tsx", "utf8");
   assert.ok(!/Gateways? in use|Gateway limit|label="Gateways"|1 gateway|gateways, \d/i.test(pg), "no 'gateway' label left on screen"); assert.match(pg, /Data sources in use/); assert.match(pg, /label="Data sources"/); assert.match(pg, /data \$\{t\.gateways === 1 \? "source" : "sources"\}/);
-  assert.match(pg, /\["FREE", "PRO", "FULL"\]/); assert.match(pg, /role="radiogroup"/); assert.ok(!/<option>ENGINEERING/.test(pg), "ENGINEERING is not offered in a selector");
+  assert.match(pg, /\["FREE", "PRO", "FULL", "ENGINEERING"\]/, "ENGINEERING is the fourth selectable type"); assert.match(pg, /role="radiogroup"/); assert.match(pg, /no expiry by default/); assert.match(pg, /of \{lim\(limit\)\}/); assert.match(pg, /n === null \? "unlimited"/);
   assert.match(pg, /issuedAt: todayYmd\(\), validUntil: addYear\(todayYmd\(\)\)/); assert.match(pg, /NO EXPIRY/); assert.match(pg, /CHANGE TYPE/); assert.match(pg, /onChangeType=\{\(\) => setModal\("record"\)\}/);
   assert.ok(!/limitGateways|limitSensors|type="number"[^>]*gw/.test(pg.slice(pg.indexOf("function RecordForm"), pg.indexOf("const CONSEQUENCE"))), "limits are not typed in the issue dialog");
+});
+
+test("ENGINEERING: selectable in ISSUE and RENEW, unlimited, no expiry by default, usage never AT LIMIT / OVER LIMIT", async () => {
+  const x = await rig({ online: true, now: () => NOW }); closers.push(() => void x.close()); const c = (m: string, u: string, b?: unknown) => x.call(x.admin, m, u, b);
+  const id = (await c("POST", "/api/licence-deployments", { name: "Bench", deviceId: ID(31), usedGateways: 10, usedSensors: 100 })).json.deployment.id, rec = (b: object) => c("POST", `/api/licence-deployments/${id}/record`, b);
+  assert.equal((await c("GET", `/api/licence-deployments/${id}`)).json.deployment.usageFlags.sensors, "over_limit", "FREE record: 100 sensors against 10");
+  let r = await rec({ type: "ENGINEERING", licenceId: "FPL-20261118-0031", issuedAt: "2026-11-18" });          // ISSUE: no validUntil sent = no expiry
+  assert.equal(r.status, 200); let d = r.json.deployment; assert.deepEqual(d.limits, { gateways: null, sensors: null, reports_days: null, retention_days: null }); assert.deepEqual([d.type, d.validUntil, d.status, d.daysLeft, d.termPct], ["ENGINEERING", null, "active", null, null]);
+  assert.deepEqual(d.usageFlags, { gateways: "ok", sensors: "ok" }, "10 data sources and 100 sensors against unlimited: never AT LIMIT or OVER LIMIT"); assert.deepEqual([d.effectiveLimits.gateways, d.effectiveLimits.sensors], [null, null]);
+  d = (await c("PATCH", `/api/licence-deployments/${id}`, { usedGateways: 100000, usedSensors: 100000 })).json.deployment; assert.deepEqual(d.usageFlags, { gateways: "ok", sensors: "ok" });
+  assert.equal(((await c("GET", `/api/licence-deployments/${id}/history`)).json.history as any[])[0].note, "ENGINEERING, unlimited data sources, unlimited sensors, no expiry");
+  assert.equal((await c("GET", "/api/licence-deployments/attention")).json.count, 0, "no expiry: not in the badge");
+  assert.equal((await rec({ type: "ENGINEERING", licenceId: "FPL-20261118-0032", limitDataSources: 5 })).status, 400, "mismatched limits refused");
+  r = await rec({ type: "PRO", licenceId: "FPL-20261118-0033", validUntil: "2027-11-18" }); assert.equal(r.json.deployment.usageFlags.sensors, "over_limit", "RENEW to PRO: bars follow the new type");
+  r = await rec({ type: "ENGINEERING", licenceId: "FPL-20261118-0034" }); assert.equal(r.status, 200, "RENEW to ENGINEERING"); assert.equal(r.json.deployment.validUntil, null); assert.equal(r.json.deployment.usageFlags.sensors, "ok");
+  assert.equal((await rec({ type: "FREE" })).status, 200);
 });

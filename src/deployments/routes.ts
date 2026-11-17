@@ -116,7 +116,7 @@ export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (r
   // 2026-11-18: the type decides the limits (TIERS). The API refuses limits that do not match the tier; a limit left out is filled from the tier. Type FREE clears licence ID, issue date and expiry.
   app.post<{ Params: { id: string }; Body: any }>("/api/licence-deployments/:id/record", A, wrap(async (req, reply) => {
     const cur = one(req.params.id); if (!cur) return reply.code(404).send({ error: "not found" });
-    const b = req.body ?? {}, type = b.type as string, { u, r } = U(req), tierWord = (t: Tier) => `${TIERS[t].gateways} data sources, ${TIERS[t].sensors} sensors`;
+    const b = req.body ?? {}, type = b.type as string, { u, r } = U(req), tierWord = (t: Tier) => `${TIERS[t].gateways ?? "unlimited"} data sources, ${TIERS[t].sensors ?? "unlimited"} sensors`;
     const sameTier = (t: Tier) => {
       for (const [k, key] of [["limitDataSources", "gateways"], ["limitSensors", "sensors"], ["limitReportsDays", "reports_days"], ["limitRetentionDays", "retention_days"]] as const)
         if (k in b && b[k] !== undefined && b[k] !== TIERS[t][key]) throw bad(`${t} has ${tierWord(t)}: the limits are fixed by the type`);
@@ -130,20 +130,14 @@ export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (r
       })();
       return { deployment: deploymentView(one(cur.id)!, now()) };
     }
-    // ENGINEERING is an internal type for Trident Labs boxes: not offered, only kept (re-recorded) on a deployment that already has it.
-    if (type === ENGINEERING && cur.type !== ENGINEERING) throw bad("ENGINEERING is an internal type and cannot be chosen here");
-    if (!isTier(type) && type !== ENGINEERING) throw bad("Type must be FREE, PRO or FULL");
+    if (!isTier(type)) throw bad("Type must be FREE, PRO, FULL or ENGINEERING");
     const lid = text(b.licenceId, 200, "Licence ID"); if (!lid || !LICENCE_ID_RE.test(lid)) throw bad("Licence ID must look like FPL-20261117-0001");
     const issued = when(b.issuedAt, "Issued", false) ?? new Date(now()).toISOString().slice(0, 10) + "T00:00:00Z", until = when(b.validUntil, "Valid until", true);
     if (until && Date.parse(until) <= Date.parse(issued)) throw bad("Valid until must be after the issue date");
-    let limits: DeploymentLimits;
-    if (type === ENGINEERING) {      // same rule as the signed file (licence/format.ts): every limit null, no expiry
-      if (until !== null) throw bad("An ENGINEERING licence has no expiry");
-      limits = { gateways: null, sensors: null, reports_days: null, retention_days: null };
-    } else { sameTier(type as Tier); limits = { ...TIERS[type as Tier] }; }
+    sameTier(type); const limits: DeploymentLimits = { ...TIERS[type] };    // ENGINEERING: every limit null = unlimited; no expiry unless one is given (the dialog defaults to none)
     const event = cur.type === "FREE" ? "ISSUED" : "RENEWED", licensedTo = text(b.licensedTo, 200, "Licensed to") ?? cur.licensed_to;
     const until_ = until ? `until ${new Date(Date.parse(until)).getUTCDate()} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][new Date(Date.parse(until)).getUTCMonth()]} ${new Date(Date.parse(until)).getUTCFullYear()}` : "no expiry";
-    const extra = text(b.note, 500, "Note"), note = `${type}, ${type === ENGINEERING ? "unlimited" : tierWord(type as Tier)}, ${until_}${extra ? `. ${extra}` : ""}`;   // "ISSUED" + "PRO, 5 data sources, 50 sensors, until 18 Nov 2027"
+    const extra = text(b.note, 500, "Note"), note = `${type}, ${tierWord(type)}, ${until_}${extra ? `. ${extra}` : ""}`;   // "ISSUED" + "PRO, 5 data sources, 50 sensors, until 18 Nov 2027"
     db.transaction(() => {
       db.prepare("UPDATE licence_deployments SET type=?, licence_id=?, licensed_to=?, issued_at=?, valid_until=?, limits=? WHERE id=?").run(type, lid, licensedTo, issued, until, JSON.stringify(limits), cur.id);
       db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES(?,?,?,?,?)").run(cur.id, now(), event, note, u);
