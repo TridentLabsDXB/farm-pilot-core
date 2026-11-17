@@ -37,7 +37,7 @@ test("Online build: Admin has the API, Operator gets 403, no login gets 401; the
   const x = await rig({ online: true, now: () => NOW }); closers.push(() => void x.close());
   assert.equal((await x.call(x.admin, "GET", "/api/licence-deployments")).status, 200);
   assert.equal((await x.call(x.op, "GET", "/api/licence-deployments")).status, 403);
-  for (const [m, u] of [["GET", "/api/licence-deployments/attention"], ["GET", "/api/licence-deployments/1"], ["POST", "/api/licence-deployments"], ["PATCH", "/api/licence-deployments/1"], ["POST", "/api/licence-deployments/1/record"], ["GET", "/api/licence-deployments/1/history"], ["POST", "/api/licence-deployments/1/history"]])
+  for (const [m, u] of [["GET", "/api/licence-deployments/attention"], ["GET", "/api/licence-deployments/1"], ["POST", "/api/licence-deployments"], ["PATCH", "/api/licence-deployments/1"], ["POST", "/api/licence-deployments/1/record"], ["GET", "/api/licence-deployments/1/history"], ["POST", "/api/licence-deployments/1/history"], ["POST", "/api/licence-deployments/1/remove"], ["DELETE", "/api/licence-deployments/1"]])
     assert.equal((await x.call(x.op, m, u, m === "GET" ? undefined : {})).status, 403, `Operator ${m} ${u}`);
   assert.equal((await x.call(null, "GET", "/api/licence-deployments")).status, 401);
   assert.equal((await x.call(x.admin, "GET", "/api/me")).json.online, true);
@@ -45,6 +45,7 @@ test("Online build: Admin has the API, Operator gets 403, no login gets 401; the
 test("Standalone build: no route (404), no table, /api/me does not say online", async () => {
   const x = await rig({ online: false }); closers.push(() => void x.close());
   for (const u of ["/api/licence-deployments", "/api/licence-deployments/attention", "/api/licence-deployments/1"]) assert.equal((await x.call(x.admin, "GET", u)).status, 404, u);
+  assert.equal((await x.call(x.admin, "POST", "/api/licence-deployments/1/remove", {})).status, 404, "REMOVE LICENCE: no route"); assert.equal((await x.call(x.admin, "DELETE", "/api/licence-deployments/1", { deviceId: "FP-AAAA-BBBB-0001" })).status, 404, "DELETE DEPLOYMENT: no route");
   assert.equal((await x.call(x.admin, "POST", "/api/licence-deployments", {})).status, 404);
   assert.equal(x.db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE name LIKE 'licence_%'").get().c, 0);
   assert.equal((await x.call(x.admin, "GET", "/api/me")).json.online, undefined);
@@ -166,4 +167,39 @@ test("Licence ID prefill: FPL-<issued date>-<next free number for that date>, fo
   const pg = readFileSync("web/src/Licences.tsx", "utf8");
   assert.match(pg, /nextLicenceId\(todayYmd\(\), usedIds\)/, "prefilled"); assert.match(pg, /o\.idTouched \? o\.licenceId : nextLicenceId\(x, usedIds\)/, "follows the issued date until edited"); assert.match(pg, /onBlur=\{\(\) => setIdErr\(licenceIdError\(v\.licenceId\)\)\}/, "validated on blur");
   assert.match(pg, /LICENCE_ID_HELP/); assert.match(pg, /role="alert"/); assert.match(pg, /licenceIdError\(v\.licenceId\) !== null/, "RECORD stays disabled for an invalid value");
+});
+
+test("REMOVE LICENCE: back to FREE, REMOVED history row, audited; DELETE DEPLOYMENT: needs the typed Device ID, deletes record and history, audited; Operator 403", async () => {
+  const x = await rig({ online: true, now: () => NOW }); closers.push(() => void x.close()); const c = (m: string, u: string, b?: unknown) => x.call(x.admin, m, u, b);
+  const id = (await c("POST", "/api/licence-deployments", { name: "Del", deviceId: ID(41), usedSensors: 3 })).json.deployment.id, base = `/api/licence-deployments/${id}`;
+  assert.equal((await c("POST", base + "/remove", {})).status, 400, "already FREE: nothing to remove");
+  await c("POST", base + "/record", REC("FULL")); assert.equal((await c("GET", base)).json.deployment.type, "FULL");
+  assert.equal((await x.call(x.op, "POST", base + "/remove", {})).status, 403); assert.equal((await x.call(x.op, "DELETE", base, { deviceId: ID(41) })).status, 403); assert.equal((await c("GET", base)).json.deployment.type, "FULL", "Operator changed nothing");
+  const r = await c("POST", base + "/remove", {}); assert.equal(r.status, 200); const d = r.json.deployment;
+  assert.deepEqual([d.type, d.licenceId, d.issuedAt, d.validUntil, d.status], ["FREE", null, null, null, "free"]); assert.deepEqual(d.limits, TIERS.FREE); assert.equal(d.usage.sensors, 3, "usage entered by hand is kept");
+  const h = (await c("GET", base + "/history")).json.history as any[]; assert.deepEqual([h[0].event, h[0].note], ["REMOVED", "back to FREE"]); assert.equal(h.length, 2, "ISSUED + REMOVED");
+  assert.equal((await c("POST", base + "/remove", {})).status, 400);
+  // delete: the Device ID must be typed
+  for (const body of [undefined, {}, { deviceId: "" }, { deviceId: ID(42) }]) assert.equal((await c("DELETE", base, body)).status, 400, JSON.stringify(body));
+  assert.equal((await c("GET", base)).status, 200, "still there");
+  assert.equal((await c("DELETE", base, { deviceId: ID(41).toLowerCase() })).status, 200, "case does not matter");
+  assert.equal((await c("GET", base)).status, 404); assert.equal(x.db.prepare("SELECT COUNT(*) c FROM licence_history WHERE deployment_id=?").get(id).c, 0, "history deleted with it"); assert.equal((await c("DELETE", base, { deviceId: ID(41) })).status, 404);
+  const rows = x.db.prepare("SELECT username,action,detail FROM audit_log WHERE action IN ('licence_deployment.removed','licence_deployment.delete') ORDER BY id").all() as any[];
+  assert.deepEqual(rows.map((a) => [a.action, a.username]), [["licence_deployment.removed", "admin"], ["licence_deployment.delete", "admin"]]); assert.equal(JSON.parse(rows[1].detail).history_rows, 2); assert.equal(JSON.parse(rows[1].detail).device_id, ID(41));
+});
+test("an existing licence_history (first builds) is rebuilt once so REMOVED is allowed; rows kept", async () => {
+  const { openDb } = await import("../src/db.js"); const { registerDeploymentRoutes } = await import("../src/deployments/routes.js"); const Fastify = (await import("fastify")).default;
+  const db = openDb(":memory:");
+  db.exec(`CREATE TABLE licence_deployments (id INTEGER PRIMARY KEY, device_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, licensed_to TEXT, licence_id TEXT, type TEXT NOT NULL DEFAULT 'FREE' CHECK (type IN ('FREE','PRO','FULL','ENGINEERING')), issued_at TEXT, valid_until TEXT, limits TEXT NOT NULL, usage TEXT NOT NULL, last_seen INTEGER, created_at INTEGER NOT NULL);
+    CREATE TABLE licence_history (id INTEGER PRIMARY KEY, deployment_id INTEGER NOT NULL REFERENCES licence_deployments(id) ON DELETE CASCADE, ts INTEGER NOT NULL, event TEXT NOT NULL CHECK (event IN ('ISSUED','INSTALLED','RENEWED','NOTE')), note TEXT, username TEXT NOT NULL);
+    INSERT INTO licence_deployments(id,device_id,name,limits,usage,created_at) VALUES (1,'${ID(1)}','Old','{}','{}',1); INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES (1,1,'NOTE','kept','admin');`);
+  const app = Fastify(); registerDeploymentRoutes(app, db, async () => {}); await app.ready();
+  assert.equal((db.prepare("SELECT COUNT(*) c FROM licence_history").get() as any).c, 1); db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES (1,2,'REMOVED','back to FREE','admin')").run();
+  assert.equal(db.pragma("foreign_key_check").length, 0); await app.close();
+});
+test("source: REMOVE LICENCE only when not FREE with the exact confirm text; DELETE DEPLOYMENT in a danger zone of EDIT, typed Device ID", () => {
+  const pg = readFileSync("web/src/Licences.tsx", "utf8");
+  assert.match(pg, /sel\.type !== "FREE" && <button className="fp-btn small danger" onClick=\{\(\) => setModal\("remove"\)\}>REMOVE LICENCE</); assert.match(pg, /Return this deployment to FREE\? Licence ID, issue date and expiry are cleared\./);
+  assert.match(pg, /aria-label="Danger zone"/); assert.match(pg, /DELETE DEPLOYMENT/); assert.match(pg, /typed\.trim\(\)\.toUpperCase\(\) === d\.deviceId/); assert.match(pg, /disabled=\{!ok \|\| busy\}/);
+  assert.ok(pg.indexOf("lm-danger") > pg.indexOf('>{busy ? "SAVING" : "SAVE"}</button>'), "the danger zone sits at the bottom of the edit dialog");
 });

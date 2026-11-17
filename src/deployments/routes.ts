@@ -10,6 +10,8 @@
 //   POST  /api/licence-deployments/:id/record     RENEW or ISSUE: sets the licence fields, appends an ISSUED / RENEWED row
 //   GET   /api/licence-deployments/:id/history    newest first (+ a derived EXPIRED row once the term has ended)
 //   POST  /api/licence-deployments/:id/history    append an INSTALLED / NOTE row
+//   POST  /api/licence-deployments/:id/remove     REMOVE LICENCE: back to FREE + a REMOVED row
+//   DELETE /api/licence-deployments/:id           delete the record and its history (body: the Device ID, typed)
 import type { FastifyInstance } from "fastify";
 import { audit, type Db } from "../db.js";
 import { DEVICE_ID_RE } from "../licence/device.js";
@@ -27,7 +29,7 @@ CREATE TABLE IF NOT EXISTS licence_deployments (
   last_seen INTEGER, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS licence_history (
   id INTEGER PRIMARY KEY, deployment_id INTEGER NOT NULL REFERENCES licence_deployments(id) ON DELETE CASCADE, ts INTEGER NOT NULL,
-  event TEXT NOT NULL CHECK (event IN ('ISSUED','INSTALLED','RENEWED','NOTE')), note TEXT, username TEXT NOT NULL);
+  event TEXT NOT NULL CHECK (event IN ('ISSUED','INSTALLED','RENEWED','REMOVED','NOTE')), note TEXT, username TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_licence_history_dep ON licence_history(deployment_id, ts);
 `;
 export const TYPES = ["FREE", "PRO", "FULL", ENGINEERING] as const;
@@ -77,8 +79,18 @@ function when(v: unknown, what: string, endOfDay: boolean): string | null {
 }
 const deviceId = (v: unknown) => { const s = typeof v === "string" ? v.trim().toUpperCase() : ""; if (!DEVICE_ID_RE.test(s)) throw bad("Device ID must look like FP-XXXX-XXXX-XXXX"); return s; };
 
+/** 2026-11-18: REMOVED joins the history events. Same one-time rebuild as above for a licence_history created before it (nothing references that table, so no foreign-key juggling is needed). */
+function upgradeHistoryEvents(db: Db) {
+  const sql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='licence_history'").get() as { sql: string } | undefined)?.sql ?? "";
+  if (!sql || sql.includes("'REMOVED'")) return;
+  db.transaction(() => {
+    db.exec(SCHEMA_DEPLOYMENTS.slice(SCHEMA_DEPLOYMENTS.indexOf("CREATE TABLE IF NOT EXISTS licence_history"), SCHEMA_DEPLOYMENTS.indexOf("CREATE INDEX")).replace("licence_history", "licence_history_new"));
+    db.exec("INSERT INTO licence_history_new(id,deployment_id,ts,event,note,username) SELECT id,deployment_id,ts,event,note,username FROM licence_history; DROP TABLE licence_history; ALTER TABLE licence_history_new RENAME TO licence_history; CREATE INDEX IF NOT EXISTS idx_licence_history_dep ON licence_history(deployment_id, ts)");
+  })();
+}
+
 export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (req: any, reply: any) => Promise<unknown>, now: () => number = Date.now) {
-  db.exec(SCHEMA_DEPLOYMENTS); upgradeTypeCheck(db);
+  db.exec(SCHEMA_DEPLOYMENTS); upgradeTypeCheck(db); upgradeHistoryEvents(db);
   const A = { preHandler: admin }, U = (req: any) => ({ u: req.user.username as string, r: req.user.role as string });
   const all = () => (db.prepare("SELECT * FROM licence_deployments").all() as Row[]).map((r) => deploymentView(r, now()));
   const one = (id: unknown) => db.prepare("SELECT * FROM licence_deployments WHERE id=?").get(Number(id)) as Row | undefined;
@@ -144,6 +156,32 @@ export function registerDeploymentRoutes(app: FastifyInstance, db: Db, admin: (r
       audit(db, u, r, `licence_deployment.${event.toLowerCase()}`, { id: cur.id, type, licence_id: lid, valid_until: until });
     })();
     return { deployment: deploymentView(one(cur.id)!, now()) };
+  }));
+
+  // REMOVE LICENCE: back to FREE (licence ID, issue date and expiry cleared) and a REMOVED history row. Records only: nothing is signed, nothing reaches the box.
+  app.post<{ Params: { id: string } }>("/api/licence-deployments/:id/remove", A, wrap(async (req, reply) => {
+    const cur = one(req.params.id); if (!cur) return reply.code(404).send({ error: "not found" });
+    if (cur.type === "FREE") throw bad("This deployment is already FREE");
+    const { u, r } = U(req);
+    db.transaction(() => {
+      db.prepare("UPDATE licence_deployments SET type='FREE', licence_id=NULL, issued_at=NULL, valid_until=NULL, limits=? WHERE id=?").run(JSON.stringify(TIERS.FREE), cur.id);
+      db.prepare("INSERT INTO licence_history(deployment_id,ts,event,note,username) VALUES(?,?,?,?,?)").run(cur.id, now(), "REMOVED", "back to FREE", u);
+      audit(db, u, r, "licence_deployment.removed", { id: cur.id, device_id: cur.device_id, was: cur.type, licence_id: cur.licence_id, valid_until: cur.valid_until });
+    })();
+    return { deployment: deploymentView(one(cur.id)!, now()) };
+  }));
+
+  // DELETE DEPLOYMENT: the record and its history. The body must repeat the Device ID (the page asks the person to type it). The audit row keeps what was deleted.
+  app.delete<{ Params: { id: string }; Body: any }>("/api/licence-deployments/:id", A, wrap(async (req, reply) => {
+    const cur = one(req.params.id); if (!cur) return reply.code(404).send({ error: "not found" });
+    if (typeof req.body?.deviceId !== "string" || req.body.deviceId.trim().toUpperCase() !== cur.device_id) throw bad("Type the Device ID of this deployment to delete it");
+    const { u, r } = U(req);
+    db.transaction(() => {
+      const n = (db.prepare("SELECT COUNT(*) c FROM licence_history WHERE deployment_id=?").get(cur.id) as { c: number }).c;
+      audit(db, u, r, "licence_deployment.delete", { id: cur.id, device_id: cur.device_id, name: cur.name, type: cur.type, licence_id: cur.licence_id, valid_until: cur.valid_until, history_rows: n });
+      db.prepare("DELETE FROM licence_history WHERE deployment_id=?").run(cur.id); db.prepare("DELETE FROM licence_deployments WHERE id=?").run(cur.id);
+    })();
+    return { ok: true };
   }));
 
   app.get<{ Params: { id: string } }>("/api/licence-deployments/:id/history", A, async (req, reply) => {

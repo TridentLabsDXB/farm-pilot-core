@@ -31,7 +31,7 @@ const lim = (n: number | null) => (n === null ? "unlimited" : String(n));
 const ago = (ts: number | null) => { if (!ts) return "never"; const m = Math.max(0, Math.round((Date.now() - ts) / 60000)); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 const F = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="lm-f"><span className="fp-cap" style={{ display: "block" }}>{label}</span>{children}</label>;
 
-function DeploymentForm({ initial, tiers, onClose, onSaved, onChangeType }: { initial?: Dep; tiers: Tiers; onClose: () => void; onSaved: (d: Dep) => void; onChangeType?: () => void }) {
+function DeploymentForm({ initial, tiers, onClose, onSaved, onChangeType, onDelete }: { initial?: Dep; tiers: Tiers; onClose: () => void; onSaved: (d: Dep) => void; onChangeType?: () => void; onDelete?: () => void }) {
   const [v, setV] = useState({ name: initial?.name ?? "", deviceId: initial?.deviceId ?? "", licensedTo: initial?.licensedTo ?? "", gw: String(initial?.usage.gateways ?? 0), sn: String(initial?.usage.sensors ?? 0), seen: "" });
   const [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   async function save() {
@@ -54,6 +54,29 @@ function DeploymentForm({ initial, tiers, onClose, onSaved, onChangeType }: { in
     {!initial && <p className="lm-note">A new deployment starts as FREE ({tierWord(tiers.FREE)}). Use ISSUE LICENCE to record a licence. Usage and last seen are entered by hand.</p>}
     {err && <div className="lm-err" role="alert">{err}</div>}
     <button className="fp-btn primary" disabled={busy || !v.name.trim()} onClick={save}>{busy ? "SAVING" : "SAVE"}</button>
+    {initial && onDelete && <section className="lm-danger" aria-label="Danger zone"><span className="fp-cap">Danger zone</span><p className="lm-note">Deleting removes this deployment and its whole history from this page. Nothing is sent to the box.</p><button className="fp-btn danger" type="button" onClick={onDelete}>DELETE DEPLOYMENT</button></section>}
+  </Modal>;
+}
+
+function RemoveConfirm({ d, onClose, onDone }: { d: Dep; onClose: () => void; onDone: (d: Dep) => void }) {
+  const [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  async function go() { setBusy(true); setErr(""); try { onDone((await api<{ deployment: Dep }>(`/licence-deployments/${d.id}/remove`, { method: "POST" })).deployment); } catch (e) { setErr(errText(e)); } finally { setBusy(false); } }
+  return <Modal title="Remove licence" onClose={onClose}>
+    <p>Return this deployment to FREE? Licence ID, issue date and expiry are cleared.</p><p className="lm-note">Recorded here only: nothing is signed or sent to the box.</p>
+    {err && <div className="lm-err" role="alert">{err}</div>}
+    <div className="lm-btns"><button className="fp-btn" onClick={onClose}>CANCEL</button><button className="fp-btn danger" disabled={busy} onClick={go}>{busy ? "REMOVING" : "REMOVE LICENCE"}</button></div>
+  </Modal>;
+}
+
+function DeleteConfirm({ d, onClose, onDone }: { d: Dep; onClose: () => void; onDone: () => void }) {
+  const [typed, setTyped] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false), ok = typed.trim().toUpperCase() === d.deviceId;
+  async function go() { setBusy(true); setErr(""); try { await api(`/licence-deployments/${d.id}`, { method: "DELETE", json: { deviceId: typed.trim() } }); onDone(); } catch (e) { setErr(errText(e)); } finally { setBusy(false); } }
+  return <Modal title="Delete deployment" onClose={onClose}>
+    <p><b>{d.name}</b> and its whole history will be deleted. This cannot be undone.</p>
+    <p className="lm-note">To confirm, type its Device ID: <span className="lm-mono">{d.deviceId}</span></p>
+    <input className="fp-input" aria-label="Type the Device ID to confirm" autoComplete="off" spellCheck={false} placeholder="FP-XXXX-XXXX-XXXX" value={typed} onChange={(e) => setTyped(e.target.value)} />
+    {err && <div className="lm-err" role="alert">{err}</div>}
+    <div className="lm-btns" style={{ marginTop: 12 }}><button className="fp-btn" onClick={onClose}>CANCEL</button><button className="fp-btn danger" disabled={!ok || busy} onClick={go}>{busy ? "DELETING" : "DELETE DEPLOYMENT"}</button></div>
   </Modal>;
 }
 
@@ -109,7 +132,7 @@ function UsageBar({ label, used, limit, flag }: { label: string; used: number; l
 
 export default function Licences({ onChange }: { onChange: () => void }) {
   const [tiers, setTiers] = useState<Tiers | null>(null), [all, setAll] = useState<Dep[] | null>(null), [err, setErr] = useState(""), [q, setQ] = useState(""), [filter, setFilter] = useState<"ALL" | Status>("ALL");
-  const [selId, setSelId] = useState<number | null>(null), [detail, setDetail] = useState(false), [hist, setHist] = useState<Hist[]>([]), [modal, setModal] = useState<null | "add" | "edit" | "record">(null), [copied, setCopied] = useState(false);
+  const [selId, setSelId] = useState<number | null>(null), [detail, setDetail] = useState(false), [hist, setHist] = useState<Hist[]>([]), [modal, setModal] = useState<null | "add" | "edit" | "record" | "remove" | "delete">(null), [copied, setCopied] = useState(false);
   const load = useCallback(async (keep?: number) => {
     try { const r = await api<{ deployments: Dep[]; tiers: Tiers }>("/licence-deployments"); setAll(r.deployments); setTiers(r.tiers); setSelId((cur) => keep ?? (cur !== null && r.deployments.some((d) => d.id === cur) ? cur : (r.deployments.find((d) => d.status === "expiring" || d.status === "expired") ?? r.deployments[0])?.id ?? null)); setErr(""); onChange(); }
     catch (e) { setErr(errText(e)); }
@@ -156,7 +179,7 @@ export default function Licences({ onChange }: { onChange: () => void }) {
           <div className="lm-panel" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}><div><div className="fp-cap">Device ID</div><div className="lm-devid">{sel.deviceId}</div></div><button className="fp-btn" onClick={copy}>{copied ? "COPIED" : "COPY"}</button></div>
           <div className="lm-kv"><div><div className="fp-cap">Licensed to</div><div className="v">{sel.licensedTo ?? "Not activated"}</div></div><div><div className="fp-cap">Last seen</div><div className="v">{ago(sel.lastSeen)}</div></div></div>
         </div>
-        <div className="fp-card"><div className="fp-cap">Licence</div>
+        <div className="fp-card"><div className="lm-listhead"><div className="fp-cap">Licence</div>{sel.type !== "FREE" && <button className="fp-btn small danger" onClick={() => setModal("remove")}>REMOVE LICENCE</button>}</div>
           <div className="lm-kv">
             <div><div className="fp-cap">Type</div><div className="v lm-mono">{sel.type === "ENGINEERING" ? "ENGINEERING LICENCE" : sel.type}</div></div>
             <div><div className="fp-cap">Licence ID</div><div className="v lm-mono">{sel.licenceId ?? "--"}</div></div>
@@ -182,7 +205,9 @@ export default function Licences({ onChange }: { onChange: () => void }) {
       </div>}
     </div>}
     {modal === "add" && tiers && <DeploymentForm tiers={tiers} onClose={() => setModal(null)} onSaved={saved} />}
-    {modal === "edit" && sel && tiers && <DeploymentForm initial={sel} tiers={tiers} onClose={() => setModal(null)} onSaved={saved} onChangeType={() => setModal("record")} />}
+    {modal === "edit" && sel && tiers && <DeploymentForm initial={sel} tiers={tiers} onClose={() => setModal(null)} onSaved={saved} onChangeType={() => setModal("record")} onDelete={() => setModal("delete")} />}
+    {modal === "remove" && sel && <RemoveConfirm d={sel} onClose={() => setModal(null)} onDone={saved} />}
+    {modal === "delete" && sel && <DeleteConfirm d={sel} onClose={() => setModal(null)} onDone={() => { setModal(null); setDetail(false); setSelId(null); void load(); }} />}
     {modal === "record" && sel && tiers && <RecordForm d={sel} tiers={tiers} usedIds={(all ?? []).map((x) => x.licenceId)} onClose={() => setModal(null)} onSaved={saved} />}
   </main>;
 }
