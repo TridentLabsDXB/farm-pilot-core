@@ -7,11 +7,12 @@ import { EXPIRING_DAYS } from "../deployments/calc.js";
 import { DEVICE_ID_RE } from "../licence/device.js";
 import { FleetService, bad, type BoxRow, type StoredReport } from "./service.js";
 import { DAY, boxStatus } from "./status.js";
+import { localStamp, zoneLabel, zoneOf } from "./time.js";
 
 export const FLEET_PUBLIC = new Set(["/api/fleet/enrol", "/api/fleet/report"]);
 const BODY_LIMIT = 4096;
 
-export function registerFleetRoutes(app: FastifyInstance, db: Db, admin: (req: any, reply: any) => Promise<unknown>, nowFn: () => number = Date.now, tickMs = 60_000): FleetService {
+export function registerFleetRoutes(app: FastifyInstance, db: Db, admin: (req: any, reply: any) => Promise<unknown>, nowFn: () => number = Date.now, tickMs = 60_000, tz: () => string = () => "UTC"): FleetService {
   const svc = new FleetService(db, nowFn), A = { preHandler: admin };
   const who = (req: any) => req.user.username as string;
   const fail = (reply: any, e: any) => { const st = e?.status; if (st) { if (e.retryAfter) reply.header("retry-after", String(e.retryAfter)); return reply.code(st).send({ error: e.message, ...(e.extra ?? {}) }); } throw e; };
@@ -49,7 +50,7 @@ export function registerFleetRoutes(app: FastifyInstance, db: Db, admin: (req: a
   app.get("/api/fleet/boxes", A, async () => {
     const t = nowFn(), boxes = all(), waiting = (db.prepare("SELECT id,device_id,reported_name,version,requested_at FROM fleet_boxes WHERE state='pending' ORDER BY requested_at").all() as any[]).map((w) => ({ id: w.id, device_id: w.device_id, name: w.reported_name, version: w.version, requested_at: w.requested_at, asked_s: Math.round((t - w.requested_at) / 1000), licence_known: licKnown().has(w.device_id) }));
     const live = boxes.filter((b) => b.state === "approved"), n = (s: string) => live.filter((b) => b.status === s).length;
-    return { now: t, boxes, waiting, codes: svc.openCodes(), kpi: { boxes: live.length, online: n("ONLINE"), late: n("LATE"), offline: n("OFFLINE"), waiting: waiting.length } };
+    return { now: t, tz: zoneOf(tz()), boxes, waiting, codes: svc.openCodes(), kpi: { boxes: live.length, online: n("ONLINE"), late: n("LATE"), offline: n("OFFLINE"), waiting: waiting.length } };
   });
   app.get<{ Params: { id: string } }>("/api/fleet/boxes/:id", A, async (req, reply) => { const b = svc.boxById(req.params.id); if (!b || !["approved", "revoked"].includes(b.state)) return reply.code(404).send({ error: "not found" }); return { box: view(b, nowFn(), licKnown(), svc.percent30()) }; });
   app.get<{ Params: { id: string } }>("/api/fleet/boxes/:id/history", A, async (req, reply) => { const b = svc.boxById(req.params.id); if (!b) return reply.code(404).send({ error: "not found" }); return svc.history(b.device_id); });
@@ -60,8 +61,10 @@ export function registerFleetRoutes(app: FastifyInstance, db: Db, admin: (req: a
   // CSV of the list. Box names come from the boxes, so a cell that starts with = + - @ is defused (spreadsheet formula injection).
   app.get("/api/fleet/export.csv", A, async (req, reply) => {
     const cell = (v: unknown) => { let s = v === null || v === undefined ? "" : String(v); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const head = ["status", "name", "device_id", "licence", "licence_valid_until", "data_sources", "data_sources_max", "sensors", "sensors_max", "version", "last_seen_utc", "first_enrolled_utc", "percent_online_30d"];
-    const rows = all().map((b) => [b.status, b.name, b.device_id, b.licence?.type, b.licence?.valid_until?.slice(0, 10), b.sources?.n, b.sources ? (b.sources.max ?? "unlimited") : "", b.sensors?.n, b.sensors ? (b.sensors.max ?? "unlimited") : "", b.version, b.last_report_at ? new Date(b.last_report_at).toISOString() : "", b.first_enrolled_at ? new Date(b.first_enrolled_at).toISOString() : "", b.percent_online_30d]);
+    // 2026-11-19: times in the Farm Profile zone (the column header names it) plus the same two times in UTC ISO-8601
+    const z = zoneOf(tz()), lab = z === "UTC" ? "UTC" : `${z} ${zoneLabel(z, nowFn())}`, loc = (ms: number | null) => (ms ? localStamp(z, ms) : "");
+    const head = ["status", "name", "device_id", "licence", "licence_valid_until", "data_sources", "data_sources_max", "sensors", "sensors_max", "version", `last_seen (${lab})`, "last_seen_utc", `first_enrolled (${lab})`, "first_enrolled_utc", "percent_online_30d"];
+    const rows = all().map((b) => [b.status, b.name, b.device_id, b.licence?.type, b.licence?.valid_until?.slice(0, 10), b.sources?.n, b.sources ? (b.sources.max ?? "unlimited") : "", b.sensors?.n, b.sensors ? (b.sensors.max ?? "unlimited") : "", b.version, loc(b.last_report_at), b.last_report_at ? new Date(b.last_report_at).toISOString() : "", loc(b.first_enrolled_at), b.first_enrolled_at ? new Date(b.first_enrolled_at).toISOString() : "", b.percent_online_30d]);
     audit(db, who(req), "admin", "fleet.export_csv", { rows: rows.length });
     return reply.header("content-type", "text/csv; charset=utf-8").header("content-disposition", `attachment; filename="connected-boxes-${new Date(nowFn()).toISOString().slice(0, 10)}.csv"`).send([head, ...rows].map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n");
   });

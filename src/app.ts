@@ -154,7 +154,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
   if (ports) registerPortRoutes(app, ports, admin, () => send({ type: "ports" }));
   if (online) registerDeploymentRoutes(app, db, admin, opts.now, { keyFile: config.licenceSigningKeyFile, ...opts.signing });       // Online build only: a standalone build has no table and no route (404)
-  if (online) registerFleetRoutes(app, db, admin, opts.now, opts.fleetTickMs);            // Online build only: Connected Boxes (2026-11-19)
+  if (online) registerFleetRoutes(app, db, admin, opts.now, opts.fleetTickMs, () => prof.publicInfo().timezone);            // Online build only: Connected Boxes (2026-11-19)
   // MQTT Payload source (2026-11-18). index.ts starts it; without one passed in (tests) an idle service is created so the routes still work. It never counts against the licence for now (TODO in mqtt/service.ts).
   const mqttSvc = opts.mqtt ?? new MqttSourceService(db, ingest);
   registerMqttRoutes(app, mqttSvc, admin);

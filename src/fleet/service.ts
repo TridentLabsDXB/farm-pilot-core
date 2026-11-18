@@ -174,7 +174,8 @@ export class FleetService {
     for (const r of rows) { const d = days[Math.floor((r.hour_ts - since) / DAY)]; if (d) { d.expected += r.expected; d.received += Math.min(r.received, r.expected || r.received); } }
     let e = 0, g = 0; for (const d of days) { d.pct = d.expected > 0 ? Math.min(100, Math.round((d.received / d.expected) * 1000) / 10) : null; e += d.expected; g += d.received; }
     const events = this.db.prepare("SELECT ts,status,note FROM fleet_events WHERE device_id=? AND ts>=? ORDER BY ts DESC, id DESC LIMIT 200").all(deviceId, t - HISTORY_DAYS * DAY);
-    return { days, percent_online_30d: e > 0 ? Math.min(100, Math.round((g / e) * 1000) / 10) : null, events, since };
+    const hours = this.db.prepare("SELECT hour_ts,expected,received FROM fleet_hours WHERE device_id=? AND hour_ts>=? ORDER BY hour_ts").all(deviceId, hourStart(t - (HISTORY_DAYS + 1) * DAY));      // 2026-11-19: raw UTC hour records, so the page can draw day cells in the Farm Profile time zone
+    return { days, hours, percent_online_30d: e > 0 ? Math.min(100, Math.round((g / e) * 1000) / 10) : null, events, since };
   }
   percent30(): Map<string, number | null> {
     const cut = hourStart(this.now() - HISTORY_DAYS * DAY), m = new Map<string, number | null>();
