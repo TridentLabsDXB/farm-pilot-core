@@ -7,13 +7,13 @@ import "./a100.css";
 // CONTROL DEVICES > Ashining A100 (Admin only, NOT licence gated; variant A of core-control-devices-ashining-a100-page.md, approved 2026-11-18).
 // The A100 is a transparent RS-485 radio pipe with NO device address. Honest status: SENT = written to the A100; the radio ACK is not reported to CORE; CONFIRMED needs real feedback (not defined yet).
 // The encryption key is never shown or returned: SET NEW KEY sends it to the unit and the page forgets it. Lamp SHAPE plus WORD on every status. Operators never reach this page (the server answers 403).
-interface Params { version: string | null; rssi: { envDbm: number; packetDbm: number } | null; baud: number | null; format: { dataBits: number; stopBits: number; parity: string } | null; radio: { channel: number; mhz: number; powerDbm: number; airKbps: number } | null;
+interface Params { version: string | null; rssi: { env: number; packet: number } | null; baud: number | null; format: { dataBits: number; stopBits: number; parity: string } | null; radio: { channel: number; mhz: number; powerDbm: number; airKbps: number } | null;
   mode: { value: number; name: string } | null; ack: { enabled: boolean; retries: number } | null; retryMs: number | null; packetLen: number | null; packTimeMs: number | null; options: { remoteConfig: boolean } | null;
   local: { group: number; address: number } | null; dest: { group: number; address: number } | null; defaultKey: boolean | null; missing: string[] }
 interface Dev { id: number; name: string; kind: string; role: string | null; zoneId: number | null; scope: string; destGroup: number; destAddr: number; channel: number; rateLimitS: number; enabled: boolean; commands: string[]; state: string; lastCommand: { command: string; status: string; at: number } | null }
 interface Cmd { id: string; device: string | null; command: string; user: string; status: string; note: string | null; at: number }
 interface View { banner: string; link: { portId: number; enabled: boolean } | null; port: { id: number; label: string; transport: string; baud: number; dataBits: number; parity: string; stopBits: number; timeoutMs: number; retries: number; open: boolean } | null; ports: { id: number; label: string }[];
-  params: Params | null; readAt: number | null; warnings: { code: string; text: string }[]; devices: Dev[]; commands: Cmd[]; ranges: { maxChannel: number; airKbps: number[]; powerDbm: number[]; bauds: number[] }; notes: { regulatory: string; keyStorage: string; feedback: string; local: string } }
+  params: Params | null; readAt: number | null; warnings: { code: string; text: string }[]; devices: Dev[]; commands: Cmd[]; resetEnabled: boolean; ranges: { maxChannel: number; airKbps: number[]; powerDbm: number[]; bauds: number[] }; notes: { regulatory: string; keyStorage: string; feedback: string; local: string } }
 const LAMP: Record<string, { shape: string; tone: Tone }> = { "A100 ANSWERING": { shape: "circle", tone: "ok" }, CONNECTING: { shape: "triangle", tone: "warn" }, "NO ANSWER": { shape: "square", tone: "alarm" }, DISABLED: { shape: "ring", tone: "off" } };
 const ST: Record<string, Tone> = { SENT: "info", UNKNOWN: "warn", CONFIRMED: "ok", FAILED: "alarm" };
 const MODES: [number, string][] = [[1, "Transparent"], [2, "Target transmission"], [4, "Master-slave"]];
@@ -47,7 +47,7 @@ export default function A100Page() {
         <dl className="a1-facts">
           <div><dt className="fp-cap">SERIAL SIDE</dt><dd>{port ? `${port.label} · ${lineOf(port.baud, port.dataBits, port.parity, port.stopBits)}` : "--"}</dd></div>
           <div><dt className="fp-cap">RADIO</dt><dd>{p?.radio ? `${p.radio.mhz} MHz · CH ${p.radio.channel}` : "--"}</dd></div>
-          <div><dt className="fp-cap">SIGNAL</dt><dd>{p?.rssi ? `${p.rssi.packetDbm} dBm` : "--"}</dd></div>
+          <div><dt className="fp-cap">SIGNAL (RAW)</dt><dd title="The unit's own raw numbers: the manual gives no unit and no sign">{p?.rssi ? `ENV ${p.rssi.env} · PACKET ${p.rssi.packet}` : "--"}</dd></div>
           <div><dt className="fp-cap">FEEDBACK</dt><dd>{p?.ack?.enabled ? "RADIO ACK ON (NOT SHOWN TO CORE)" : "NONE"}</dd></div>
           <div><dt className="fp-cap">LAST COMMAND</dt><dd>{v.commands[0] ? `${dt(v.commands[0].at)} ${v.commands[0].status}` : "--"}</dd></div>
           <div><dt className="fp-cap">DEVICES</dt><dd>{v.devices.length}</dd></div>
@@ -96,14 +96,15 @@ export default function A100Page() {
           <label className="a1-check" style={{ flexDirection: "row" }}><input type="checkbox" checked={d.remoteConfig} disabled={!ready} onChange={(e) => setD({ ...d, remoteConfig: e.target.checked })} />REMOTE CONFIGURATION</label>
           <label>Encryption key<input className="fp-input" readOnly value={!ready ? "--" : p?.defaultKey === true ? "FACTORY KEY" : p?.defaultKey === false ? "••••••••••••••••" : "UNKNOWN"} aria-label="Encryption key (never shown)" /></label>
         </div>
+        {!v.resetEnabled && <p className="a1-note">REBOOT and FACTORY RESTORE are disabled until they are verified on a real A100 (the manual gives two different addresses). Use the unit's RESET button or the AS_DS tool.</p>}
         <p className="a1-note">{v.notes.regulatory}</p><p className="a1-note">{v.notes.keyStorage}</p>
         <div className="a1-btns">
           <button className="fp-btn" disabled={busy !== null || !v.link?.enabled} onClick={read}>{busy === "read" ? "READING..." : "READ FROM UNIT"}</button>
           <button className="fp-btn a1-primary" disabled={!ready || busy !== null} onClick={() => setConfirm("write")}>WRITE TO UNIT</button>
           <button className="fp-btn" disabled={!ready || busy !== null} onClick={() => setConfirm("revert")}>REVERT</button>
           <button className="fp-btn" disabled={!ready || busy !== null} onClick={() => setConfirm("key")}>SET NEW KEY</button>
-          <button className="fp-btn" disabled={!ready || busy !== null} onClick={() => setConfirm("reboot")}>REBOOT UNIT</button>
-          <button className="fp-btn" disabled={!ready || busy !== null} onClick={() => setConfirm("factory")}>FACTORY RESTORE</button>
+          <button className="fp-btn" disabled={!v.resetEnabled || !ready || busy !== null} title={v.resetEnabled ? undefined : "Disabled until verified on a real A100"} onClick={() => setConfirm("reboot")}>REBOOT UNIT</button>
+          <button className="fp-btn" disabled={!v.resetEnabled || !ready || busy !== null} title={v.resetEnabled ? undefined : "Disabled until verified on a real A100"} onClick={() => setConfirm("factory")}>FACTORY RESTORE</button>
         </div>
       </section>
     </div>

@@ -5,7 +5,7 @@ import test, { after } from "node:test"; import assert from "node:assert/strict"
 import { openDb } from "../src/db.js"; import { Ingest } from "../src/ingest.js"; import { hashPassword, createSession } from "../src/auth.js"; import { buildApp } from "../src/app.js"; import { Commands } from "../src/commands.js";
 import { PortStore } from "../src/ports/store.js"; import { PortManager } from "../src/ports/manager.js"; import { validateAssignment, validateDevice, type DeviceRow } from "../src/ports/validate.js";
 import { buildCfgFrame, buildOpFrame, checkBytes, parseCfgAnswer, parseOpFrame, targetPrefix } from "../src/a100/frames.js";
-import { channelMhz, decodeAck, decodeFormat, decodeOptions, decodeRadio, encodeAck, encodeFormat, encodeRadio, isFactoryKey, modeName, REG, setOption } from "../src/a100/registers.js";
+import { REG_LEN, regBytes, channelMhz, decodeAck, decodeFormat, decodeOptions, decodeRadio, encodeAck, encodeFormat, encodeRadio, isFactoryKey, modeName, REG, setOption } from "../src/a100/registers.js";
 import { A100Service } from "../src/a100/service.js"; import { A100Sim, serveA100 } from "../src/tools/a100-sim/sim.js";
 import { readFileSync, readdirSync } from "node:fs"; import { join } from "node:path";
 
@@ -28,20 +28,30 @@ test("frame builder matches the manual example (read all parameters) and the che
   const f = buildOpFrame({ write: false, start: 0x04, len: 0x1c });
   assert.equal(hex(f), "af af 55 55 5a ff 00 04 1c 81 bd 50 50 aa aa a5 0d 0a");
   assert.deepEqual(checkBytes(Buffer.from([0xaf, 0xaf, 0x55, 0x55, 0x5a, 0xff, 0x00, 0x04, 0x1c])), [0x81, 0xbd]);
-  const w = buildOpFrame({ write: true, start: 0x06, len: 2, data: Buffer.from([0x02, 0xfc]) }), p = parseOpFrame(w);
-  assert.ok(p && p !== "bad" && p.write && p.start === 6 && p.data.equals(Buffer.from([2, 0xfc])));
+  const w = buildOpFrame({ write: true, start: 0x06, len: 1, data: Buffer.from([0x02, 0xfa]) }), p = parseOpFrame(w);                  // LEN counts REGISTERS: one register, two data bytes
+  assert.ok(p && p !== "bad" && p.write && p.start === 6 && p.len === 1 && p.data.equals(Buffer.from([2, 0xfa])));
   const bad = Buffer.from(f); bad[9] ^= 1; assert.equal(parseOpFrame(bad), "bad"); assert.equal(parseOpFrame(f.subarray(0, 10)), null);
-  assert.throws(() => buildOpFrame({ write: true, start: 6, len: 2, data: Buffer.from([1]) }), /LEN/);
+  assert.throws(() => buildOpFrame({ write: true, start: 6, len: 1, data: Buffer.from([1]) }), /byte length of the registers/);
+});
+test("LEN counts registers and the data bytes equal the sum of their byte lengths (key = 80 0B 01 + 16 bytes; two registers = 2 + 2 bytes)", () => {
+  const key = Buffer.alloc(16, 0x41), f = buildOpFrame({ write: true, start: 0x0b, len: 1, data: key }); assert.equal(hex(f.subarray(4, 9)), "5a 7f 80 0b 01"); assert.ok(f.subarray(9, 25).equals(key));
+  assert.equal(regBytes(0x06, 2), 4); assert.equal(regBytes(0x0b, 1), 16); assert.equal(regBytes(0x04, 0x1c), null);                           // 0x10 to 0x13 are not in the map: no length check there
+  assert.doesNotThrow(() => buildOpFrame({ write: true, start: 0x06, len: 2, data: Buffer.alloc(4) })); assert.throws(() => buildOpFrame({ write: true, start: 0x06, len: 2, data: Buffer.alloc(2) }), /byte length/);
+  for (const [r, n] of [[0x00, 20], [0x01, 4], [0x04, 4], [0x05, 1], [0x06, 2], [0x07, 2], [0x08, 1], [0x09, 2], [0x0a, 1], [0x0b, 16], [0x0c, 5], [0x0d, 1], [0x0e, 1], [0x0f, 2], [0x14, 1], [0x16, 1], [0x17, 2], [0x18, 1], [0x1f, 1]]) assert.equal(REG_LEN[r], n, "register 0x" + r.toString(16));
+  const reply = Buffer.concat([Buffer.from([0xaf, 0xaf, 0x55, 0x55, 0x5a, 0xff, 0x00, 0x06, 0x01, 0x02, 0xfa]), Buffer.from([0, 0, 0x50, 0x50, 0xaa, 0xaa, 0xa5, 0x0d, 0x0a])]); const [sm, xr] = checkBytes(reply.subarray(0, 11)); reply[11] = sm; reply[12] = xr;
+  const pr = parseOpFrame(reply); assert.ok(pr && pr !== "bad" && !pr.write && pr.data.length === 2);                                         // a read answer: `00 REG LEN` + the register's bytes, length found from the frame
 });
 test("configuration-mode frames and answers (CMD REG LEN DATA; 0x80 saved, 0xC0 failed)", () => {
-  assert.equal(hex(buildCfgFrame({ write: false, reg: 0x06, len: 2 })), "00 06 02"); assert.equal(hex(buildCfgFrame({ write: true, reg: 0x06, len: 2, data: Buffer.from([2, 0xfc]) })), "80 06 02 02 fc");
-  assert.equal(hex(buildCfgFrame({ write: false, reg: 0x06, len: 2, remote: true })), "40 06 02");
-  assert.deepEqual(parseCfgAnswer(Buffer.from([0x80, 6, 2]), 6)?.ok, true); assert.equal(parseCfgAnswer(Buffer.from([0xc0, 6, 2]), 6)?.ok, false);
-  assert.equal(parseCfgAnswer(Buffer.from([0x00, 6, 2, 2]), 6), null); assert.equal(hex(parseCfgAnswer(Buffer.from([0x00, 6, 2, 2, 0xfc]), 6)!.data), "02 fc");
+  assert.equal(hex(buildCfgFrame({ write: false, reg: 0x06, len: 1 })), "00 06 01"); assert.equal(hex(buildCfgFrame({ write: true, reg: 0x06, len: 1, data: Buffer.from([2, 0xfa]) })), "80 06 01 02 fa");
+  assert.equal(hex(buildCfgFrame({ write: false, reg: 0x06, len: 1, remote: true })), "40 06 01");
+  assert.deepEqual(parseCfgAnswer(Buffer.from([0x80, 6, 1]), 6)?.ok, true); assert.equal(parseCfgAnswer(Buffer.from([0xc0, 6, 1]), 6)?.ok, false);
+  assert.equal(parseCfgAnswer(Buffer.from([0x00, 6, 1, 2]), 6), null); assert.equal(hex(parseCfgAnswer(Buffer.from([0x00, 6, 1, 2, 0xfa]), 6)!.data), "02 fa");
+  assert.ok(!/buildCfgFrame|parseCfgAnswer/.test(readFileSync("src/a100/link.ts", "utf8").replace(/\/\/.*$/gm, "")), "READ, WRITE and TEST LINK use operating-mode frames only");
 });
 test("register codec: channel to MHz, power, air rate (the 0x02FC case), serial format, mode, ack, options", () => {
   assert.equal(channelMhz(23), 433); assert.equal(channelMhz(0), 410);
-  assert.deepEqual(decodeRadio(0x02fc), { channel: 23, mhz: 433, powerDbm: 30, airKbps: 19.2 });      // the manual's own default decodes to 19.2 kbps, not the 4.8 / 2.4 it also claims
+  assert.deepEqual(decodeRadio(0x02fc), { channel: 23, mhz: 433, powerDbm: 30, airKbps: 19.2 });      // the manual's factory table value 02FC decodes to 19.2 kbps
+  assert.deepEqual(decodeRadio(0x02fa), { channel: 23, mhz: 433, powerDbm: 30, airKbps: 4.8 }); assert.equal(decodeRadio(0x02bd).airKbps, 38.4);   // 02FA and 02BD are the other two values the manual shows; none is an expected default
   for (const [p, bits] of [[21, 0], [24, 1], [27, 2], [30, 3]] as const) assert.equal(decodeRadio((5 << 5) | (bits << 3)).powerDbm, p);
   for (const [i, k] of [1.2, 2.4, 4.8, 9.6, 19.2, 38.4, 50, 62.5].entries()) assert.equal(decodeRadio(i).airKbps, k);
   assert.equal(encodeRadio({ channel: 23, powerDbm: 30, airKbps: 19.2 }), 0x02fc); assert.throws(() => encodeRadio({ channel: 1, powerDbm: 29, airKbps: 2.4 }), /power/); assert.throws(() => encodeRadio({ channel: 1, powerDbm: 30, airKbps: 3 }), /air rate/);
@@ -73,7 +83,7 @@ test("setLink refuses a port that another enabled device already uses", async ()
 
 test("READ FROM UNIT shows the values; the factory key raises DEFAULT KEY IN USE and no key leaves the service", async () => {
   const r = await rig(); const res = await r.svc.readFromUnit(A); const p = res.params;
-  assert.equal(p.version, "A100-L400M30-v1.2.00"); assert.deepEqual(p.radio, { channel: 23, mhz: 433, powerDbm: 30, airKbps: 19.2 }); assert.equal(p.mode?.name, "target transmission"); assert.equal(p.defaultKey, true);
+  assert.equal(p.version, "A100-L400M30-v1.2.00"); assert.deepEqual(p.radio, { channel: 23, mhz: 433, powerDbm: 30, airKbps: 4.8 }); assert.equal(p.mode?.name, "target transmission"); assert.equal(p.defaultKey, true);
   assert.ok(res.warnings.some((w) => w.code === "default_key" && /DEFAULT KEY IN USE/.test(w.text))); assert.equal(res.first, true);
   const all = JSON.stringify([res, r.svc.view(), r.audits(), r.db.prepare("SELECT snapshot FROM a100_link").all()]); assert.ok(!all.includes("ashining.com"), "key text leaked"); assert.ok(!all.includes(Buffer.from("www.ashining.com").toString("hex")), "key hex leaked");
   assert.equal(p.raw[REG.KEY], undefined);
@@ -97,7 +107,7 @@ test("WRITE TO UNIT: confirmation, a prior read, read-back, audit with old and n
   const r = await rig();
   await assert.rejects(r.svc.writeToUnit(A, { changes: { channel: 5 } }), /confirm/); await assert.rejects(r.svc.writeToUnit(A, { confirm: true, changes: { channel: 5 } }), /READ FROM UNIT first/);
   await r.svc.readFromUnit(A); const res = await r.svc.writeToUnit(A, { confirm: true, changes: { channel: 5, powerDbm: 27 } }); assert.deepEqual(res.written, ["radio"]);
-  assert.deepEqual(decodeRadio(r.sim.regs.get(REG.RADIO)!.readUInt16BE(0)), { channel: 5, mhz: 415, powerDbm: 27, airKbps: 19.2 });    // air rate untouched: only what the Admin sent is written
+  assert.deepEqual(decodeRadio(r.sim.regs.get(REG.RADIO)!.readUInt16BE(0)), { channel: 5, mhz: 415, powerDbm: 27, airKbps: 4.8 });    // air rate untouched: only what the Admin sent is written
   const a = r.audits().find((x) => x.action === "a100.write")!; const d = JSON.parse(a.detail); assert.equal(d.changes[0].old.channel, 23); assert.equal(d.changes[0].new.channel, 5);
   assert.equal((await r.svc.writeToUnit(A, { confirm: true, changes: { channel: 5 } })).unchanged, true);
   await assert.rejects(r.svc.writeToUnit(A, { confirm: true, changes: { powerDbm: 29 } }), /power must be/); await assert.rejects(r.svc.writeToUnit(A, { confirm: true, changes: { mode: 0x0020 } }), /mode must be/);
@@ -126,9 +136,21 @@ test("SET NEW KEY writes the key to the unit and forgets it: not in the response
   const all = JSON.stringify([res, r.svc.view(), r.audits(), r.db.prepare("SELECT * FROM a100_link").all(), out]); assert.ok(!all.includes(key)); assert.ok(!all.includes(Buffer.from(key).toString("hex")));
   assert.equal(r.svc.view().params?.defaultKey, false);
 });
-test("REBOOT and FACTORY RESTORE each need their own typed confirmation", async () => {
-  const r = await rig(); await assert.rejects(r.svc.resetUnit(A, { action: "reboot", confirm: "yes" }), /type REBOOT/); await assert.rejects(r.svc.resetUnit(A, { action: "factory", confirm: "REBOOT" }), /type FACTORY/);
-  assert.equal(r.sim.writes.length, 0); await r.svc.resetUnit(A, { action: "reboot", confirm: "REBOOT" }); await new Promise((x) => setTimeout(x, 100)); assert.ok(r.audits().some((a) => a.action === "a100.reboot"));
+test("REBOOT and FACTORY RESTORE are disabled; the driver accepts either echo address (0x20/0x21 or 0x22/0x23)", async () => {
+  const r = await rig(); await assert.rejects(r.svc.resetUnit(A, { action: "reboot", confirm: "REBOOT" }), /disabled until they are verified/); await assert.rejects(r.svc.resetUnit(A, { action: "factory", confirm: "FACTORY" }), /disabled/);
+  assert.equal(r.sim.writes.length, 0); assert.equal(r.svc.view().resetEnabled, false);
+  assert.equal((await r.svc.link.command(0x20)).echo, 0x20); r.sim.echoPlus2 = true; assert.deepEqual(await r.svc.link.command(0x21), { answered: true, echo: 0x23 }); r.sim.silent = true; assert.deepEqual(await r.svc.link.command(0x20), { answered: false, echo: null });
+  assert.match(readFileSync("web/src/A100Page.tsx", "utf8"), /resetEnabled/);
+});
+test("answers are parsed by the register map: a wrong length is rejected; 0x17 is accepted as 1 or 2 bytes and always written as 2; every frame is an operating-mode frame", async () => {
+  const r = await rig(); r.sim.longRead.add(REG.RADIO); await assert.rejects(r.svc.link.readReg(REG.RADIO), /rejected/); const p = await r.svc.link.readParams(); assert.ok(p.missing.includes("radio") && p.radio === null);
+  r.sim.longRead.clear(); r.sim.opt1Byte = true; r.sim.regs.set(REG.OPTIONS, Buffer.from([0x00, 0x10])); const q = await r.svc.link.readParams(); assert.equal(q.optionsRaw, 0x10); assert.equal(q.raw[REG.OPTIONS], "0010"); assert.equal(q.options?.remoteConfig, true);
+  r.sim.opt1Byte = false; await r.svc.readFromUnit(A); await r.svc.writeToUnit(A, { confirm: true, confirmRemote: true, changes: { remoteConfig: false } }); assert.equal(r.sim.writes.at(-1)!.reg, REG.OPTIONS); assert.equal(r.sim.writes.at(-1)!.data.length, 2);
+  assert.ok(r.svc.link.sent.every((x) => x.kind !== "data")); assert.equal(r.sim.swallowed.length, 0);                                           // nothing but AF AF frames reached the unit
+});
+test("RSSI is shown as the unit's two raw numbers, never as dBm", async () => {
+  const r = await rig(); const res = await r.svc.readFromUnit(A); assert.deepEqual(res.params.rssi, { env: 95, packet: 80 });
+  const page = readFileSync("web/src/A100Page.tsx", "utf8"); for (const line of page.split("\n").filter((l) => /SIGNAL|rssi\./.test(l))) assert.ok(!/\bdBm\b/.test(line), "no dBm next to the signal: " + line.slice(0, 80)); assert.match(page, /RAW/);
 });
 
 test("a command is SENT when written to the A100 with the target prefix, then UNKNOWN without feedback; never CONFIRMED by the radio", async () => {

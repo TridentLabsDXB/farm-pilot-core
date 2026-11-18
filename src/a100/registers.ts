@@ -1,10 +1,17 @@
 // 2026-11-18 -- A100 register map and codec (core-control-devices-ashining-a100-page.md, "Register map to expose"). Pure functions.
 // The manual is inconsistent about defaults (air rate 4.8 / 2.4 kbps, 0x02FC decodes to 19.2 kbps; 81 vs 116 channels): NOTHING here assumes a default. Values always come from the unit.
-// Byte lengths per register (LEN of the command) are taken from the field sizes in the register table; VERIFY each on the real unit. Multi-byte values are big-endian (VERIFY).
+// Register byte lengths and big-endian multi-byte values are CONFIRMED by the manual (core-control-devices-a100-manual-verification.md). The command LEN counts REGISTERS, the data counts BYTES (regBytes).
+// The manual's own default for register 0x06 is inconsistent (02FC, 02BD, 02FA in its examples): none is used as an expected value anywhere; always read the unit.
 
 export const REG = { VERSION: 0x00, RSSI: 0x01, BAUD: 0x04, FORMAT: 0x05, RADIO: 0x06, MODE: 0x07, ACK: 0x08, RETRY_MS: 0x09, ROLE: 0x0a, KEY: 0x0b, PACKET_LEN: 0x0e, PACK_TIME: 0x0f, WAKE: 0x14, OPTIONS: 0x17,
   LOCAL_GROUP: 0x18, LOCAL_ADDR: 0x19, DEST_GROUP: 0x1a, DEST_ADDR: 0x1b, REBOOT: 0x20, FACTORY: 0x21 } as const;
-export const REG_LEN: Record<number, number> = { 0x00: 20, 0x01: 4, 0x04: 4, 0x05: 1, 0x06: 2, 0x07: 2, 0x08: 1, 0x09: 2, 0x0a: 1, 0x0b: 16, 0x0e: 1, 0x0f: 1, 0x14: 2, 0x17: 2, 0x18: 1, 0x19: 1, 0x1a: 1, 0x1b: 1 };
+/** Byte length of each register (register table). 0x17 is 2 bytes in the register table and 1 byte in the factory table: see ALT_LEN. */
+export const REG_LEN: Record<number, number> = { 0x00: 20, 0x01: 4, 0x04: 4, 0x05: 1, 0x06: 2, 0x07: 2, 0x08: 1, 0x09: 2, 0x0a: 1, 0x0b: 16, 0x0c: 5, 0x0d: 1, 0x0e: 1, 0x0f: 2, 0x14: 1, 0x16: 1, 0x17: 2, 0x18: 1, 0x19: 1, 0x1a: 1, 0x1b: 1, 0x1c: 1, 0x1d: 1, 0x1e: 1, 0x1f: 1 };
+/** Lengths an ANSWER may have besides REG_LEN (read both; WRITE always sends REG_LEN bytes). Any other length is rejected. */
+export const ALT_LEN: Record<number, number[]> = { 0x17: [1, 2] };
+export const lengthsOf = (reg: number) => [REG_LEN[reg], ...(ALT_LEN[reg] ?? [])].filter((n) => n !== undefined);
+/** Total byte length of `count` registers from `start`, or null when one of them is not in the map (then the caller cannot check). */
+export function regBytes(start: number, count: number): number | null { let n = 0; for (let r = start; r < start + count; r++) { const l = REG_LEN[r]; if (l === undefined) return null; n += l; } return n; }
 /** Registers the page may WRITE. 0x20 and 0x21 are separate, confirmed actions. */
 export const WRITABLE = new Set([0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0b, 0x0e, 0x0f, 0x17, 0x18, 0x19, 0x1a, 0x1b]);
 
@@ -48,8 +55,9 @@ export const OPTION_BITS = { remoteConfig: 4, ackOverAir: 3, outputResult: 2, se
 export const decodeOptions = (v: number) => Object.fromEntries(Object.entries(OPTION_BITS).map(([k, bit]) => [k, (v & (1 << bit)) !== 0])) as Record<keyof typeof OPTION_BITS, boolean>;
 export const setOption = (v: number, k: keyof typeof OPTION_BITS, on: boolean) => (on ? v | (1 << OPTION_BITS[k]) : v & ~(1 << OPTION_BITS[k])) & 0xffff;
 
-/** RSSI (register 0x01, 4 bytes): 2 bytes environment RSSI, 2 bytes last packet RSSI, decimal. How the sign is carried is not in the summary: VERIFY. Shown as dBm = -value. */
-export const decodeRssi = (b: Buffer) => ({ envDbm: -b.readUInt16BE(0), packetDbm: -b.readUInt16BE(2) });
+/** RSSI (register 0x01, 4 bytes): 2 bytes environment RSSI, 2 bytes last packet RSSI. The manual says only "convert to decimal": no dBm, no offset, no sign. They are returned and shown RAW, labelled as the unit's
+ *  raw value; nothing prints "dBm" until it is checked on a real unit. */
+export const decodeRssi = (b: Buffer) => ({ env: b.readUInt16BE(0), packet: b.readUInt16BE(2) });
 
 /** Factory AES key: the ASCII text www.ashining.com. Used only to answer "is the default key still in use?"; never stored, logged, returned or shown. */
 const FACTORY_KEY = Buffer.from("www.ashining.com", "ascii");

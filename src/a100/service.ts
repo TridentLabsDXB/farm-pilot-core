@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS a100_commands (
   id TEXT PRIMARY KEY, device_id INTEGER NOT NULL, command TEXT NOT NULL, username TEXT NOT NULL, role TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('sent','unknown','confirmed','failed')), note TEXT, created_at INTEGER NOT NULL, resolved_at INTEGER);
 `;
+/** Reboot / factory restore stay off until verified on a real unit (core-control-devices-a100-manual-verification.md). */
+export const RESET_ENABLED = false;
 export const DEVICE_KINDS = ["fan", "valve", "actuator", "other"] as const;
 export type CmdStatus = "sent" | "unknown" | "confirmed" | "failed";
 const int = (v: unknown, lo: number, hi: number, what: string) => { const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v; if (typeof n !== "number" || !Number.isInteger(n) || n < lo || n > hi) throw new HttpError(400, `${what} must be a whole number from ${lo} to ${hi}`); return n; };
@@ -158,7 +160,7 @@ export class A100Service extends EventEmitter {
     if (has("retryMs")) u16("retry interval", REG.RETRY_MS, int(ch.retryMs, 0, 65535, "retry interval"), reg16(REG.RETRY_MS), ch.retryMs);
     for (const [k, reg, nm] of [["localGroup", REG.LOCAL_GROUP, "local group"], ["localAddress", REG.LOCAL_ADDR, "local address"], ["destGroup", REG.DEST_GROUP, "destination group"], ["destAddress", REG.DEST_ADDR, "destination address"]] as const) if (has(k)) u8(nm, reg, int(ch[k], 0, 255, nm), reg8(reg), ch[k]);
     if (has("packetLen")) u8("packet length", REG.PACKET_LEN, int(ch.packetLen, 1, 230, "packet length"), reg8(REG.PACKET_LEN), ch.packetLen);
-    if (has("packTimeMs")) u8("packing time", REG.PACK_TIME, Math.round(int(ch.packTimeMs, 1, 25, "packing time (ms)") * 10), reg8(REG.PACK_TIME) / 10, ch.packTimeMs);
+    if (has("packTimeMs")) u16("packing time", REG.PACK_TIME, Math.round(int(ch.packTimeMs, 1, 25, "packing time (ms)") * 10), reg16(REG.PACK_TIME) / 10, ch.packTimeMs);      // register 0x0F is 2 bytes, in 0.1 ms
     if (has("remoteConfig")) { const cur = reg16(REG.OPTIONS), want = !!ch.remoteConfig; if (((cur >> 4) & 1) === (want ? 1 : 0)) { /* no change */ } else { if (!confirmRemote) throw new HttpError(400, "changing remote configuration needs its own confirmation (confirmRemote): it lets other modules in range reconfigure the unit"); u16("options", REG.OPTIONS, setOption(cur, "remoteConfig", want), { remoteConfig: !want }, { remoteConfig: want }); } }
     if (has("baud")) { const n = int(ch.baud, 0, 1_000_000, "baud"); if (!(BAUDS as readonly number[]).includes(n)) throw new HttpError(400, "baud must be one of " + BAUDS.join(", ")); const b = encodeBaud(n); if (!b.equals(Buffer.from(old.raw[REG.BAUD] ?? "", "hex"))) out.push({ name: "serial baud", reg: REG.BAUD, data: b, before: old.baud, after: n }); }
     if (ch.format && typeof ch.format === "object") { const f = { ...(old.format ?? { dataBits: 8, stopBits: 1, parity: "none" }), ...(ch.format as object) } as any; const v = encodeFormat(f); if (v !== reg8(REG.FORMAT)) out.push({ name: "serial format", reg: REG.FORMAT, data: Buffer.from([v]), before: old.format, after: decodeFormat(v) }); }
@@ -172,8 +174,10 @@ export class A100Service extends EventEmitter {
     try { await this.link.writeReg(REG.KEY, Buffer.from(k, "ascii")); audit(this.db, a.username, a.role, "a100.key.set", { done: true }); if (this.lastRead) { this.lastRead.defaultKey = false; this.db.prepare("UPDATE a100_link SET snapshot=? WHERE id=1").run(JSON.stringify(this.lastRead)); } this.emit("update"); return { ok: true }; }
     catch (e) { throw this.httpOf(e); } finally { this.inflight--; }
   }
-  /** Reboot or factory restore: each needs its own typed confirmation. */
+  /** Reboot or factory restore. DISABLED (manual check 2026-11-18): the manual's examples echo 0x22 / 0x23 while the register table says 0x20 / 0x21, so it must be verified on a real unit with nothing else on the link
+   *  first. The driver already accepts either echo; flip RESET_ENABLED after that check. Each needs its own typed confirmation once enabled. */
   async resetUnit(a: Actor, body: Record<string, unknown>) {
+    if (!RESET_ENABLED) throw new HttpError(409, "reboot and factory restore are disabled until they are verified on a real A100 (the manual gives two different register addresses); use the RESET button on the unit or the AS_DS tool");
     const what = body.action === "reboot" ? REG.REBOOT : body.action === "factory" ? REG.FACTORY : null; if (what === null) throw new HttpError(400, "action must be reboot or factory");
     const word = what === REG.REBOOT ? "REBOOT" : "FACTORY"; if (body.confirm !== word) throw new HttpError(400, `type ${word} to confirm`);
     if (this.inflight > 0) throw new HttpError(409, "a command is still being sent"); await this.link.command(what).catch((e) => { throw this.httpOf(e); });
@@ -232,7 +236,7 @@ export class A100Service extends EventEmitter {
     const ls = port && pm?.queueOf(port.id)?.tr.linkState?.();
     return { banner, link: d ? { portId: d.port_id, enabled: d.enabled } : null, port: port ? { id: port.id, label: port.label, transport: port.transport, baud: port.baud, dataBits: port.data_bits, parity: port.parity, stopBits: port.stop_bits, timeoutMs: port.timeout_ms, retries: port.retries, open: ls?.state === "open" } : null,
       ports: (pm?.store.ports() ?? []).map((x) => ({ id: x.id, label: x.label })), params: p, readAt: (this.db.prepare("SELECT snapshot_at s FROM a100_link WHERE id=1").get() as any).s as number | null, warnings: this.warnings(), devices: this.devices(), commands: this.commands(20),
-      ranges: { maxChannel: MAX_CHANNEL, airKbps: AIR_KBPS, powerDbm: POWER_DBM, bauds: BAUDS, modes: OFFERED_MODES, regLen: REG_LEN },
+      resetEnabled: RESET_ENABLED, ranges: { maxChannel: MAX_CHANNEL, airKbps: AIR_KBPS, powerDbm: POWER_DBM, bauds: BAUDS, modes: OFFERED_MODES, regLen: REG_LEN },
       notes: { regulatory: "The unit can transmit up to 30 dBm on 433 MHz by default. Confirm the allowed frequency and power for the site's country before raising power. CORE sets no power or channel by itself.",
         keyStorage: "CORE does not keep the encryption key. SET NEW KEY writes it to the unit and forgets it.", feedback: "SENT means written to the A100. The radio ACK is not reported to CORE. CONFIRMED needs feedback from the receiver or the VFD (not defined yet).", local: "The local hand/auto control on each VFD keeps working independently of CORE." } };
   }
