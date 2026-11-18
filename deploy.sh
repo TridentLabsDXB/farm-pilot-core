@@ -18,8 +18,8 @@ if [ "${1:-}" != "--no-pull" ] && [ "${1:-}" != "--release" ]; then echo "==> gi
 # which fails on this box (no make/g++) after npm ci has already emptied node_modules. Found 2026-11-16 during Milestone 2 deploy.
 echo "==> npm ci"; npm ci --ignore-scripts --no-audit --no-fund; npm --prefix web ci --ignore-scripts --no-audit --no-fund
 echo "==> build"; npm run build
-# 2026-11-18 guard: the bundle must carry the features of this branch (a bundle from the wrong branch once hid LICENCE MANAGEMENT and moved the sidebar logo). Fails the deploy BEFORE the restart.
-for w in "LICENCE MANAGEMENT" "MQTT PAYLOAD" "Data sources" "READ GATEWAY T/H SECTION" "READ GATEWAY SOIL SECTION" "IMPORT INTO CORE"; do grep -rqF "$w" web/dist/assets/*.js || { echo "!! web bundle is missing \"$w\": built from the wrong branch? Nothing restarted." >&2; exit 1; }; done
+# 2026-11-18 guard (PLC and V-BOX strings added the same day for the data source branch): the bundle must carry the features of this branch (a bundle from the wrong branch once hid LICENCE MANAGEMENT and moved the sidebar logo). Fails the deploy BEFORE the restart.
+for w in "LICENCE MANAGEMENT" "MQTT PAYLOAD" "Data sources" "READ GATEWAY T/H SECTION" "READ GATEWAY SOIL SECTION" "IMPORT INTO CORE" "PLC" "V-BOX" "+ ADD DATA ZONE" "V-BOX UNITS FOUND"; do grep -rqF "$w" web/dist/assets/*.js || { echo "!! web bundle is missing \"$w\": built from the wrong branch? Nothing restarted." >&2; exit 1; }; done
 if grep -rqE "Data points|DATA POINTS" web/dist/assets/*.js; then echo "!! web bundle still has the old DATA POINTS name. Nothing restarted." >&2; exit 1; fi
 # Build stamp (dist/BUILD and dist/BUILD.json: build, released, dirty), shown by /api/health and the About page. "-dirty" = uncommitted changes were built; with --release that is refused.
 node scripts/build-stamp.mjs ${RELEASE:+--release} dist || { echo "!! build stamp failed" >&2; exit 1; }
