@@ -8,7 +8,7 @@ import { BrandMark } from "./Brand";
 // Only the grouping in the menu changed; every route (#/settings/<key>) and API path is the same as before.
 export const GROUPS: { title: string; tabs: [string, string][] }[] = [
   { title: "Settings", tabs: [["farm-profile", "FARM PROFILE"], ["farm-structure", "FARM STRUCTURE"]] },
-  { title: "Data sources", tabs: [["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["mqtt-payload", "MQTT PAYLOAD"], ["sensors", "SENSORS"]] },
+  { title: "Data sources", tabs: [["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["plc", "PLC"], ["vbox", "V-BOX"], ["mqtt-payload", "MQTT PAYLOAD"], ["sensors", "SENSORS"]] },
   { title: "System", tabs: [["users", "USERS"], ["backup", "BACKUP"]] },
 ];
 export const TABS: [string, string][] = GROUPS.flatMap((g) => g.tabs);
@@ -20,12 +20,13 @@ export function useBadges(scada: Scada | null, tab: string | undefined, enabled:
   const [badges, setBadges] = useState<Record<string, Badge>>({});
   useEffect(() => {
     if (!enabled) return; let live = true;
-    Promise.all([api<any>("/gateway").catch(() => null), api<{ lastExportAt: number | null; warnDays: number }>("/backup/status").catch(() => null), api<any>("/farm-profile").catch(() => null)]).then(([gw, bk, pr]) => {
+    Promise.all([api<any>("/gateway").catch(() => null), api<{ lastExportAt: number | null; warnDays: number }>("/backup/status").catch(() => null), api<any>("/farm-profile").catch(() => null), api<{ run: boolean; state: string }>("/data-sources/access").catch(() => null)]).then(([gw, bk, pr, ds]) => {
       if (!live) return; const b: Record<string, Badge> = {};
       if (gw?.enabled && !gw.online) b["sensors-gateway"] = { tone: "alarm", word: "OFFLINE" }; else if (gw?.lastSync && !gw.lastSync.ok) b["sensors-gateway"] = { tone: "alarm", word: "SYNC FAILED" };
       if (gw?.unsent) b.sensors = { tone: "warn", word: `${gw.unsent} NOT SENT` };
       if (bk && (!bk.lastExportAt || Date.now() - bk.lastExportAt > bk.warnDays * 86400000)) b.backup = { tone: "warn", word: bk.lastExportAt ? "OLD" : "NONE YET" };
       if (pr?.placeholder || pr?.timezone_confirm_needed) b["farm-profile"] = { tone: "warn", word: pr.timezone_confirm_needed ? "CHECK ZONE" : "SET UP" };
+      if (ds && !ds.run) { b.plc = { tone: "off", word: "🔒 LOCKED" }; b.vbox = { tone: "off", word: "🔒 LOCKED" }; } else if (ds?.state === "grace") { b.plc = { tone: "warn", word: "GRACE" }; b.vbox = { tone: "warn", word: "GRACE" }; }   // PLC and V-BOX need PRO or higher (tiers.ts): locked but visible, so the option is discoverable
       setBadges(b);
     });
     return () => { live = false; };

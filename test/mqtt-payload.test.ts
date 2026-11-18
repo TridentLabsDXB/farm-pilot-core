@@ -162,18 +162,18 @@ test("TEST CONNECTION: success and failure messages; a test never enables the so
 });
 
 // ---------------------------------------------------------------- menu
-test("Menu: DATA SOURCES (renamed) holds RS-485 Ports, Sensors Gateway, MQTT Payload, Sensors in that order, on the desktop sidebar and the phone MORE sheet; no DATA POINTS left", () => {
+test("Menu: DATA SOURCES (renamed) holds RS-485 Ports, Sensors Gateway, PLC, V-BOX, MQTT Payload, Sensors in that order, on the desktop sidebar and the phone MORE sheet; no DATA POINTS left", () => {
   const sb = readFileSync("web/src/Sidebar.tsx", "utf8"), ab = readFileSync("web/src/About.tsx", "utf8"), st = readFileSync("web/src/Settings.tsx", "utf8");
-  assert.match(sb, /title: "Data sources", tabs: \[\["rs485-ports", "RS-485 PORTS"\], \["sensors-gateway", "SENSORS GATEWAY"\], \["mqtt-payload", "MQTT PAYLOAD"\], \["sensors", "SENSORS"\]\]/);
+  assert.match(sb, /title: "Data sources", tabs: \[\["rs485-ports", "RS-485 PORTS"\], \["sensors-gateway", "SENSORS GATEWAY"\], \["plc", "PLC"\], \["vbox", "V-BOX"\], \["mqtt-payload", "MQTT PAYLOAD"\], \["sensors", "SENSORS"\]\]/);
   assert.match(sb, /text-transform|GROUPS/); assert.match(ab, /GROUPS\.filter/, "the MORE sheet is built from the same GROUPS"); assert.match(ab, /SETTINGS, DATA SOURCES, SYSTEM/);
-  assert.match(st, /t === "mqtt-payload" \? <MqttPayloadPage readOnly=\{!admin\} \/>/, "the route #/settings/mqtt-payload opens the page");
+  assert.match(st, /t === "mqtt-payload" \? <MqttPayloadPage key="mq" readOnly=\{!admin\} \/>/, "the route #/settings/mqtt-payload opens the page");
   for (const f of ["web/src/Sidebar.tsx", "web/src/About.tsx", "web/src/Settings.tsx", "web/src/core.css", "README.md", "CHANGELOG.md"]) assert.ok(!/data points/i.test(readFileSync(f, "utf8")), `${f} still says DATA POINTS`);
   // the sidebar top block (104 px centred logo, name under it) is guarded by test/shell-brand.test.ts and test/online-build.test.ts
 });
 test("Operator UI: MQTT PAYLOAD is reachable read-only (plain item, no group heading; phone MORE row); the other Settings stay Admin only", () => {
   const sb = readFileSync("web/src/Sidebar.tsx", "utf8"), ab = readFileSync("web/src/About.tsx", "utf8"), app = readFileSync("web/src/App.tsx", "utf8"), st = readFileSync("web/src/Settings.tsx", "utf8"), p = readFileSync("web/src/MqttPayloadPage.tsx", "utf8");
   assert.match(sb, /\{!admin && <button[^\n]*go\("\/settings\/mqtt-payload"\)[^\n]*>MQTT PAYLOAD<\/button>\}/); assert.match(ab, /\{!admin && row\("mqtt-payload", "MQTT PAYLOAD", "\/settings\/mqtt-payload"\)\}/);
-  assert.match(app, /me\.role !== "admin" && page === "settings" && rest\[0\] !== "mqtt-payload"\) go\("\/monitoring"\)/); assert.match(st, /<MqttPayloadPage readOnly=\{!admin\} \/>/);
+  assert.match(app, /me\.role !== "admin" && page === "settings" && rest\[0\] !== "mqtt-payload"\) go\("\/monitoring"\)/); assert.match(st, /<MqttPayloadPage key="mq" readOnly=\{!admin\} \/>/);
   assert.match(p, /<fieldset className="mq"[^>]*disabled=\{readOnly\}/); assert.match(readFileSync("web/src/mqtt.css", "utf8"), /\.mq\[data-ro\] \.fp-btn:not\(\.fp-seg \.fp-btn\)[^}]*display: none/);
 });
 test("Page: card order, lamp shapes with words, 44 px / 56 px targets, Rajdhani + JetBrains Mono via tokens, no colour-only status", () => {

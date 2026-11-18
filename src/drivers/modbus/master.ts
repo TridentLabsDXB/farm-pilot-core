@@ -66,6 +66,12 @@ export class ModbusMaster {
     for (let off = 0; off < count; off += MAX_READ_REGS) out.push(...(await this.submit(prio, readPdu(fc, addr + off, Math.min(MAX_READ_REGS, count - off)))));
     return out;
   }
+  /** 2026-11-18 (PLC data source): read coils (FC01) or discrete inputs (FC02), split into requests of at most 1920 bits. Returns one 0/1 per bit. */
+  async readBits(fc: 1 | 2, addr: number, count: number, prio: Priority = "poll"): Promise<number[]> {
+    const out: number[] = [];
+    for (let off = 0; off < count; off += 1920) out.push(...(await this.submit(prio, readPdu(fc, addr + off, Math.min(1920, count - off)))));
+    return out;
+  }
   write1(addr: number, val: number, prio: Priority = "write") { return this.submit(prio, write1Pdu(addr, val)).then(() => undefined); }
   writeN(addr: number, vals: number[], prio: Priority = "write") { return this.submit(prio, writeNPdu(addr, vals)).then(() => undefined); }
   close() { return this.pq.tr.close(); }

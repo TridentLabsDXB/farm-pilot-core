@@ -255,6 +255,8 @@ export class PortManager extends EventEmitter {
   }
   /** Licence limit on gateways (LicenceService, wired in app.ts). Only called when a gateway device is being switched ON. */
   limiter: { checkGatewayAdd(n?: number): void } | null = null;
+  /** 2026-11-18 (PLC data source, Modbus RTU): a unit-bound master on the SHARED request queue of port `portId`, so the PLC never talks to the bus at the same time as the sensor gateway. null = no such enabled port. */
+  plcMaster(portId: number, unit: number): ModbusMaster | null { const q = this.queues.get(portId); return q ? new ModbusMaster(q, { unit, timeoutMs: q.opts.timeoutMs, retries: q.opts.retries }) : null; }
   async applyDevice(a: Actor, id: number, patch: Record<string, any>) {
     const old = this.store.device(id); if (!old) throw new HttpError(404, "device not found"); const merged = mergeDevice(old, patch ?? {}); const ports = this.store.ports();
     if (merged.kind === "lora_gateway" && merged.enabled && !old.enabled) this.limiter?.checkGatewayAdd(1);

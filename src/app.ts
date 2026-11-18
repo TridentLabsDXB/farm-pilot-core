@@ -32,11 +32,16 @@ import { registerDeploymentRoutes } from "./deployments/routes.js";
 import type { SigningOpts } from "./deployments/signing.js";
 import { MqttSourceService } from "./mqtt/service.js";
 import { registerMqttRoutes } from "./mqtt/routes.js";
+import { PlcService } from "./plc/service.js";
+import { registerPlcRoutes } from "./plc/routes.js";
+import { VboxSource } from "./vbox/service.js";
+import { registerVboxRoutes } from "./vbox/routes.js";
+import { plcVboxServiceState } from "./licence/dataSources.js";
 
 const COOKIE = "core_session";
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
-export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null, opts: { online?: boolean; now?: () => number; signing?: SigningOpts; mqtt?: MqttSourceService | null } = {}) {
+export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null, opts: { online?: boolean; now?: () => number; signing?: SigningOpts; mqtt?: MqttSourceService | null; plc?: PlcService | null; vbox?: VboxSource | null } = {}) {
   const online = opts.online ?? config.online;   // 2026-11-17: Online build flag (config.online / FP_ONLINE); tests pass it explicitly
   const app = Fastify({ logger: { level: "info" }, trustProxy: config.trustProxy, bodyLimit: 64 * 1024 });
   // Every registered route is recorded, so tests can call ALL of them as an Operator (test/operator-access.test.ts).
@@ -139,7 +144,14 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   if (ports) registerPortRoutes(app, ports, admin, () => send({ type: "ports" }));
   if (online) registerDeploymentRoutes(app, db, admin, opts.now, { keyFile: config.licenceSigningKeyFile, ...opts.signing });       // Online build only: a standalone build has no table and no route (404)
   // MQTT Payload source (2026-11-18). index.ts starts it; without one passed in (tests) an idle service is created so the routes still work. It never counts against the licence for now (TODO in mqtt/service.ts).
-  registerMqttRoutes(app, opts.mqtt ?? new MqttSourceService(db, ingest), admin);
+  const mqttSvc = opts.mqtt ?? new MqttSourceService(db, ingest);
+  registerMqttRoutes(app, mqttSvc, admin);
+  // PLC and V-BOX data sources (2026-11-18). PRO or higher; index.ts starts them, without one passed in (tests) an idle service is created so the routes still work. Every route is Admin only.
+  const plcSvc = opts.plc ?? new PlcService(db, ingest, licence, () => ports), vboxSvc = opts.vbox ?? new VboxSource(db, ingest, licence);
+  if (!opts.vbox) mqttSvc.attachVbox(vboxSvc);
+  registerPlcRoutes(app, plcSvc, admin); registerVboxRoutes(app, vboxSvc, admin);
+  app.get("/api/data-sources/access", { preHandler: admin }, async () => plcVboxServiceState(licence.summary()));     // the menu lock and the locked pages (Admin only: Operators have no DATA SOURCES group)
+  plcSvc.on("update", () => send({ type: "plc" }));
 
   app.get("/ws", { websocket: true }, (socket, req) => {
     if (!userFromToken(db, req.cookies[COOKIE])) { socket.close(4401, "login required"); return; }

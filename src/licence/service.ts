@@ -101,13 +101,15 @@ export class LicenceService {
   private limitText(what: string) {
     const s = this.summary(), name = s.state === "LICENSED" ? `Licence ${s.type}` : "Free licence"; return `${name} allows ${s.limits[what === "sensor" ? "sensors" : "gateways"]} ${what}${(what === "sensor" ? s.limits.sensors : s.limits.gateways) === 1 ? "" : "s"} in total. Upload a licence on the About page.`;
   }
-  private refuse(what: "sensor" | "gateway"): never { throw new HttpError(409, this.limitText(what), { code: "LICENCE_LIMIT", limit: what }); }
+  private refuse(what: "sensor" | "gateway" | "data source"): never { throw new HttpError(409, this.limitText(what), { code: "LICENCE_LIMIT", limit: what }); }
   /** ADD paths only. Refuses when `n` more would pass the limit, and always when the box is already over it. */
   checkSensorsAdd(n: number) { const s = this.summary(); if (over(s.usage.sensors + n, s.limits.sensors)) this.refuse("sensor"); }
   /** A restore replaces all sensors: refuse a backup that would end above the limit AND hold more than the box has now (a smaller or equal set adds nothing). */
   checkSensorsTotal(total: number) { const s = this.summary(); if (over(total, s.limits.sensors) && total > s.usage.sensors) this.refuse("sensor"); }
   /** SEND TO GATEWAY: refused when sensors that are not in the gateway yet would be pushed while the registry is above the limit. Interval changes and removals always go through. */
   checkSend(total: number, unsent: number) { const s = this.summary(); if (unsent > 0 && over(total, s.limits.sensors)) this.refuse("sensor"); }
+  /** 2026-11-18: enabling a PLC or V-BOX source (1 data source each). Same limit as a gateway, the message says "data source". */
+  checkDataSourceAdd(n = 1) { const s = this.summary(); if (over(s.usage.gateways + n, s.limits.gateways)) this.refuse("data source"); }
   checkGatewayAdd(n = 1) { const s = this.summary(); if (over(s.usage.gateways + n, s.limits.gateways)) this.refuse("gateway"); }
 
   install(a: Actor, buf: Buffer): LicenceSummary {

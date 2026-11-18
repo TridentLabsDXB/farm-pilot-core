@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { Chip, ago, errText, hhmm, useNow, type Tone } from "./ui";
+import VboxTab from "./VboxTab";
 import "./mqtt.css";
 
 // Settings > MQTT PAYLOAD (Data sources, Admin only). Variant A of core-mqtt-payload-page.md (approved 2026-11-18): ONE scrolling page of cards, in this order:
@@ -15,7 +16,7 @@ interface View {
   topics: { id: number; filter: string; qos: number; count: number; lastAt: number | null }[];
   devices: { device_id: string; state: "new" | "added" | "ignored"; label: string; first_seen: number; last_seen: number; msg_count: number }[];
   mapping: { id_path: string; ts_path: string; rules: Rule[]; unmapped: { field: string; count: number }[]; errors: number };
-  messages: { ts: number; topic: string; payload: string; status: "ok" | "unmapped" | "error"; device: string | null; notes: string[]; stored: boolean }[];
+  messages: { ts: number; topic: string; payload: string; status: "ok" | "unmapped" | "error"; device: string | null; notes: string[]; stored: boolean; vbox?: boolean }[];
 }
 /** Lamp shape + word, never colour alone: CONNECTED circle, CONNECTING triangle, DISCONNECTED square, DISABLED ring. */
 const LAMP: Record<State, { shape: string; word: string; tone: Tone }> = { connected: { shape: "circle", word: "CONNECTED", tone: "ok" }, connecting: { shape: "triangle", word: "CONNECTING", tone: "warn" }, disconnected: { shape: "square", word: "DISCONNECTED", tone: "alarm" }, disabled: { shape: "ring", word: "DISABLED", tone: "off" } };
@@ -23,7 +24,10 @@ const MSG: Record<string, [Tone, string]> = { ok: ["ok", "OK"], unmapped: ["warn
 export const Lamp = ({ state }: { state: State }) => { const l = LAMP[state]; return <span className="mq-lamp" data-tone={l.tone}><span className="mq-shape" data-shape={l.shape} aria-hidden />{l.word}</span>; };
 type Say = { t: "ok" | "err"; s: string } | null;
 
-export default function MqttPayloadPage({ readOnly = false }: { readOnly?: boolean }) {
+type Tab = "all" | "vbox" | "other";
+/** `initialTab` "vbox" = opened from the V-BOX menu item (title "MQTT PAYLOAD · V-BOX"). Operators (readOnly) see the page without tabs: V-BOX is an Admin data source. */
+export default function MqttPayloadPage({ readOnly = false, initialTab = "all" }: { readOnly?: boolean; initialTab?: Tab }) {
+  const [tab, setTab] = useState<Tab>(readOnly ? "all" : initialTab);
   const [v, setV] = useState<View | null>(null); const now = useNow(1000); const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState<Record<string, Say>>({});
   const [c, setC] = useState({ host: "", port: "", tls: true, client_id: "", username: "", password: "", keepalive: "", dirty: false });
   const [nt, setNt] = useState({ filter: "", qos: "1" }); const [map, setMap] = useState<{ id_path: string; ts_path: string; rules: Rule[]; dirty: boolean } | null>(null);
@@ -51,9 +55,15 @@ export default function MqttPayloadPage({ readOnly = false }: { readOnly?: boole
   const devAct = (id: string, a: "add" | "ignore") => run("dev", async () => { await api(`/mqtt/devices/${encodeURIComponent(id)}/${a}`, { method: "POST", json: {} }); await load(); say("dev", "ok", a === "add" ? `Device ${id} added. Its values are stored from now on.` : `Device ${id} ignored.`); });
   const setRule = (i: number, p: Partial<Rule>) => setMap((m) => m && { ...m, dirty: true, rules: m.rules.map((r, j) => (j === i ? { ...r, ...p } : r)) });
   const saveMap = () => run("map", async () => { const rules = map.rules.map((r) => ({ ...r, scale: Number(r.scale), offset: Number(r.offset) })); await api("/mqtt/mapping", { method: "PUT", json: { id_path: map.id_path.trim(), ts_path: map.ts_path.trim(), rules } }); await load(true); say("map", "ok", "Mapping saved."); });
+  const shownMsgs = tab === "other" ? v.messages.filter((m) => !m.vbox) : v.messages;      // OTHER DEVICES: messages that do not match the V-BOX preset
   const fresh = v.devices.filter((d) => d.state === "new"), added = v.devices.filter((d) => d.state === "added");
 
-  return (
+  const TABS: [Tab, string][] = [["all", "ALL MESSAGES"], ["vbox", "V-BOX"], ["other", "OTHER DEVICES"]];
+  const head = readOnly ? null : (<>
+    <h2 className="mq-title" data-testid="mq-title" style={{ fontFamily: "var(--fp-head)", letterSpacing: ".08em", margin: 0 }}>{tab === "vbox" ? "MQTT PAYLOAD · V-BOX" : "MQTT PAYLOAD"}</h2>
+    <div className="fp-seg" role="tablist" aria-label="MQTT Payload tabs" data-testid="mq-tabs">{TABS.map(([k, l]) => <button key={k} className="fp-btn" role="tab" aria-selected={tab === k} aria-pressed={tab === k} onClick={() => setTab(k)}>{l}</button>)}</div></>);
+  if (tab === "vbox" && !readOnly) return <div className="mq">{head}<VboxTab /></div>;
+  return (<>{head && <div className="mq" style={{ marginBottom: 16 }}>{head}</div>}
     <fieldset className="mq" data-testid="mqtt-page" disabled={readOnly} data-ro={readOnly ? "1" : undefined}>
       <section className="fp-card mq-banner" aria-label="Connection status" data-state={st.state}>
         <div className="mq-row"><Lamp state={st.state} /><span className="mq-num" data-testid="mq-host">{st.host}:{st.port}</span></div>
@@ -113,12 +123,12 @@ export default function MqttPayloadPage({ readOnly = false }: { readOnly?: boole
           <div><span className="fp-cap">PARSE ERRORS</span><p className="mq-num" data-testid="mq-errors">{v.mapping.errors}</p></div></div>
       </section>
 
-      <section className="fp-card" aria-label="Latest messages"><h3>LATEST MESSAGES</h3>
-        {v.messages.length === 0 ? <p className="fp-msg">No messages received yet.</p> :
-          <ol className="mq-msgs">{v.messages.map((m, i) => { const [tone, word] = MSG[m.status]; return <li key={m.ts + ":" + i}>
+      <section className="fp-card" aria-label="Latest messages"><h3>LATEST MESSAGES{tab === "other" ? " · OTHER DEVICES" : ""}</h3>
+        {shownMsgs.length === 0 ? <p className="fp-msg">No messages received yet.</p> :
+          <ol className="mq-msgs">{shownMsgs.map((m, i) => { const [tone, word] = MSG[m.status]; return <li key={m.ts + ":" + i}>
             <div className="fp-row mq-mh"><span className="mq-num">{hhmm(m.ts)}</span><span className="mq-num">{m.topic}</span><Chip tone={tone}>{word}</Chip>{m.device && <span className="fp-cap">{m.device}</span>}</div>
             {m.notes.length > 0 && <p className="fp-cap mq-notes">{m.notes.join(" · ")}</p>}<pre className="mq-raw">{m.payload}</pre></li>; })}</ol>}
       </section>
-    </fieldset>
+    </fieldset></>
   );
 }

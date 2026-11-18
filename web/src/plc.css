@@ -1,0 +1,26 @@
+/* PLC data source page (variant B: connection strip, DATA ZONES list left, EDIT DATA ZONE right). All rules scoped under .pl. Shared tokens only, so light and dark follow the header toggle. */
+.pl { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.pl h3 { font-family: var(--fp-head); letter-spacing: .08em; margin: 0 0 12px; }
+.pl .pl-num { font-family: var(--fp-mono); }
+.pl-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.pl-lamp { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-family: var(--fp-mono); font-weight: 700; letter-spacing: .1em; color: var(--fp-off); }
+.pl-lamp[data-tone="ok"] { color: var(--fp-ok); } .pl-lamp[data-tone="warn"] { color: var(--fp-warn); } .pl-lamp[data-tone="alarm"] { color: var(--fp-alarm); }
+.pl-shape { width: 14px; height: 14px; flex: none; background: currentColor; }
+.pl-shape[data-shape="circle"] { border-radius: 50%; } .pl-shape[data-shape="triangle"] { clip-path: polygon(50% 0, 100% 100%, 0 100%); } .pl-shape[data-shape="square"] { border-radius: 1px; }
+.pl-shape[data-shape="ring"] { background: transparent; border-radius: 50%; box-shadow: inset 0 0 0 2px currentColor; }
+.pl-facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; } .pl-facts dt { margin: 0; } .pl-facts dd { margin: 2px 0 0; font-size: 16px; }
+.pl-cols { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
+.pl-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pl-zone { width: 100%; min-height: 44px; text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; }
+.pl-zone[aria-pressed="true"] { border-color: var(--fp-accent); }
+.pl-zone .pl-zh { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pl-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px 24px; align-items: end; margin-bottom: 12px; }
+.pl-form label { display: flex; flex-direction: column; gap: 6px; font-family: var(--fp-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fp-muted); }
+.pl-form .fp-input { width: 100%; text-transform: none; color: var(--fp-text); }
+.pl-calc { background: var(--fp-panel, transparent); border: 1px solid var(--fp-border); border-radius: 6px; padding: 12px 16px; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: center; }
+.pl-scroll { overflow-x: auto; } .pl-cell { width: 100%; min-width: 80px; }
+.pl-raw { font-family: var(--fp-mono); font-size: 13px; word-break: break-all; margin: 8px 0 0; }
+.pl-btns { flex-wrap: wrap; margin-top: 8px; }
+@media (max-width: 1023px) { .pl-cols { grid-template-columns: 1fr; } .pl-list { flex-direction: row; overflow-x: auto; } .pl-zone { min-width: 220px; } }
+@media (max-width: 767px) { .pl-cols[data-open="1"] .pl-listcard { display: none; } .pl-cols[data-open="0"] .pl-editor { display: none; } .pl-back { display: inline-flex !important; } .pl-list { flex-direction: column; overflow: visible; } .pl-zone { min-width: 0; } }
+.pl-back { display: none; }

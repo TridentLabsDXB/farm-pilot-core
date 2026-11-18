@@ -12,11 +12,12 @@ import { DEFAULT_CONNECTION, DEFAULT_ID_PATH, DEFAULT_RULES, DEFAULT_TOPICS, DEF
 import { checkFilter, checkRules, mapPayload, topicMatches, type MapRule, type MapResult } from "./mapping.js";
 import { decryptSecret, encryptSecret } from "./secret.js";
 import { SCHEMA_MQTT } from "./schema.js";
+import type { VboxSource } from "../vbox/service.js";
 
 export type MqttState = "connected" | "connecting" | "disconnected" | "disabled";
 export interface ConnInput { host?: unknown; port?: unknown; tls?: unknown; client_id?: unknown; username?: unknown; password?: unknown; keepalive?: unknown; }
 type Actor = { username: string; role: string };
-interface Msg { ts: number; topic: string; raw: string; status: MapResult["status"]; device: string | null; notes: string[]; stored: boolean; }
+interface Msg { ts: number; topic: string; raw: string; status: MapResult["status"]; device: string | null; notes: string[]; stored: boolean; vbox?: boolean; }
 const RING = 20, RAW_CAP = 2000, FLUSH_MS = 30_000;
 export const backoffMs = (attempt: number) => Math.min(60_000, 1000 * 2 ** Math.min(attempt, 6));    // 1 s, 2, 4, 8, 16, 32, 60, 60 ...
 
@@ -26,6 +27,13 @@ export class MqttSourceService extends EventEmitter {
   private connectedAt: number | null = null; private lastMessageAt: number | null = null; private recent: number[] = [];
   private topicCount = new Map<string, { n: number; at: number | null }>(); private devDelta = new Map<string, { n: number; at: number }>();
   private unmapped = new Map<string, number>(); private errorCount = 0; private messages: Msg[] = []; private testing = false; private stopped = true;
+  private vbox: VboxSource | null = null; private vboxFilter: string | null = null;
+  /** 2026-11-18 -- V-BOX data source: it rides on THIS broker connection. It adds its own subscription (its topic filter) and takes the messages that match its preset; everything else stays with MQTT Payload. */
+  attachVbox(v: VboxSource) {
+    this.vbox = v;
+    v.on("resubscribe", () => { const c = this.client, old = this.vboxFilter, now = v.subscription(); this.vboxFilter = now; if (!c) return; if (old && old !== now && !this.topics().some((t) => t.filter === old)) c.unsubscribe(old, () => {}); if (now) c.subscribe(now, { qos: 1 }, () => {}); });
+    v.on("update", () => this.changed());
+  }
   /** Injectable for tests (backoff delay) and for faking the clock. */
   constructor(private db: Db, private ingest: Ingest, private opts: { backoff?: (attempt: number) => number } = {}) {
     super(); db.exec(SCHEMA_MQTT); this.seed();
@@ -75,6 +83,7 @@ export class MqttSourceService extends EventEmitter {
     cl.on("connect", () => {
       this.attempt = 0; this.lastError = null; this.connectedAt = Date.now(); this.setState("connected");
       const subs = Object.fromEntries(this.topics().map((t) => [t.filter, { qos: t.qos }]));
+      this.vboxFilter = this.vbox?.subscription() ?? null; if (this.vboxFilter) subs[this.vboxFilter] = { qos: 1 };
       if (Object.keys(subs).length) cl.subscribe(subs, (err) => { if (err) { this.lastError = "subscribe failed: " + friendly(err, c); this.changed(); } });
     });
     cl.on("message", (topic, payload) => { try { this.onMessage(topic, payload); } catch (e) { this.errorCount++; console.error("mqtt payload: message handler", e); } });
@@ -93,6 +102,11 @@ export class MqttSourceService extends EventEmitter {
   private onMessage(topic: string, payload: Buffer, now = Date.now()) {
     this.lastMessageAt = now; this.recent.push(now); while (this.recent.length && this.recent[0] < now - 60_000) this.recent.shift();
     for (const t of this.topics()) if (topicMatches(t.filter, topic)) { const x = this.topicCount.get(t.filter) ?? { n: 0, at: null }; x.n++; x.at = now; this.topicCount.set(t.filter, x); }
+    if (this.vbox?.matches(topic)) {          // V-BOX preset: handled by its own rules, never by the MQTT Payload mapping (OTHER DEVICES = what does not match)
+      const r = this.vbox.handle(topic, payload, now);
+      this.messages.unshift({ ts: now, topic, raw: payload.toString("utf8").slice(0, RAW_CAP), status: r.status, device: r.device, notes: r.notes, stored: r.stored, vbox: true }); if (this.messages.length > RING) this.messages.length = RING;
+      this.changed(); return;
+    }
     const m = mapPayload(payload, { idPath: this.cfg().id_path, tsPath: this.cfg().ts_path, rules: this.rules() });
     const notes = [...m.errors]; if (m.missing.length) notes.push("missing: " + m.missing.join(", ")); if (m.unmapped.length) notes.push("unmapped: " + m.unmapped.slice(0, 8).join(", ") + (m.unmapped.length > 8 ? " ..." : ""));
     if (m.status === "error") this.errorCount++;

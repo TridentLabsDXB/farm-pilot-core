@@ -18,3 +18,15 @@ export const TIER_NAMES = Object.keys(TIERS) as Tier[];
 export const isTier = (t: unknown): t is Tier => typeof t === "string" && Object.prototype.hasOwnProperty.call(TIERS, t);
 /** The paid tiers a licence can be issued for. */
 export const PAID_TIERS: Tier[] = ["PRO", "FULL", "ENGINEERING"];
+
+// 2026-11-18 -- Feature gating (owner decision, core-licence-tiers.md "Feature gating"): the data source types PLC and V-BOX need PRO or higher. ONE rule by tier RANK
+// (FREE < PRO < FULL < ENGINEERING = the order of TIER_NAMES), shared by the menu, the API and the tests. It is NOT in the licence file `features` list (the file format stays frozen).
+export const TIER_RANK: Record<Tier, number> = Object.fromEntries(TIER_NAMES.map((t, i) => [t, i])) as Record<Tier, number>;
+export const PLC_VBOX_MIN_TIER: Tier = "PRO";
+export const PLC_VBOX_LOCKED_MESSAGE = "PLC and V-BOX need a PRO licence or higher. Upload a licence on the About page.";
+/** Unknown or missing types rank as FREE (fail closed). */
+export const tierAllowsPlcVbox = (type: unknown): boolean => (isTier(type) ? TIER_RANK[type] : 0) >= TIER_RANK[PLC_VBOX_MIN_TIER];
+/** For API routes: null when allowed, else the 403 answer (status + message). */
+export const plcVboxRefusal = (type: unknown): { status: 403; error: string } | null => (tierAllowsPlcVbox(type) ? null : { status: 403, error: PLC_VBOX_LOCKED_MESSAGE });
+/** One more data source fits under the tier limit (null = unlimited). A sensor gateway, a PLC source and a V-BOX source count 1 each. */
+export const canAddDataSource = (type: unknown, used: number): boolean => { const l = TIERS[isTier(type) ? type : "FREE"].gateways; return l === null || used < l; };

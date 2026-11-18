@@ -122,13 +122,13 @@ class Exchange {
 
 /** A USB-RS485 adapter hands a long reply over in bursts (the lab saw 8 bursts with 20-60 ms gaps for 245 bytes), so silence between bytes never ends a frame here. */
 export function matchRtuResponse(b: Buffer, unit: number, pdu: Buffer): Match {
-  const fc = pdu[0], total = rtuExpectedResponse(pdu), isRead = fc === 3 || fc === 4, count = isRead ? pdu.readUInt16BE(3) : 0;
+  const fc = pdu[0], total = rtuExpectedResponse(pdu), isRead = fc >= 1 && fc <= 4, count = isRead ? (fc <= 2 ? Math.ceil(pdu.readUInt16BE(3) / 8) : pdu.readUInt16BE(3) * 2) : 0;   // count = expected byte count of the reply (bits: ceil(n/8), registers: 2n)
   let crcBad = false, waiting = false;
   for (let i = 0; i < b.length; i++) {                                           // stray bytes before the frame are skipped: a candidate starts at <unit><fc or fc|0x80>
     if (b[i] !== unit) continue;
     if (i + 1 >= b.length) { waiting = true; continue; }
     const f = b[i + 1], isEx = f === (fc | 0x80); if (f !== fc && !isEx) continue;
-    if (!isEx && isRead && i + 2 < b.length && b[i + 2] !== count * 2) continue; // byte count disagrees with the request: not our reply
+    if (!isEx && isRead && i + 2 < b.length && b[i + 2] !== count) continue; // byte count disagrees with the request: not our reply
     const n = isEx ? 5 : total; if (n === null) continue;
     if (b.length - i < n) { waiting = true; continue; }                          // known length not reached yet: keep reading until it is (or the timeout)
     const fr = b.subarray(i, i + n);

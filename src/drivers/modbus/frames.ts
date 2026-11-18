@@ -11,7 +11,7 @@ export function crc16(b: Buffer): number {
   for (let i = 0; i < b.length; i++) { crc ^= b[i]; for (let j = 0; j < 8; j++) crc = crc & 1 ? (crc >> 1) ^ 0xa001 : crc >> 1; }
   return crc;
 }
-export const readPdu = (fc: 3 | 4, addr: number, count: number) => { const b = Buffer.alloc(5); b[0] = fc; b.writeUInt16BE(addr, 1); b.writeUInt16BE(count, 3); return b; };
+export const readPdu = (fc: 1 | 2 | 3 | 4, addr: number, count: number) => { const b = Buffer.alloc(5); b[0] = fc; b.writeUInt16BE(addr, 1); b.writeUInt16BE(count, 3); return b; };
 export const write1Pdu = (addr: number, val: number) => { const b = Buffer.alloc(5); b[0] = 6; b.writeUInt16BE(addr, 1); b.writeUInt16BE(val & 0xffff, 3); return b; };
 export const writeNPdu = (addr: number, vals: number[]) => {
   const b = Buffer.alloc(6 + vals.length * 2); b[0] = 16; b.writeUInt16BE(addr, 1); b.writeUInt16BE(vals.length, 3); b[5] = vals.length * 2;
@@ -25,6 +25,10 @@ export function parseResponse(req: Buffer, res: Buffer): number[] {
   const fc = req[0];
   if (res[0] === (fc | 0x80)) throw new ModbusException(fc, res[1]);
   if (res[0] !== fc) throw new Error(`unexpected function code ${res[0]} for request ${fc}`);
+  if (fc === 1 || fc === 2) {                       // 2026-11-18 (PLC data source): coils / discrete inputs, one 0/1 per bit, LSB first
+    const cnt = req.readUInt16BE(3), n = res[1]; if (n !== Math.ceil(cnt / 8) || res.length < 2 + n) throw new Error("short or wrong-sized read response");
+    return Array.from({ length: cnt }, (_, i) => (res[2 + (i >> 3)] >> (i & 7)) & 1);
+  }
   if (fc === 3 || fc === 4) {
     const n = res[1]; if (n !== req.readUInt16BE(3) * 2 || res.length < 2 + n) throw new Error("short or wrong-sized read response");
     const out: number[] = []; for (let i = 0; i < n / 2; i++) out.push(res.readUInt16BE(2 + i * 2)); return out;
@@ -41,7 +45,7 @@ export function rtuUnwrap(frame: Buffer): { unit: number; pdu: Buffer } | null {
 export function rtuFrameLength(b: Buffer, role: "req" | "res"): number {
   if (b.length < 2) return 0; const fc = b[1];
   if (fc & 0x80) return role === "res" ? 5 : -1;
-  if (fc === 3 || fc === 4) return role === "req" ? 8 : b.length < 3 ? 0 : 5 + b[2];
+  if (fc === 1 || fc === 2 || fc === 3 || fc === 4) return role === "req" ? 8 : b.length < 3 ? 0 : 5 + b[2];
   if (fc === 6) return 8;
   if (fc === 16) return role === "res" ? 8 : b.length < 7 ? 0 : 9 + b[6];
   return -1;
@@ -51,5 +55,5 @@ export function mbapLength(b: Buffer): number { return b.length < 6 ? 0 : 6 + b.
 
 /** Total RTU response length (unit + pdu + crc) for a request PDU, when it is known up front: FC03/04 = 5 + 2*count, FC06/16 = 8. null = unknown (other function codes). Exception replies are always 5. */
 export function rtuExpectedResponse(req: Buffer): number | null {
-  const fc = req[0]; if (fc === 3 || fc === 4) return 5 + 2 * req.readUInt16BE(3); if (fc === 6 || fc === 16) return 8; return null;
+  const fc = req[0]; if (fc === 1 || fc === 2) return 5 + Math.ceil(req.readUInt16BE(3) / 8); if (fc === 3 || fc === 4) return 5 + 2 * req.readUInt16BE(3); if (fc === 6 || fc === 16) return 8; return null;
 }
