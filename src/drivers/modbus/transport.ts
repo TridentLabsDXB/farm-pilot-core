@@ -12,6 +12,10 @@ export interface ModbusTransport {
   badFrames?(): number;
   /** Serial only: really open the port now (so a wrong COM name or a busy port shows at once, not on the first request). Rejects with SerialOpenError. */
   openNow?(): Promise<void>;
+  /** 2026-11-18 (Ashining A100 link): raw bytes, no Modbus framing. `rawExchange` writes the frame and resolves with the bytes `done` accepts (null = keep waiting); it rejects with ModbusTimeout when
+   *  nothing complete arrives in time. `rawSend` only writes (data frames for the radio: the receiver answers over the air later, if at all). Used by src/a100 only, on a port that holds the A100 alone. */
+  rawExchange?(frame: Buffer, done: (got: Buffer) => Buffer | null, timeoutMs: number): Promise<Buffer>;
+  rawSend?(frame: Buffer): Promise<void>;
   /** Serial only: the state of the OS handle. "open" is true only while a handle exists; "error" carries the OS text of the last failed open. */
   linkState?(): LinkState | undefined;
 }
@@ -115,6 +119,8 @@ class Exchange {
     });
     const next = this.chain.then(run, run); this.chain = next.catch(() => {}); return next;
   }
+  rawExchange(frame: Buffer, done: (got: Buffer) => Buffer | null, timeoutMs: number) { return this.exchange(frame, (b) => done(b), timeoutMs, (got) => (got.length === 0 ? `no reply within ${timeoutMs} ms` : `short reply: ${got.length} bytes within ${timeoutMs} ms`)); }
+  rawSend(frame: Buffer) { const run = () => this.ch.write(frame); const next = this.chain.then(run, run); this.chain = next.catch(() => {}); return next; }
   close() { return this.ch.close(); }
   openNow() { return this.ch.openNow ? this.ch.openNow() : Promise.resolve(); }
   linkState() { return this.ch.linkState?.(); }

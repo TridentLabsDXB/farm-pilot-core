@@ -15,13 +15,13 @@ import { isWin } from "../platform.js";
 import { PortStore } from "./store.js";
 import { mergeDevice, mergePort, sharedPorts, SHARED_BUS_RULES, serialPathValid, PATH_INVALID_HERE, validateAssignment, validateDevice, validatePort, validatePorts, type DeviceRow, type PortRow } from "./validate.js";
 
-export type TestResult = { deviceId: number; model: string; address: number; result: "ok" | "no_answer" | "crc_error" | "error" | "not_connected" | "off" | "open_error" | "invalid"; ms: number | null; detail?: string };
+export type TestResult = { deviceId: number; model: string; address: number; result: "ok" | "no_answer" | "crc_error" | "error" | "not_connected" | "off" | "open_error" | "invalid" | "skipped"; ms: number | null; detail?: string };
 /** One plain sentence for the Ports page. It is built from the REAL results, so "tested" is never printed for a test that did not run (Windows lab 2026-11-17: "Saved. The port was reopened and tested." with 0 / 0 counters). */
 export interface TestSummary { tone: "ok" | "warn" | "err"; text: string; }
 export type PortStatus = "OPEN" | "CLOSED" | "ERROR" | "NOT FOUND" | "ACCESS DENIED" | "NOT OPEN";
 /** An OPEN port with no request at all for this long while a device is assigned is shown as OPEN, NOT POLLED (amber). */
 export const NOT_POLLED_AFTER_MS = 60_000;
-const WORD: Record<string, string> = { ok: "OK", no_answer: "NO ANSWER", crc_error: "CRC ERROR", error: "ERROR", not_connected: "NOT CONNECTED", off: "SWITCHED OFF", open_error: "CANNOT OPEN", invalid: "INVALID SETTINGS" };
+const WORD: Record<string, string> = { ok: "OK", no_answer: "NO ANSWER", crc_error: "CRC ERROR", error: "ERROR", not_connected: "NOT CONNECTED", off: "SWITCHED OFF", skipped: "NOT PROBED", open_error: "CANNOT OPEN", invalid: "INVALID SETTINGS" };
 export function summarize(kind: "save" | "test-saved" | "test-draft" | "revert", results: TestResult[], extra?: { openOk?: boolean; openText?: string; portOn?: boolean; portLabel?: string }): TestSummary {
   const part = (r: TestResult) => (r.result === "ok" ? `${r.model} (address ${r.address}) OK, ${r.ms} ms` : `${r.model}${r.address ? ` (address ${r.address})` : ""} ${WORD[r.result] ?? r.result}${r.detail ? ": " + r.detail : ""}`);
   const ok = results.length > 0 && results.every((r) => r.result === "ok"), allOff = results.length > 0 && results.every((r) => r.result === "off");
@@ -96,7 +96,7 @@ export class PortManager extends EventEmitter {
   private startPollers() {
     this.stopPollers(); const ports = this.store.ports();
     for (const d of this.store.devices()) {
-      if (d.kind === "lora_gateway") continue; const p: Poller = { fails: 0, state: "unknown", lastOk: null, lastMs: null, stopped: false }; this.pollers.set(d.id, p);
+      if (d.kind === "lora_gateway" || d.kind === "fan_link") continue; const p: Poller = { fails: 0, state: "unknown", lastOk: null, lastMs: null, stopped: false }; this.pollers.set(d.id, p);
       const run = async () => {
         if (p.stopped || this.stopped) return; const cur = this.store.device(d.id), port = cur && ports.find((x) => x.id === cur.port_id);
         if (cur?.enabled && port?.enabled && !this.busy) { const r = await this.probe(cur); if (!p.stopped) { if (r.result === "ok") { p.fails = 0; p.state = "online"; p.lastOk = Date.now(); p.lastMs = r.ms; } else if (++p.fails >= 3) p.state = "offline"; this.emit("update"); } }
@@ -111,6 +111,8 @@ export class PortManager extends EventEmitter {
   async probe(d: DeviceRow): Promise<TestResult> { return this.probeOn(d, this.store.port(d.port_id), this.queues.get(d.port_id), this.masters.get(d.id)); }
   private async probeOn(d: DeviceRow, port: PortRow | undefined, q: PortQueue | undefined, m: ModbusMaster | undefined): Promise<TestResult> {
     const base = { deviceId: d.id, model: d.model, address: d.modbus_address };
+    // 2026-11-18: the A100 radio link is NEVER probed with a Modbus read: those bytes would go out over the radio to the fans. Its own test is on the Ashining A100 page (TEST LINK).
+    if (d.kind === "fan_link") return { ...base, result: "skipped", ms: null, detail: "radio link: use TEST LINK on the Ashining A100 page" };
     if (!port?.enabled) return { ...base, result: "off", ms: null, detail: "port is switched off" };
     if (!d.enabled) return { ...base, result: "off", ms: null, detail: "device is switched off (Devices on ports > Enabled)" };
     if (!q || !m) return { ...base, result: "not_connected", ms: null, detail: "no connection object for this device" };
@@ -176,8 +178,13 @@ export class PortManager extends EventEmitter {
   deviceState(d: DeviceRow): DeviceState {
     const port = this.store.port(d.port_id); if (!d.enabled || !port?.enabled) return "not_connected";
     if (d.kind === "lora_gateway") { if (!this.gw?.drv) return "not_connected"; if (this.gw.online) return "online"; return this.gw.lastOk === null && this.gw.failCycles === 0 ? "unknown" : "offline"; }
+    if (d.kind === "fan_link") return this.fanLinkState?.() ?? "unknown";
     return this.pollers.get(d.id)?.state ?? "unknown";
   }
+  /** 2026-11-18: set by the A100 service so the Ports page lamp of the radio link is real (from its last register read), never from a Modbus poll. */
+  fanLinkState: (() => DeviceState) | null = null;
+  /** The shared queue (transport + line options) of a port, for the A100 link driver. It is the same object every other user of the port goes through. */
+  queueOf(portId: number): PortQueue | null { return this.queues.get(portId) ?? null; }
   portView(p: PortRow, now = Date.now()) {
     const q = this.queues.get(p.id), st = q?.stats; let status: PortStatus = "OPEN"; let lastError = st?.lastError ? errorText(st.lastError, p) : null; const ls = q?.tr.linkState?.();
     if (!p.enabled) { status = "CLOSED"; if (p.transport === "serial" && p.device_path && !serialPathValid(p.device_path)) lastError = PATH_INVALID_HERE + ` (${p.device_path})`; }

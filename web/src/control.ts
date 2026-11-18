@@ -4,7 +4,9 @@
 import type { State } from "./api";
 
 export type ControlKind = "pump" | "fan" | "valve" | "actuator" | "other";
-export interface ControlDevice { id: string; kind: ControlKind; role: string | null; name: string; zoneId: number | null; capabilities: string[]; feedback: { topic: string; sensor: string; reading: string } | null; }
+export interface ControlDevice { id: string; kind: ControlKind; role: string | null; name: string; zoneId: number | null; capabilities: string[]; feedback: { topic: string; sensor: string; reading: string } | null;
+  /** 2026-11-18: a device behind the Ashining A100 radio link (CONTROL DEVICES). No feedback source yet (TODO fan-feedback): the state stays UNKNOWN and no Start/Stop buttons are drawn until command payloads exist. */
+  link?: "a100"; linkState?: string; }
 export type DeviceState = "on" | "off" | "unknown";
 export const STALE_MS = 30_000;
 

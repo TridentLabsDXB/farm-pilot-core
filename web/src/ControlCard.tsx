@@ -24,7 +24,8 @@ export default function ControlCard({ device, state, zoneName, now, reload }: { 
         {last ? <div className="fp-row" style={{ marginTop: 6 }}><Chip tone={tone}>{CMD_WORD[last.status]}</Chip><span className="fp-num" style={{ fontSize: 13 }}>{last.action.toUpperCase()} · {last.username} · {ago(last.created_at, now)}</span></div> : <div className="fp-num">--</div>}
         {last?.status === "timeout" && <p className="fp-msg">No acknowledgement from the controller{last.note ? ` (${last.note})` : ""}.</p>}
         {last?.status === "sent" && <p className="fp-msg">Waiting for the controller, up to {state.commandTimeoutSec} s.</p>}</div>
-      {st === "unknown" && <p className="fp-msg">State unknown: no recent status from the controller.</p>}
+      {device.link === "a100" && <p className="fp-msg">Radio link device. Commands are not available yet; the state stays UNKNOWN until the receiver reports back.</p>}
+      {st === "unknown" && device.link !== "a100" && <p className="fp-msg">State unknown: no recent status from the controller.</p>}
       {err && <p className="fp-msg err" role="alert">{err}</p>}
       {ask && <Modal title={ask === "on" ? `Start ${nm}?` : `Stop ${nm}?`} onClose={() => setAsk(null)}>
         <p className="fp-msg">{ask === "on" ? "This sends a START command to the controller." : "This sends a STOP command to the controller."} It is logged with your name.</p>

@@ -35,6 +35,13 @@ export class PortStore {
   }
   saveDevice(d: DeviceRow) { this.db.prepare("UPDATE bus_devices SET port_id=?,modbus_address=?,poll_interval_s=?,enabled=? WHERE id=?").run(d.port_id, d.modbus_address, d.poll_interval_s, d.enabled ? 1 : 0, d.id); }
 
+  /** 2026-11-18: the Ashining A100 link. One row (kind is UNIQUE), no Modbus address (stored as 0, never read). Called only by the A100 service after the Ports rules passed. */
+  upsertFanLink(portId: number, enabled: boolean) {
+    const r = this.db.prepare("SELECT id FROM bus_devices WHERE kind='fan_link'").get() as { id: number } | undefined;
+    if (r) this.db.prepare("UPDATE bus_devices SET port_id=?, enabled=? WHERE id=?").run(portId, enabled ? 1 : 0, r.id);
+    else this.db.prepare("INSERT INTO bus_devices(kind,model,port_id,modbus_address,poll_interval_s,enabled) VALUES('fan_link','A100-L400M30',?,0,60,?)").run(portId, enabled ? 1 : 0);
+  }
+
   /** Backup / restore of both tables in one piece. Ports keep their ids; devices reference them. */
   exportAll() { return { ports: this.ports(), devices: this.devices() }; }
   replaceAll(ports: PortRow[], devices: DeviceRow[], by: string) {

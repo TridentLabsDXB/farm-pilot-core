@@ -12,6 +12,7 @@ test("Admin groups and their order: SETTINGS, DATA SOURCES, SYSTEM", () => {
   assert.deepEqual(groups, [
     { title: "Settings", tabs: ["farm-profile", "farm-structure"] },
     { title: "Data sources", tabs: ["rs485-ports", "sensors-gateway", "plc", "vbox", "mqtt-payload", "sensors"] },
+    { title: "Control devices", tabs: ["ashining-a100"] },
     { title: "System", tabs: ["users", "backup"] },
   ]);
   assert.match(sb, /export const TABS: \[string, string\]\[\] = GROUPS\.flatMap/);
@@ -40,7 +41,7 @@ test("Phone: bottom nav ALARMS, MONITORING, CONTROL, MORE for both roles; the MO
 
 test("Every old settings route still opens its page and is highlighted under its new group", () => {
   const all = groups.flatMap((g) => g.tabs).sort();
-  assert.deepEqual(all, ["backup", "farm-profile", "farm-structure", "mqtt-payload", "plc", "rs485-ports", "sensors", "sensors-gateway", "users", "vbox"], "no item lost; only mqtt-payload, plc and vbox added, the other keys (= routes) unchanged");
+  assert.deepEqual(all, ["backup", "farm-profile", "farm-structure", "mqtt-payload", "plc", "rs485-ports", "sensors", "sensors-gateway", "users", "vbox"].concat("ashining-a100").sort(), "no item lost; only mqtt-payload, plc, vbox and ashining-a100 added, the other keys (= routes) unchanged");
   for (const [k, page] of [["sensors", "SensorsPage"], ["farm-structure", "StructurePage"], ["rs485-ports", "PortsPage"], ["sensors-gateway", "GatewayPage"], ["mqtt-payload", "MqttPayloadPage"], ["plc", "PlcPage"], ["farm-profile", "FarmProfilePage"], ["users", "UsersPage"], ["backup", "BackupPage"]]) assert.match(st, new RegExp(`t === "${k}" \\? .*<${page}`), `#/settings/${k} opens ${page}`);
   assert.match(sb, /LEGACY: Record<string, string> = \{ gateway: "sensors-gateway", structure: "farm-structure", profile: "farm-profile" \}/);
   assert.match(sb, /aria-current=\{cur === "settings" && tab === k \? "page"/, "the item is highlighted by its route key, inside whichever group holds it");

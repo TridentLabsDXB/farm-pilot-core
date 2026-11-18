@@ -9,6 +9,7 @@ import { BrandMark } from "./Brand";
 export const GROUPS: { title: string; tabs: [string, string][] }[] = [
   { title: "Settings", tabs: [["farm-profile", "FARM PROFILE"], ["farm-structure", "FARM STRUCTURE"]] },
   { title: "Data sources", tabs: [["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["plc", "PLC"], ["vbox", "V-BOX"], ["mqtt-payload", "MQTT PAYLOAD"], ["sensors", "SENSORS"]] },
+  { title: "Control devices", tabs: [["ashining-a100", "ASHINING A100"]] },     // 2026-11-18: external control devices; one item per device type. Admin only, NOT licence gated (no lock badge, no /data-sources/access check).
   { title: "System", tabs: [["users", "USERS"], ["backup", "BACKUP"]] },
 ];
 export const TABS: [string, string][] = GROUPS.flatMap((g) => g.tabs);

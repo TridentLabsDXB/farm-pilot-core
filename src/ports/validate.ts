@@ -66,7 +66,8 @@ export function validateDevice(d: DeviceRow, ports: PortRow[]): string[] {
   const e: string[] = [];
   if (!(DEVICE_KINDS as readonly string[]).includes(d.kind)) e.push("unknown device kind");
   if (!ports.some((p) => p.id === d.port_id)) e.push("port " + d.port_id + " does not exist");
-  if (!intIn(d.modbus_address, 1, d.kind === "lora_gateway" ? 254 : 247)) e.push(`Modbus address must be 1 to ${d.kind === "lora_gateway" ? 254 : 247}`);
+  // 2026-11-18: the Ashining A100 (fan_link) is a transparent radio pipe with NO Modbus address; the row stores 0 and the address is never validated or shown.
+  if (d.kind !== "fan_link" && !intIn(d.modbus_address, 1, d.kind === "lora_gateway" ? 254 : 247)) e.push(`Modbus address must be 1 to ${d.kind === "lora_gateway" ? 254 : 247}`);
   if (d.kind === "lora_gateway" && FORBIDDEN_GATEWAY_ADDR.has(d.modbus_address)) e.push("the gateway address must never be 0, 123, 160 or 255");
   if (!intIn(d.poll_interval_s, 5, 3600)) e.push("poll interval must be 5 to 3600 s");
   return e;
@@ -75,8 +76,10 @@ export function validateDevice(d: DeviceRow, ports: PortRow[]): string[] {
 /** Devices on one port must have different addresses. Disabled devices do not count. */
 export function validateAssignment(devices: DeviceRow[]): string[] {
   const e: string[] = []; const seen = new Map<string, DeviceRow>();
+  // 2026-11-18: an enabled radio link (fan_link) holds its port alone: whatever else shares it would broadcast over the radio and receive stray data.
+  for (const l of devices) if (l.kind === "fan_link" && l.enabled) for (const o of devices) if (o.enabled && o.id !== l.id && o.port_id === l.port_id) e.push(`Port ${l.port_id} is used by the Ashining A100 radio link, which needs the port to itself: move ${o.model} to another port`);
   for (const d of devices) {
-    if (!d.enabled) continue; const k = d.port_id + ":" + d.modbus_address; const o = seen.get(k);
+    if (!d.enabled || d.kind === "fan_link") continue; const k = d.port_id + ":" + d.modbus_address; const o = seen.get(k);
     if (o) e.push(`${o.model} and ${d.model} both use address ${d.modbus_address} on Port ${d.port_id}: addresses on one port must differ`); else seen.set(k, d);
   }
   return e;

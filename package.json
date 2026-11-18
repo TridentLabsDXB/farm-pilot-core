@@ -12,6 +12,7 @@
     "start": "node dist/index.js",
     "sim": "node dist/sim/simulator.js",
     "plc-sim": "node dist/tools/plc-sim/main.js",
+    "a100-sim": "node dist/tools/a100-sim/main.js",
     "dev": "tsx watch src/index.ts",
     "seed:bench": "node dist/scripts/seed-bench.js",
     "test": "node --import tsx --import ./test/isolate.ts --test --test-force-exit test/*.test.ts",
