@@ -51,7 +51,7 @@ test("Every old settings route still opens its page and is highlighted under its
 test("PLC and V-BOX (2026-11-18): between SENSORS GATEWAY and MQTT PAYLOAD; locked but visible on FREE (sidebar and MORE sheet share the badges); V-BOX opens the MQTT Payload page on its V-BOX tab", () => {
   const body = sb.slice(sb.indexOf("export const GROUPS"), sb.indexOf("export const TABS"));
   assert.ok(body.indexOf('"sensors-gateway"') < body.indexOf('["plc", "PLC"]') && body.indexOf('["plc", "PLC"]') < body.indexOf('["vbox", "V-BOX"]') && body.indexOf('["vbox", "V-BOX"]') < body.indexOf('"mqtt-payload"'));
-  assert.match(sb, /\/data-sources\/access/); assert.match(sb, /b\.plc = \{ tone: "off", word: "🔒 LOCKED" \}/); assert.match(sb, /b\.vbox = \{ tone: "off", word: "🔒 LOCKED" \}/);
+  assert.match(sb, /\/data-sources\/access/); assert.match(sb, /b\.plc = \{ tone: "off", word: "LOCKED", lock: true \}/); assert.match(sb, /b\.vbox = \{ tone: "off", word: "LOCKED", lock: true \}/);
   assert.match(ab, /badges\[k\]/, "the MORE sheet shows the same lock badges");
   assert.match(st, /t === "vbox" \? <MqttPayloadPage key="vbox" readOnly=\{!admin\} initialTab="vbox" \/>/);
   const mq = readFileSync("web/src/MqttPayloadPage.tsx", "utf8");

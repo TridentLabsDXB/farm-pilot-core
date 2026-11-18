@@ -30,6 +30,8 @@ export const parseDate = (txt: string): number | null => {
 export const dayMon = (ts: number) => { const z = zoneParts(ts); return `${z.d} ${MON[z.m - 1]}`; };
 
 export type Tone = "ok" | "warn" | "alarm" | "off" | "info";
+/** Inline SVG padlock (aria-hidden, takes the colour of the text): the word LOCKED always sits next to it. No emoji anywhere in the UI. */
+export const LockIcon = () => <svg className="fp-lock" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false" style={{ flex: "none", marginRight: 4, verticalAlign: "-2px" }}><rect x="3" y="7" width="10" height="7" rx="1.2" fill="currentColor" /><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>;
 export const Chip = ({ tone, children, title }: { tone: Tone; children: React.ReactNode; title?: string }) => <span className="fp-chip" data-tone={tone} title={title}><span className="fp-lamp" aria-hidden />{children}</span>;
 export const STATUS: Record<string, [Tone, string]> = { ok: ["ok", "OK"], no_update: ["warn", "NO UPDATE"], no_data: ["off", "NO DATA"], low_battery: ["warn", "LOW BATTERY"], unknown: ["off", "UNKNOWN"], not_sent: ["info", "NOT SENT"], empty: ["off", "NO SENSORS"] };
 export const StatusChip = ({ status }: { status: string }) => { const [t, w] = STATUS[status] ?? ["off", status.toUpperCase()]; return <Chip tone={t}>{w}</Chip>; };

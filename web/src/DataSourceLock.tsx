@@ -1,6 +1,6 @@
 import { api } from "./api";
 import { go } from "./App";
-import { Chip } from "./ui";
+import { Chip, LockIcon } from "./ui";
 
 /** Licence access of the PLC and V-BOX data sources (GET /api/data-sources/access). tier rule: PRO or higher (src/deployments/tiers.ts, the server decides; the web only shows it). */
 export interface DsAccess { tier: string; state: "allowed" | "grace" | "stopped" | "locked"; run: boolean; message: string | null; graceEnds: string | null; }
@@ -12,7 +12,7 @@ export function LockedPage({ title, message }: { title: string; message: string 
   return (
     <section className="fp-card" aria-label={`${title} locked`} data-testid="ds-locked">
       <h3>{title}</h3>
-      <p className="fp-msg"><Chip tone="off">LOCKED</Chip> {message}</p>
+      <p className="fp-msg"><Chip tone="off"><LockIcon />LOCKED</Chip> {message}</p>
       <button className="fp-btn primary" onClick={() => go("/about")}>GO TO ABOUT</button>
     </section>
   );

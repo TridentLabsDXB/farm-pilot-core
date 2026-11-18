@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type PublicProfile, type Scada } from "./api";
 import { go } from "./App";
-import { Chip, type Tone } from "./ui";
+import { Chip, LockIcon, type Tone } from "./ui";
 import { BrandMark } from "./Brand";
 
 // Menu groups (Admin only), decided 2026-11-17: SETTINGS describes the farm, DATA SOURCES says where data comes from, SYSTEM is about the box itself.
@@ -13,7 +13,7 @@ export const GROUPS: { title: string; tabs: [string, string][] }[] = [
 ];
 export const TABS: [string, string][] = GROUPS.flatMap((g) => g.tabs);
 export const LEGACY: Record<string, string> = { gateway: "sensors-gateway", structure: "farm-structure", profile: "farm-profile" };
-export type Badge = { tone: Tone; word: string } | undefined;
+export type Badge = { tone: Tone; word: string; lock?: boolean } | undefined;
 
 /** Attention badges (lamp + word) for the Settings items: gateway offline / sync failed, unsent changes, old backup, profile not set up. */
 export function useBadges(scada: Scada | null, tab: string | undefined, enabled: boolean) {
@@ -26,7 +26,7 @@ export function useBadges(scada: Scada | null, tab: string | undefined, enabled:
       if (gw?.unsent) b.sensors = { tone: "warn", word: `${gw.unsent} NOT SENT` };
       if (bk && (!bk.lastExportAt || Date.now() - bk.lastExportAt > bk.warnDays * 86400000)) b.backup = { tone: "warn", word: bk.lastExportAt ? "OLD" : "NONE YET" };
       if (pr?.placeholder || pr?.timezone_confirm_needed) b["farm-profile"] = { tone: "warn", word: pr.timezone_confirm_needed ? "CHECK ZONE" : "SET UP" };
-      if (ds && !ds.run) { b.plc = { tone: "off", word: "🔒 LOCKED" }; b.vbox = { tone: "off", word: "🔒 LOCKED" }; } else if (ds?.state === "grace") { b.plc = { tone: "warn", word: "GRACE" }; b.vbox = { tone: "warn", word: "GRACE" }; }   // PLC and V-BOX need PRO or higher (tiers.ts): locked but visible, so the option is discoverable
+      if (ds && !ds.run) { b.plc = { tone: "off", word: "LOCKED", lock: true }; b.vbox = { tone: "off", word: "LOCKED", lock: true }; } else if (ds?.state === "grace") { b.plc = { tone: "warn", word: "GRACE" }; b.vbox = { tone: "warn", word: "GRACE" }; }   // PLC and V-BOX need PRO or higher (tiers.ts): locked but visible, so the option is discoverable
       setBadges(b);
     });
     return () => { live = false; };
@@ -44,7 +44,7 @@ export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges
       <button className="fp-tab" aria-current={cur === "control" ? "page" : undefined} onClick={() => go("/control")}>CONTROL</button>
       {admin && GROUPS.filter((g) => g.tabs.length > 0).map((g) => <div key={g.title} className="fp-sb-grp" role="group" aria-label={g.title}>
         <span className="fp-cap fp-sb-group">{g.title}</span>
-        {g.tabs.map(([k, l]) => <button key={k} className="fp-tab" aria-current={cur === "settings" && tab === k ? "page" : undefined} onClick={() => go("/settings/" + k)}><span>{l}</span>{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.word}</Chip>}</button>)}
+        {g.tabs.map(([k, l]) => <button key={k} className="fp-tab" aria-current={cur === "settings" && tab === k ? "page" : undefined} onClick={() => go("/settings/" + k)}><span>{l}</span>{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.lock && <LockIcon />}{badges[k]!.word}</Chip>}</button>)}
         {/* 2026-11-17: Licence Management, Online build only (online comes from /api/me), Admin only (this block). Amber count of EXPIRING + EXPIRED deployments, hidden at 0. */}
         {g.title === "System" && online && <button className="fp-tab" aria-current={cur === "licences" ? "page" : undefined} onClick={() => go("/licences")}><span>LICENCE MANAGEMENT</span>{nLicences > 0 && <span className="fp-badge fp-badge-warn" aria-label={`${nLicences} need attention`}>{nLicences}</span>}</button>}
       </div>)}

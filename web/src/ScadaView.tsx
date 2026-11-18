@@ -14,7 +14,7 @@ function Row({ s, now }: { s: SensorView; now: number }) {
   return (
     <div className="fp-srow" data-warn={warn ? 1 : 0}>
       <span className="l">{s.label}</span><span className={`v ${dim ? "dim" : ""}`}>{fmt(tempVal(s.temperature))} {tempUnit()} &nbsp;{fmt(s.humidity, 0)} %</span>
-      <span className="m"><StatusChip status={s.status} /><Battery v={s.voltage} level={s.batteryLevel} isLow={s.batteryLow} /><Signal rssi={s.rssi} band={s.rssiBand} /><span>changed {ago(s.lastChange, now)}</span>{s.calDue && <Chip tone="warn">CAL DUE</Chip>}{s.checkSensor && <Chip tone="warn">CHECK SENSOR</Chip>}</span>
+      <span className="m"><StatusChip status={s.status} />{!s.kind && <Battery v={s.voltage} level={s.batteryLevel} isLow={s.batteryLow} />}{!s.kind && <Signal rssi={s.rssi} band={s.rssiBand} />}<span>{s.kind ? "updated" : "changed"} {ago(s.lastChange, now)}</span>{s.calDue && <Chip tone="warn">CAL DUE</Chip>}{s.checkSensor && <Chip tone="warn">CHECK SENSOR</Chip>}</span>
     </div>
   );
 }

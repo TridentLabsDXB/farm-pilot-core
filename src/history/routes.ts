@@ -12,6 +12,8 @@ import { allowedFrom } from "../licence/range.js";
 import type { LicenceService } from "../licence/service.js";
 import { bucketMs, csvFileName, csvHeader, csvRow, downsample, gapThresholdMs, HOUR_MS, isMetric, isRange, METRICS, RANGES, rangeAllowed, usesRollup, withGaps, zoneAverage, type Metric, type Pt, type Range } from "./logic.js";
 
+import { latestOf, mappedSources, mappedStatus, seriesIdOf } from "../mapped/index.js";
+
 export interface HistoryDeps { db: Db; reg: Registry; svc: GatewayService; prof: ProfileService; licence: LicenceService; now?: () => number; }
 const hits = new Map<string, number[]>();
 /** At most `max` calls per user and kind in a minute (in memory; a restart resets it, which is fine for a courtesy limit). */
@@ -55,6 +57,8 @@ export function registerHistoryRoutes(app: FastifyInstance, d: HistoryDeps) {
   };
   const intervalMs = (s: SensorRow) => d.reg.intervalSec(s.type, s.reporting_interval) * 1000;
 
+  /** 2026-11-18: PLC points and V-BOX tags mapped to this zone (mapped/index.ts): the same lines as sensors in CHARTS and the same rows in the CSV. Label only; the serial column (Admin) is PLC:<zone code> / VBOX:<unit>. */
+  const zoneMapped = (zoneId: number) => mappedSources(d.db).filter((m) => m.zoneId === zoneId).map((m) => { const last = Math.max(0, ...Object.values(latestOf(d.db, m)).map((x) => x!.t)); return { m, label: m.label, status: mappedStatus(last, now(), m.intervalMs) }; });
   app.get<{ Querystring: { zone?: string; metric?: string; range?: string } }>("/api/history", async (req) => {
     const u = who(req); rateLimit(u.username, "history", 120);
     const q = req.query, zoneId = Number(q.zone), zone = d.reg.zones().find((z) => z.id === zoneId);
@@ -63,12 +67,13 @@ export function registerHistoryRoutes(app: FastifyInstance, d: HistoryDeps) {
     const rg = String(q.range ?? "").toLowerCase();                       // the buttons say 1M, the URL may too
     if (!isRange(rg)) throw new HttpError(400, "range must be 1h, 24h, 1w or 1m");
     const to = now(), from = to - RANGES[rg]; checkRange(rg, to);
-    const ss = zoneSensors(zone.id, u.admin), roll = usesRollup(rg), slow = Math.max(0, ...ss.map((x) => intervalMs(x.s))), bucket = bucketMs(to - from, roll ? HOUR_MS : slow);
+    const ss = zoneSensors(zone.id, u.admin), mp = zoneMapped(zone.id), roll = usesRollup(rg), slow = Math.max(0, ...ss.map((x) => intervalMs(x.s)), ...mp.map((x) => x.m.intervalMs)), bucket = bucketMs(to - from, roll ? HOUR_MS : slow);
     const raw = ss.map((x) => { const id = seriesId(d.db, x.s.type, x.s.serial, q.metric as Metric); return id === null ? [] : readSeries(d.db, id, from, to, roll); });
+    const mraw = mp.map((x) => { const id = seriesIdOf(d.db, x.m, q.metric as Metric); return id === null ? [] : readSeries(d.db, id, from, to, roll); });
     const gap = (p: Pt[], iv: number) => withGaps(downsample(p), gapThresholdMs(roll ? HOUR_MS : iv, bucket));
     return { zone: { id: zone.id, name: zone.name }, metric: q.metric, unit: q.metric === "temperature" ? "C" : "%RH", range: rg, from, to, updated_at: to, bucket_ms: bucket,
-      sensors: ss.map((x, k) => ({ key: `s${x.i + 1}`, label: x.label, status: x.status, points: gap(raw[k], intervalMs(x.s)) })),
-      average: { points: withGaps(downsample(zoneAverage(raw, from, bucket)), gapThresholdMs(slow, bucket)) } };
+      sensors: [...ss.map((x, k) => ({ key: `s${x.i + 1}`, label: x.label, status: x.status, points: gap(raw[k], intervalMs(x.s)) })), ...mp.map((x, k) => ({ key: `m${k + 1}`, label: x.label, status: x.status, points: gap(mraw[k], x.m.intervalMs) }))],
+      average: { points: withGaps(downsample(zoneAverage([...raw, ...mraw], from, bucket)), gapThresholdMs(slow, bucket)) } };
   });
 
   app.get<{ Querystring: { zone?: string; range?: string } }>("/api/history/export.csv", async (req, reply) => {
@@ -83,6 +88,7 @@ export function registerHistoryRoutes(app: FastifyInstance, d: HistoryDeps) {
     for (const z of all ? zones : [zone!]) for (const x of zoneSensors(z.id, u.admin)) for (const m of METRICS) {
       const id = seriesId(d.db, x.s.type, x.s.serial, m); if (id !== null) plan.push({ zone: z.name, label: x.label, serial: x.s.serial, metric: m, id, rawId: u.admin ? seriesId(d.db, x.s.type, x.s.serial, m + "_raw") : null });
     }
+    for (const z of all ? zones : [zone!]) for (const x of zoneMapped(z.id)) for (const m of METRICS) { const id = seriesIdOf(d.db, x.m, m); if (id !== null) plan.push({ zone: z.name, label: x.label, serial: x.m.serial, metric: m, id, rawId: null }); }
     const count = d.db.prepare("SELECT COUNT(*) c FROM history_raw WHERE series_id=? AND ts>=? AND ts<=?"); let rows = 0; for (const p of plan) rows += (count.get(p.id, from, to) as { c: number }).c;
     if (rows > config.exportMaxRows) throw new HttpError(413, `This export would have ${rows.toLocaleString("en")} rows, more than the limit of ${config.exportMaxRows.toLocaleString("en")}. Choose a shorter range or a single zone.`, { code: "EXPORT_TOO_LARGE", rows, limit: config.exportMaxRows });
     const info = d.prof.publicInfo(), tz = info.timezone, unit = info.temperature_unit === "F" ? "F" : "C";

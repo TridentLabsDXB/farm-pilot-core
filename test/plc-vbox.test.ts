@@ -12,6 +12,9 @@ import { MqttSourceService } from "../src/mqtt/service.js"; import { SERIES_TOPI
 import { crc16, ModbusException, ModbusTimeout, mbapWrap, parseResponse, readPdu, rtuWrap } from "../src/drivers/modbus/frames.js"; import { matchRtuResponse } from "../src/drivers/modbus/transport.js";
 import { ModbusMaster } from "../src/drivers/modbus/master.js";
 import { rig } from "./rig.js";
+import { Registry } from "../src/gateway/registry.js"; import { GatewayService } from "../src/gateway/service.js"; import { loadRegMap } from "../src/drivers/modbus/regmap.js"; import { buildView } from "../src/gateway/health.js";
+import { hashPassword, createSession } from "../src/auth.js"; import { buildApp } from "../src/app.js"; import { Commands } from "../src/commands.js"; import type { AddressInfo } from "node:net";
+import { farmPointOptions, mappedSources } from "../src/mapped/index.js";
 
 const closers: (() => Promise<void> | void)[] = []; after(async () => { for (const c of closers.reverse()) await c(); });
 const A = { username: "admin", role: "admin" };
@@ -93,7 +96,7 @@ const series = (db: Db, topic: string) => db.prepare("SELECT s.sensor_key k, s.m
 
 test("PLC over Modbus TCP: add a zone, poll, values stored as measurements; READ ZONE NOW shows the request and raw registers and stores nothing", async () => {
   const { sim, db, svc } = await plcRig();
-  const v = svc.saveZone(A, null, { name: "Sample zone", area: "holding", style: "plc", start: 40001, length: 4, points: [{ offset: 1, name: "temp", type: "UINT16", scale: 0.1, unit: "°C" }, { offset: 2, name: "flow", type: "FLOAT32", scale: 1, unit: "l/s", maps_to: "Flow" }] });
+  const v = svc.saveZone(A, null, { name: "Sample zone", area: "holding", style: "plc", start: 40001, length: 4, points: [{ offset: 1, name: "temp", type: "UINT16", scale: 0.1, unit: "°C" }, { offset: 2, name: "flow", type: "FLOAT32", scale: 1, unit: "l/s" }] });
   const z = v.zones[0]; assert.equal(z.code, "DZ1"); assert.deepEqual(z.request!.chunks, [{ fc: 3, offset: 0, count: 4 }]);
   const now = await svc.readNow(A, z.id); assert.equal(now.ok, true); assert.equal((now as any).raw.length, 4); assert.equal(series(db, PLC_SERIES_TOPIC).length, 0, "READ ZONE NOW stores nothing");
   assert.equal((await svc.pollOnce()).ok, true); const s = series(db, PLC_SERIES_TOPIC); assert.deepEqual(s.map((x) => x.m), ["flow", "temp"]); assert.ok(Math.abs(s.find((x) => x.m === "flow")!.v - 21.5) < 4);
@@ -176,4 +179,52 @@ test("V-BOX on FREE: nothing is ingested and the message says why", () => {
   vb.setEnabled(A, true); vb.handle("vbox/VB1/data", Buffer.from("{}")); vb.setUnit(A, "VB1", "add"); type = "FREE";
   const r = vb.handle("vbox/VB1/data", Buffer.from(JSON.stringify({ gh1_temp: 3 }))); assert.equal(r.stored, false); assert.ok(r.notes.some((n) => /licence/.test(n))); assert.equal(series(db, VBOX_SERIES_TOPIC).length, 0); assert.equal(vb.subscription(), null);
   assert.throws(() => vb.setEnabled(A, false), (e: any) => e.status === 403);
+});
+
+// ---- MONITORING wiring (2026-11-18): a PLC point / V-BOX tag mapped to a farm point shows in the zone card, CHARTS and the CSV; unmapped values stay stored and are not shown ----
+async function monitoring() {
+  const sim = new PlcSim(); sim.tick(); const port = await sim.listen(0); closers.push(() => sim.close());
+  const db = openDb(":memory:"), ing = new Ingest(db), map = loadRegMap("config/gateway-thingsend.yaml"), reg = new Registry(db, map), gw = new GatewayService(db, reg, ing, null);
+  const lic = licenceOf(db, "PRO"), plc = new PlcService(db, ing, lic), vb = new VboxSource(db, ing, lic); closers.push(() => plc.stop());
+  await plc.saveConfig(A, { protocol: "tcp", host: "127.0.0.1", port, unit: 1, poll_s: 1, timeout_ms: 300 }); db.prepare("UPDATE plc_config SET enabled=1").run();
+  const zid = reg.addZone(A, "Greenhouse 1", "climate");
+  const { app } = await buildApp(db, ing, new Commands(db, { publish() {} } as any, () => {}), reg, gw, null, null, lic, { plc, vbox: vb });
+  await app.listen({ port: 0, host: "127.0.0.1" }); closers.push(() => { void app.close(); }); const hp = (app.server.address() as AddressInfo).port;
+  const mk = (n: string, role: string) => { const id = Number(db.prepare("INSERT INTO users(username,pass_hash,role,created_at) VALUES(?,?,?,?)").run(n, hashPassword("x".repeat(10)), role, 1).lastInsertRowid); return "core_session=" + createSession(db, id); };
+  const ac = mk("admin", "admin"), oc = mk("op", "operator");
+  const get = async (c: string, u: string) => { const r = await fetch(`http://127.0.0.1:${hp}${u}`, { headers: { cookie: c } }); const t = await r.text(); let j: any = null; try { j = JSON.parse(t); } catch { /* csv */ } return { status: r.status, t, j }; };
+  const body = (mt: string, mh: string) => ({ name: "Sample zone", area: "holding", style: "protocol", start: 0, length: 4, points: [{ offset: 0, name: "hum", type: "UINT16", scale: 1, unit: "%", maps_to: mh }, { offset: 1, name: "temp", type: "UINT16", scale: 0.05, unit: "C", maps_to: mt }, { offset: 3, name: "spare", type: "UINT16", scale: 1 }] });
+  return { db, sim, plc, vb, reg, gw, zid, get, ac, oc, body, now: () => Date.now() };
+}
+test("a mapped PLC value shows in its zone card; an unmapped one stays stored and is not shown; Operators get label and value only", async () => {
+  const m = await monitoring(), z = m.reg.zones().find((x) => x.id === m.zid)!;
+  assert.ok(farmPointOptions(m.db).some((o) => o.value === `${m.zid}:temperature` && /Greenhouse 1 · Air temperature/.test(o.label)));
+  m.plc.saveZone(A, null, m.body(`${m.zid}:temperature`, `${m.zid}:humidity`)); await m.plc.pollOnce();
+  assert.equal(mappedSources(m.db).length, 1); assert.deepEqual(Object.keys(mappedSources(m.db)[0].metrics).sort(), ["humidity", "temperature"]);
+  const card = buildView(m.db, m.reg, m.gw, false, Date.now()).zones.find((x) => x.id === z.id)!;
+  assert.equal(card.total, 1); assert.equal(card.sensors[0].label, "Sample zone"); assert.equal((card.sensors[0] as any).kind, "plc");
+  assert.equal(card.avgHumidity, m.sim.holding[0]); assert.ok(Math.abs(card.avgTemperature! - Math.round(m.sim.holding[1] * 0.05 * 10) / 10) < 0.11); assert.equal(card.status, "ok", "a zone fed only by the PLC does not depend on the LoRa gateway");
+  assert.equal(series(m.db, PLC_SERIES_TOPIC).some((x) => x.m === "spare"), true, "the unmapped point is stored"); assert.ok(!JSON.stringify(card).includes("spare"), "and never shown");
+  assert.ok(!/offset|address|raw|serial|DZ1|holding/i.test(JSON.stringify(card)), "an Operator card holds no address, no raw value, no serial");
+  assert.equal(m.db.prepare("SELECT role FROM points WHERE serial='PLC:DZ1:temp'").get().role, "Air temperature", "Farm Structure lists the mapped farm points");
+  // HTTP: the Operator's scada, chart and CSV
+  const sc = await m.get(m.oc, "/api/scada"); assert.equal(sc.j.zones[0].sensors[0].label, "Sample zone"); assert.ok(!/DZ1|PLC:/.test(sc.t));
+  const h = await m.get(m.oc, "/api/history?zone=" + m.zid + "&metric=temperature&range=1h"); assert.equal(h.status, 200); assert.equal(h.j.sensors[0].label, "Sample zone"); assert.ok(h.j.sensors[0].points.length >= 1); assert.ok(h.j.average.points.length >= 1); assert.ok(!/DZ1|PLC:/.test(h.t));
+  const csvA = await m.get(m.ac, "/api/history/export.csv?zone=" + m.zid + "&range=1h"), csvO = await m.get(m.oc, "/api/history/export.csv?zone=" + m.zid + "&range=1h");
+  assert.match(csvA.t, /Sample zone/); assert.match(csvA.t, /PLC:DZ1/); assert.match(csvO.t, /Sample zone/); assert.ok(!/PLC:|DZ1/.test(csvO.t), "no source key in the Operator CSV"); assert.ok(!/spare/.test(csvA.t + csvO.t));
+  // unmap: gone from the card, the points list and the chart, still stored
+  m.plc.saveZone(A, m.plc.zones()[0].id, body0(m)); const after = buildView(m.db, m.reg, m.gw, false, Date.now()).zones.find((x) => x.id === z.id)!;
+  assert.equal(after.total, 0); assert.equal(after.avgTemperature, null); assert.equal(m.db.prepare("SELECT COUNT(*) c FROM points WHERE serial LIKE 'PLC:%'").get().c, 0); assert.equal(series(m.db, PLC_SERIES_TOPIC).some((x) => x.m === "temp"), true);
+});
+const body0 = (m: any) => m.body("", "");
+test("maps to must be a real farm point; a V-BOX tag mapped to a zone appears there too", async () => {
+  const m = await monitoring();
+  assert.throws(() => m.plc.saveZone(A, null, m.body("hello", "")), (e: any) => e.status === 400 && /farm point/.test(e.message)); assert.throws(() => m.plc.saveZone(A, null, m.body("999:temperature", "")), /no longer exists/);
+  assert.throws(() => m.vb.saveTags(A, [{ path: "gh1_temp", name: "gh1_temp", unit: "C", scale: 1, offset: 0, maps_to: "nope" }]), /farm point/);
+  m.vb.saveTags(A, [{ path: "gh1_temp", name: "gh1_temp", unit: "C", scale: 1, offset: 0, maps_to: `${m.zid}:temperature` }, { path: "gh1_hum", name: "gh1_hum", unit: "%", scale: 1, offset: 0 }]);
+  m.vb.setEnabled(A, true); m.vb.handle("vbox/VB1/data", Buffer.from("{}")); m.vb.setUnit(A, "VB1", "add"); m.vb.handle("vbox/VB1/data", Buffer.from(JSON.stringify({ gh1_temp: 26.4, gh1_hum: 70 })));
+  const card = buildView(m.db, m.reg, m.gw, false, Date.now()).zones.find((x) => x.id === m.zid)!;
+  assert.equal(card.avgTemperature, 26.4); assert.equal(card.avgHumidity, null, "gh1_hum is not mapped: stored, not shown"); assert.equal(card.sensors[0].label, "V-BOX VB1"); assert.equal((card.sensors[0] as any).kind, "vbox");
+  assert.equal(series(m.db, VBOX_SERIES_TOPIC).some((x) => x.m === "gh1_hum"), true);
+  const old = buildView(m.db, m.reg, m.gw, false, Date.now() + 20 * 60_000).zones.find((x) => x.id === m.zid)!; assert.equal(old.noUpdate, 1, "a silent V-BOX value turns NO UPDATE");
 });

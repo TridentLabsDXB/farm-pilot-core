@@ -3,10 +3,12 @@ import type { Db } from "../db.js";
 import { rssiBand, sensorStatus, type Status } from "./logic.js";
 import { topicFor, type Registry, type SensorRow } from "./registry.js";
 import type { GatewayService } from "./service.js";
+import { latestOf, mappedSources, mappedStatus } from "../mapped/index.js";
 
 /** What an Operator may see of a sensor: values, state words and the label. Nothing about setup: no serial, slot, raw value, calibration, interval or threshold. Built as an allow-list. */
 export interface SensorView {
   label: string; type: string; status: Status; zoneId: number | null;
+  /** plc / vbox: a PLC point or V-BOX tag mapped to this zone (no battery, no signal). */ kind?: "plc" | "vbox";
   temperature?: number; humidity?: number; voltage?: number; rssi?: number; rssiBand: string; lastChange: number | null;
   calDue: boolean; checkSensor: boolean; batteryLevel: number; batteryLow: boolean;
 }
@@ -57,11 +59,16 @@ export function buildView(db: Db, reg: Registry, svc: GatewayService, admin: boo
     if (v.calDue) alarms.push({ kind: "calibration_due", severity: "warning", text: `${v.label}: calibration due`, serial: s.serial });
   }
   if (!admin && !internal) for (const a of alarms) delete a.serial;                          // Operators get alarm texts (with the operator label), never the serial
+  // 2026-11-18 -- PLC points and V-BOX tags mapped to a farm point (mapped/index.ts) are virtual sensors of their zone: averaged into the card, listed by label only.
+  const mapped = mappedSources(db).map((m) => { const l = latestOf(db, m), last = Math.max(0, ...Object.values(l).map((x) => x!.t)); const v: SensorView = { label: m.label, type: m.kind, kind: m.kind, status: mappedStatus(last, now, m.intervalMs), zoneId: m.zoneId, temperature: l.temperature?.v, humidity: l.humidity?.v,
+    rssiBand: "none", lastChange: last || null, calDue: false, checkSensor: false, batteryLevel: 0, batteryLow: false }; return { m, v }; });
   const zones = reg.zones().map((z) => {
-    const ss = reg.list().map((s, i) => ({ s, v: sensors[i] })).filter((x) => x.s.zone_id === z.id); const rep = ss.filter((x) => x.v.status === "ok" || x.v.status === "low_battery");
+    const mv = mapped.filter((x) => x.m.zoneId === z.id).map((x) => ({ s: null as unknown as SensorRow, v: x.v }));
+    const ss = reg.list().map((s, i) => ({ s, v: sensors[i] })).filter((x) => x.s.zone_id === z.id).concat(mv); const rep = ss.filter((x) => x.v.status === "ok" || x.v.status === "low_battery");
     const avg = (f: (v: SensorView) => number | undefined) => { const a = rep.map((x) => f(x.v)).filter((n): n is number => typeof n === "number"); return a.length ? Math.round((a.reduce((p, c) => p + c, 0) / a.length) * 10) / 10 : null; };
     const noUp = ss.filter((x) => x.v.status === "no_update" || x.v.status === "no_data").length, low = ss.filter((x) => x.v.status === "low_battery").length;
-    const status = !online ? "unknown" : !ss.length ? "empty" : noUp ? "no_update" : low ? "low_battery" : "ok";
+    const gwSensors = ss.length - mv.length;      // a zone fed only by mapped PLC / V-BOX values does not depend on the LoRa gateway being online
+    const status = (!online && (gwSensors > 0 || !mv.length)) ? "unknown" : !ss.length ? "empty" : noUp ? "no_update" : low ? "low_battery" : "ok";
     return { id: z.id, name: z.name, type: z.type, status, noUpdate: noUp, lowBattery: low, avgTemperature: avg((v) => v.temperature), avgHumidity: avg((v) => v.humidity), reporting: rep.length, total: ss.length, sensors: ss.map((x) => x.v) };
   });
   return { commissioning: { on: st.commissioning, until: st.commissioningUntil }, gateway: { enabled: svc.enabled, online, lastOk: svc.lastOk, model: reg.map.gateway_model }, zones, sensors, alarms, ...(admin ? { settings: { rssiGood: st.rssiGood, rssiPoor: st.rssiPoor } } : {}), now };

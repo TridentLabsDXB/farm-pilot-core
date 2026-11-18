@@ -14,7 +14,7 @@ interface Req { fc: number; offset: number; end: number; length: number; plcStar
 interface Zone { id: number; code: string; name: string; farm_zone_id: number | null; area: string; start: number; length: number; style: string; enabled: boolean; request: Req | null; error: string | null; status: ZStatus; reason: string | null; lastAt: number | null; points: Pt[] }
 interface View {
   access: DsAccess; config: { enabled: boolean; protocol: "tcp" | "rtu" | "other"; host: string; port: number; unit: number; rtu_port_id: number | null; poll_s: number; timeout_ms: number; word_order: "big" | "little" };
-  status: { link: Link; lastPollAt: number | null; failedCycles: number; lastPollAgeS: number | null }; zones: Zone[]; ports: { id: number; name: string }[]; farm_zones: { id: number; name: string }[]; note: string;
+  status: { link: Link; lastPollAt: number | null; failedCycles: number; lastPollAgeS: number | null }; zones: Zone[]; ports: { id: number; name: string }[]; farm_zones: { id: number; name: string }[]; farm_points: { value: string; label: string }[]; note: string;
 }
 const LAMP: Record<Link, { shape: string; word: string; tone: Tone }> = { online: { shape: "circle", word: "PLC ONLINE", tone: "ok" }, connecting: { shape: "triangle", word: "CONNECTING", tone: "warn" }, offline: { shape: "square", word: "OFFLINE", tone: "alarm" }, disabled: { shape: "ring", word: "DISABLED", tone: "off" }, locked: { shape: "ring", word: "LOCKED", tone: "off" } };
 const ZS: Record<ZStatus, Tone> = { OK: "ok", "NO ANSWER": "alarm", "BAD DATA": "warn", DISABLED: "off", "NOT READ": "off" };
@@ -117,7 +117,7 @@ export default function PlcPage() {
                 <td><input className="fp-input pl-cell" aria-label={`scale ${i + 1}`} value={String(p.scale)} onChange={(e) => setPt(i, { scale: e.target.value })} /></td>
                 <td><input className="fp-input pl-cell" aria-label={`unit ${i + 1}`} value={p.unit} onChange={(e) => setPt(i, { unit: e.target.value })} /></td>
                 <td className="pl-num">{p.value === null || p.value === undefined ? "--" : Number(p.value.toFixed(3))}</td>
-                <td><input className="fp-input pl-cell" aria-label={`maps to ${i + 1}`} placeholder="farm point" value={p.maps_to} onChange={(e) => setPt(i, { maps_to: e.target.value })} /></td>
+                <td><select className="fp-input pl-cell" aria-label={`maps to ${i + 1}`} value={p.maps_to} onChange={(e) => setPt(i, { maps_to: e.target.value })}><option value="">not mapped</option>{v.farm_points.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}</select></td>
                 <td><button className="fp-btn small" aria-label={`Remove point ${i + 1}`} onClick={() => d && upd({ points: d.points.filter((_, j) => j !== i) })}>REMOVE</button></td></tr>)}
             </tbody></table></div>
             <div className="fp-row pl-btns">

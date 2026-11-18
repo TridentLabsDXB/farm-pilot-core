@@ -10,7 +10,7 @@ interface Tag { path: string; name: string; unit: string; scale: number | string
 interface View {
   access: DsAccess; preset: { enabled: boolean; topic_filter: string; format: string; id_from: "topic" | "payload"; id_level: number; id_path: string; ts_path: string; status: string };
   units: { unit_id: string; state: "new" | "added" | "ignored"; first_seen: number; last_seen: number; msg_count: number; tag_count: number }[];
-  tags: Tag[]; unmapped: { field: string; count: number }[]; errors: number; messages: { ts: number; topic: string; payload: string; status: "ok" | "unmapped" | "error"; unit: string | null; notes: string[]; stored: boolean }[]; note: string;
+  farm_points: { value: string; label: string }[]; tags: Tag[]; unmapped: { field: string; count: number }[]; errors: number; messages: { ts: number; topic: string; payload: string; status: "ok" | "unmapped" | "error"; unit: string | null; notes: string[]; stored: boolean }[]; note: string;
 }
 const MSG: Record<string, [Tone, string]> = { ok: ["ok", "OK"], unmapped: ["warn", "UNMAPPED"], error: ["alarm", "ERROR"] };
 
@@ -63,7 +63,7 @@ export default function VboxTab() {
         <div className="mq-scroll"><table className="fp-table"><thead><tr><th>TAG</th><th>MEASUREMENT</th><th>UNIT</th><th>SCALE</th><th>OFFSET</th><th>V-BOX · VALUE · AGE</th><th>MAPS TO</th><th /></tr></thead><tbody>
           {tags.rows.map((r, i) => <tr key={i}>{(["path", "name", "unit", "scale", "offset"] as const).map((k) => <td key={k}><input className="fp-input mq-cell" aria-label={`${k} row ${i + 1}`} value={String(r[k])} onChange={(e) => setRow(i, { [k]: e.target.value })} /></td>)}
             <td className="mq-num">{r.readings?.length ? r.readings.map((x) => `${x.unit} · ${Number(x.value.toFixed(2))} · ${x.age_s} s`).join("; ") : "--"}</td>
-            <td><input className="fp-input mq-cell" aria-label={`maps to row ${i + 1}`} placeholder="not mapped" value={r.maps_to} onChange={(e) => setRow(i, { maps_to: e.target.value })} /></td>
+            <td><select className="fp-input mq-cell" aria-label={`maps to row ${i + 1}`} value={r.maps_to} onChange={(e) => setRow(i, { maps_to: e.target.value })}><option value="">not mapped</option>{v.farm_points.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}</select></td>
             <td><button className="fp-btn small" aria-label={`Remove row ${i + 1}`} onClick={() => setTags({ dirty: true, rows: tags.rows.filter((_, j) => j !== i) })}>REMOVE</button></td></tr>)}
         </tbody></table></div>
         <div className="fp-row mq-add"><button className="fp-btn" onClick={() => setTags({ dirty: true, rows: [...tags.rows, { path: "", name: "", unit: "", scale: 1, offset: 0, maps_to: "" }] })}>ADD ROW</button>

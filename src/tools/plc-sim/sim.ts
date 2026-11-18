@@ -30,7 +30,7 @@ export class PlcSim {
     this.server = createServer((s) => {
       let buf = Buffer.alloc(0);
       s.on("error", () => s.destroy());
-      s.on("data", (d) => {
+      s.on("data", (d: Buffer) => {
         buf = Buffer.concat([buf, d]);
         while (buf.length >= 7 && buf.length >= 6 + buf.readUInt16BE(4)) {
           const len = 6 + buf.readUInt16BE(4), f = buf.subarray(0, len); buf = buf.subarray(len);

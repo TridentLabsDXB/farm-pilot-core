@@ -15,9 +15,10 @@ import { plcVboxServiceState, requirePlcVbox, type DataSourceAccess } from "../l
 import type { LicenceSummary } from "../licence/summary.js";
 import { AREAS, checkPoints, POINT_TYPES, STYLES, zoneRequest, type Area, type PointDef, type Style } from "./address.js";
 import { decodePoint, type WordOrder } from "./decode.js";
-import { SCHEMA_PLC } from "./schema.js";
+import { SCHEMA_PLC, PLC_SERIES_TOPIC } from "./schema.js";
+import { checkMapsTo, farmPointOptions, syncFarmPoints } from "../mapped/index.js";
 
-export const PLC_SERIES_TOPIC = "plc/modbus";            // series.topic; sensor_key = zone code (DZ1...), metric = point name
+export { PLC_SERIES_TOPIC };
 export const OFFLINE_CYCLES = 3;
 export type PlcLink = "disabled" | "connecting" | "online" | "offline" | "locked";
 export type ZoneStatus = "OK" | "NO ANSWER" | "BAD DATA" | "DISABLED" | "NOT READ";
@@ -146,7 +147,7 @@ export class PlcService extends EventEmitter {
       status: { link, lastPollAt: this.lastPollAt, failedCycles: this.fails, lastPollAgeS: this.lastPollAt ? Math.round((now - this.lastPollAt) / 1000) : null },
       zones: this.zones().map((z) => this.zoneView(z)),
       ports: (this.ports()?.view().ports ?? []).map((p: any) => ({ id: p.id, name: p.name ?? `Port ${p.id}` })),
-      farm_zones: this.db.prepare("SELECT id,name FROM zones ORDER BY sort,name").all(),
+      farm_zones: this.db.prepare("SELECT id,name FROM zones ORDER BY sort,name").all(), farm_points: farmPointOptions(this.db),
       note: "This source counts as 1 data source in the licence.",
     };
   }
@@ -197,8 +198,9 @@ export class PlcService extends EventEmitter {
   }
   private cleanPoints(area: Area, length: number, pts: unknown): PointDef[] & { maps_to?: string }[] {
     if (!Array.isArray(pts)) throw new HttpError(400, "points must be a list"); if (pts.length > 200) throw new HttpError(400, "at most 200 points per zone");
-    const list = pts.map((p: any) => ({ offset: p?.offset, name: p?.name, type: p?.type, scale: p?.scale ?? 1, unit: p?.unit ?? "", maps_to: typeof p?.maps_to === "string" ? p.maps_to.slice(0, 64) : "" }));
-    const bad = checkPoints(area, length, list); if (bad) throw new HttpError(400, bad); return list;
+    const list = pts.map((p: any) => ({ offset: p?.offset, name: p?.name, type: p?.type, scale: p?.scale ?? 1, unit: p?.unit ?? "", maps_to: "" as string }));
+    const bad = checkPoints(area, length, list); if (bad) throw new HttpError(400, bad);
+    list.forEach((q, i) => { try { q.maps_to = checkMapsTo(this.db, (pts[i] as any)?.maps_to, `point ${i + 1}`); } catch (e) { throw new HttpError(400, (e as Error).message); } }); return list;
   }
   /** + ADD DATA ZONE / SAVE ZONE. Adding or changing zones is refused on FREE. */
   saveZone(a: Actor, id: number | null, body: Record<string, any>) {
@@ -214,8 +216,9 @@ export class PlcService extends EventEmitter {
       } else this.db.prepare("UPDATE plc_zones SET name=?,farm_zone_id=?,area=?,start=?,length=?,style=?,enabled=? WHERE id=?").run(z.name, z.farm_zone_id, z.area, z.start, z.length, z.style, z.enabled, cur.id);
       if (body.points !== undefined || cur) { this.db.prepare("DELETE FROM plc_points WHERE zone_id=?").run(zid); for (const p of pts as any[]) this.db.prepare("INSERT INTO plc_points(zone_id,off,name,type,scale,unit,maps_to) VALUES(?,?,?,?,?,?,?)").run(zid, p.offset, p.name, p.type, p.scale, p.unit, p.maps_to ?? ""); }
     })();
+    syncFarmPoints(this.db);
     audit(this.db, a.username, a.role, cur ? "plc.zone.update" : "plc.zone.add", { zone: this.zone(zid).code, area: z.area, start: z.start, length: z.length, points: pts.length }); this.live.delete(zid); this.emit("update"); return this.view();
   }
-  deleteZone(a: Actor, id: number) { requirePlcVbox(this.licence.summary(), false, this.now()); const z = this.zone(id); this.db.prepare("DELETE FROM plc_zones WHERE id=?").run(id); this.live.delete(id); audit(this.db, a.username, a.role, "plc.zone.delete", { zone: z.code }); return this.view(); }
+  deleteZone(a: Actor, id: number) { requirePlcVbox(this.licence.summary(), false, this.now()); const z = this.zone(id); this.db.prepare("DELETE FROM plc_zones WHERE id=?").run(id); syncFarmPoints(this.db); this.live.delete(id); audit(this.db, a.username, a.role, "plc.zone.delete", { zone: z.code }); return this.view(); }
 }
 export { POINT_TYPES };

@@ -10,6 +10,7 @@ import { HttpError } from "../gateway/registry.js";
 import { checkFilter, getPath, parseTs, topicMatches } from "../mqtt/mapping.js";
 import { plcVboxServiceState, requirePlcVbox, type DataSourceAccess } from "../licence/dataSources.js";
 import type { LicenceSummary } from "../licence/summary.js";
+import { checkMapsTo, farmPointOptions, syncFarmPoints } from "../mapped/index.js";
 import { VBOX_DEFAULT_FILTER, VBOX_DEFAULT_FORMAT, VBOX_DEFAULT_ID, VBOX_DEFAULT_TAGS, VBOX_SERIES_TOPIC } from "./defaults.js";
 
 type Actor = { username: string; role: string };
@@ -95,7 +96,7 @@ export class VboxSource extends EventEmitter {
       tags: this.tags().map((t) => ({ ...t, readings: [...this.last].filter(([k]) => k.endsWith("|" + t.path)).map(([k, v]) => ({ unit: k.split("|")[0], value: v.value, age_s: Math.round((now - v.ts) / 1000) })) })),
       unmapped: [...this.unmapped].map(([field, count]) => ({ field, count })).sort((a, b) => b.count - a.count).slice(0, 20), errors: this.errors,
       messages: this.messages.map(({ raw, ...m }) => ({ ...m, payload: raw })),
-      note: "This source counts as 1 data source in the licence.",
+      farm_points: farmPointOptions(this.db), note: "This source counts as 1 data source in the licence.",
     };
   }
   private checkAccess(adding: boolean) { return requirePlcVbox(this.licence.summary(), adding, this.now()); }
@@ -133,10 +134,10 @@ export class VboxSource extends EventEmitter {
       if (typeof t.unit !== "string" || t.unit.length > 12) throw new HttpError(400, `${n}: unit is at most 12 characters`);
       if (typeof t.scale !== "number" || !Number.isFinite(t.scale) || t.scale === 0 || Math.abs(t.scale) > 1e9) throw new HttpError(400, `${n}: scale must be a number other than 0`);
       if (typeof t.offset !== "number" || !Number.isFinite(t.offset) || Math.abs(t.offset) > 1e9) throw new HttpError(400, `${n}: offset must be a number`);
-      if (t.maps_to !== undefined && (typeof t.maps_to !== "string" || t.maps_to.length > 64)) throw new HttpError(400, `${n}: maps to is at most 64 characters`);
+      try { t.maps_to = checkMapsTo(this.db, t.maps_to, n); } catch (e) { throw new HttpError(400, (e as Error).message); }
       if (paths.has(t.path)) throw new HttpError(400, `${n}: tag ${t.path} is mapped twice`); paths.add(t.path); if (names.has(t.name)) throw new HttpError(400, `${n}: measurement ${t.name} is used twice`); names.add(t.name);
     }
     this.db.transaction(() => { this.db.prepare("UPDATE vbox_config SET ts_path=? WHERE id=1").run(ts); this.db.prepare("DELETE FROM vbox_tags").run(); tags.forEach((t: any, i) => this.db.prepare("INSERT INTO vbox_tags(path,name,unit,scale,offset,maps_to,sort) VALUES(?,?,?,?,?,?,?)").run(t.path, t.name, t.unit, t.scale, t.offset, t.maps_to ?? "", i)); })();
-    this.unmapped.clear(); this.errors = 0; audit(this.db, a.username, a.role, "vbox.tags", { rows: tags.length }); this.emit("update"); return this.view();
+    syncFarmPoints(this.db); this.unmapped.clear(); this.errors = 0; audit(this.db, a.username, a.role, "vbox.tags", { rows: tags.length }); this.emit("update"); return this.view();
   }
 }

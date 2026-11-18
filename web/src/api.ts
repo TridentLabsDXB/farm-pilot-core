@@ -13,7 +13,7 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
 }
 
 /** What an Operator receives (the server sends nothing else to them). */
-export interface SensorView { label: string; type: string; status: string; zoneId: number | null; temperature?: number; humidity?: number; voltage?: number; rssi?: number; rssiBand: string; lastChange: number | null; calDue: boolean; checkSensor: boolean; batteryLevel: number; batteryLow: boolean; }
+export interface SensorView { kind?: "plc" | "vbox"; label: string; type: string; status: string; zoneId: number | null; temperature?: number; humidity?: number; voltage?: number; rssi?: number; rssiBand: string; lastChange: number | null; calDue: boolean; checkSensor: boolean; batteryLevel: number; batteryLow: boolean; }
 /** Admin-only extras. */
 export interface AdminSensor extends SensorView {
   serial: string; slot: number | null; labelSet: boolean; interval: number; intervalUnit: string; intervalSec: number; offlineAfterSec: number; lowVoltage: number; raw: { temperature?: number; humidity?: number };

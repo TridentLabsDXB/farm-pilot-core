@@ -1,5 +1,7 @@
 // PLC data source tables (additive, CREATE IF NOT EXISTS, run from the service constructor like the MQTT tables). One PLC source (id 1) with data zones; each zone has points.
 // plc_config.enabled = 1 counts as ONE data source in the licence (licence/usage.ts). No real addresses are shipped: the zone list starts EMPTY.
+/** series.topic of every PLC reading; sensor_key = data zone code (DZ1...), metric = point name. */
+export const PLC_SERIES_TOPIC = "plc/modbus";
 export const SCHEMA_PLC = `
 CREATE TABLE IF NOT EXISTS plc_config (id INTEGER PRIMARY KEY CHECK (id=1), enabled INTEGER NOT NULL DEFAULT 0, protocol TEXT NOT NULL DEFAULT 'tcp' CHECK (protocol IN ('tcp','rtu','other')),
   host TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL DEFAULT 502, unit INTEGER NOT NULL DEFAULT 1, rtu_port_id INTEGER, poll_s INTEGER NOT NULL DEFAULT 5, timeout_ms INTEGER NOT NULL DEFAULT 1500,
