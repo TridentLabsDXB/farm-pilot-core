@@ -33,8 +33,8 @@ const lim = (n: number | null) => (n === null ? "unlimited" : String(n));
 const ago = (ts: number | null) => { if (!ts) return "never"; const m = Math.max(0, Math.round((Date.now() - ts) / 60000)); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 const F = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="lm-f"><span className="fp-cap" style={{ display: "block" }}>{label}</span>{children}</label>;
 
-function DeploymentForm({ initial, tiers, onClose, onSaved, onChangeType, onDelete }: { initial?: Dep; tiers: Tiers; onClose: () => void; onSaved: (d: Dep) => void; onChangeType?: () => void; onDelete?: () => void }) {
-  const [v, setV] = useState({ name: initial?.name ?? "", deviceId: initial?.deviceId ?? "", licensedTo: initial?.licensedTo ?? "", gw: String(initial?.usage.gateways ?? 0), sn: String(initial?.usage.sensors ?? 0), seen: "" });
+function DeploymentForm({ initial, prefill, tiers, onClose, onSaved, onChangeType, onDelete }: { initial?: Dep; prefill?: { deviceId: string; name: string } | null; tiers: Tiers; onClose: () => void; onSaved: (d: Dep) => void; onChangeType?: () => void; onDelete?: () => void }) {
+  const [v, setV] = useState({ name: initial?.name ?? prefill?.name ?? "", deviceId: initial?.deviceId ?? prefill?.deviceId ?? "", licensedTo: initial?.licensedTo ?? "", gw: String(initial?.usage.gateways ?? 0), sn: String(initial?.usage.sensors ?? 0), seen: "" });
   const [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   async function save() {
     setBusy(true); setErr("");
@@ -140,6 +140,13 @@ export default function Licences({ onChange }: { onChange: () => void }) {
     catch (e) { setErr(errText(e)); }
   }, [onChange]);
   useEffect(() => { void load(); }, []);       // eslint-disable-line react-hooks/exhaustive-deps
+  // 2026-11-19 -- links from Connected Boxes (Online build): #/licences?device=FP-... opens that deployment, #/licences?add=FP-...&name=... opens ADD DEPLOYMENT with the Device ID filled in. Nothing is created until the Admin saves the dialog.
+  const [prefill, setPrefill] = useState<{ deviceId: string; name: string } | null>(null), [linked, setLinked] = useState(false);
+  useEffect(() => {
+    if (linked || !all) return; setLinked(true); const p = new URLSearchParams(location.hash.split("?")[1] ?? ""), dev = (p.get("device") ?? "").toUpperCase(), add = (p.get("add") ?? "").toUpperCase();
+    if (dev) { const d = all.find((x) => x.deviceId === dev); if (d) { setSelId(d.id); setDetail(true); } }
+    else if (add) { const d = all.find((x) => x.deviceId === add); if (d) { setSelId(d.id); setDetail(true); } else { setPrefill({ deviceId: add, name: (p.get("name") ?? "").slice(0, 200) }); setModal("add"); } }
+  }, [all, linked]);
   const rows = useMemo(() => (all ?? []).filter((d) => { const t = q.trim().toLowerCase(); return (filter === "ALL" || d.status === filter) && (!t || d.name.toLowerCase().includes(t) || d.deviceId.toLowerCase().includes(t)); }), [all, q, filter]);
   const sel = all?.find((d) => d.id === selId) ?? null;
   useEffect(() => { if (!sel) { setHist([]); return; } let live = true; api<{ history: Hist[] }>(`/licence-deployments/${sel.id}/history`).then((r) => live && setHist(r.history)).catch(() => live && setHist([])); return () => { live = false; }; }, [sel?.id, sel?.validUntil, sel?.licenceId, sel?.status]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -220,7 +227,7 @@ export default function Licences({ onChange }: { onChange: () => void }) {
         <div className="lm-note">Licence files are checked on the box without internet. Usage and last seen are entered by hand. Features list: reserved, empty for now.</div>
       </div>}
     </div>}
-    {modal === "add" && tiers && <DeploymentForm tiers={tiers} onClose={() => setModal(null)} onSaved={saved} />}
+    {modal === "add" && tiers && <DeploymentForm prefill={prefill} tiers={tiers} onClose={() => { setModal(null); setPrefill(null); }} onSaved={(d) => { setPrefill(null); saved(d); }} />}
     {modal === "edit" && sel && tiers && <DeploymentForm initial={sel} tiers={tiers} onClose={() => setModal(null)} onSaved={saved} onChangeType={() => setModal("record")} onDelete={() => setModal("delete")} />}
     {modal === "remove" && sel && <RemoveConfirm d={sel} onClose={() => setModal(null)} onDone={saved} />}
     {modal === "delete" && sel && <DeleteConfirm d={sel} onClose={() => setModal(null)} onDone={() => { setModal(null); setDetail(false); setSelId(null); void load(); }} />}

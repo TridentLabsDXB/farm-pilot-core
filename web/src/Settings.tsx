@@ -10,6 +10,7 @@ import MqttPayloadPage from "./MqttPayloadPage";
 import PlcPage from "./PlcPage";
 import A100Page from "./A100Page";
 import FarmProfilePage from "./FarmProfilePage";
+import ServerConnectionPage from "./ServerConnectionPage";
 import { Chip, Modal, dt, errText } from "./ui";
 import { LEGACY, TABS, type Badge } from "./Sidebar";
 
@@ -21,7 +22,7 @@ export default function Settings({ tab, serial, focus, scada, reload, onProfile,
   useEffect(() => { if (redirect) go("/settings/" + redirect); else if ((!tab && !phone) || (tab && !known)) go("/settings/farm-profile"); }, [redirect, tab, phone, known]);
   const t = known ? tab! : undefined;
   const body = t === "sensors" ? (serial ? <SensorDetail serial={serial} focus={focus} scada={scada} reload={reload} /> : <SensorsPage scada={scada} reload={reload} />)
-    : t === "farm-structure" ? <StructurePage reload={reload} /> : t === "rs485-ports" ? <PortsPage reload={reload} /> : t === "sensors-gateway" ? <GatewayPage scada={scada} reload={reload} /> : t === "plc" ? <PlcPage /> : t === "ashining-a100" ? <A100Page /> : t === "vbox" ? <MqttPayloadPage key="vbox" readOnly={!admin} initialTab="vbox" /> : t === "mqtt-payload" ? <MqttPayloadPage key="mq" readOnly={!admin} /> : t === "farm-profile" ? <FarmProfilePage onChanged={onProfile} /> : t === "users" ? <UsersPage /> : t === "backup" ? <BackupPage reload={reload} /> : null;
+    : t === "farm-structure" ? <StructurePage reload={reload} /> : t === "rs485-ports" ? <PortsPage reload={reload} /> : t === "sensors-gateway" ? <GatewayPage scada={scada} reload={reload} /> : t === "plc" ? <PlcPage /> : t === "ashining-a100" ? <A100Page /> : t === "vbox" ? <MqttPayloadPage key="vbox" readOnly={!admin} initialTab="vbox" /> : t === "mqtt-payload" ? <MqttPayloadPage key="mq" readOnly={!admin} /> : t === "farm-profile" ? <FarmProfilePage onChanged={onProfile} /> : t === "users" ? <UsersPage /> : t === "backup" ? <BackupPage reload={reload} /> : t === "server-connection" ? <ServerConnectionPage /> : null;
   if (phone && !t) return <Redirect to="/more" />;                                  // the phone list of Settings items is now the MORE sheet (grouped)
   return (
     <main className="fp-page"><div className="fp-settings">

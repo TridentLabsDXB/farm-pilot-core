@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ENGINEERING, licWord, limitWord } from "./licence";
-import { api, type AboutInfo, type ComputerInfo, type LicenceInfo } from "./api";
+import { api, type AboutInfo, type ComputerInfo, type LicenceInfo, type ServerLinkAbout } from "./api";
 import { go } from "./App";
 import { Chip, LockIcon, Modal, dateOnly, errText, type Tone } from "./ui";
 import { GROUPS, type Badge } from "./Sidebar";
+import { LINK, Status } from "./lamp";
+import { agoShort } from "./ServerConnectionPage";
 import "./about.css";
+import "./serverlink.css";
 
 // 2026-11-16 -- ABOUT page, Option A (Identity card): left identity card, right LICENCE card above THIS COMPUTER (Admin). Every status is a lamp plus a word.
 // Operators get the identity card and the licence summary with usage (read-only); the server sends them no Device ID and no host details at all.
@@ -70,6 +73,26 @@ function Upload({ lic, onDone }: { lic: LicenceInfo; onDone: () => void }) {
   </div>);
 }
 
+/** 2026-11-19 -- MAIN CORE SERVER (Admin only, between LICENCE and THIS COMPUTER). The server sends this data to Admins only; an Operator has no card and no field. Lamp shape + word, as on the Server Connection page. */
+const ENROL_WORD: Record<string, string> = { APPROVED: "APPROVED", "NOT ENROLLED": "NOT ENROLLED", "WAITING FOR APPROVAL": "WAITING FOR APPROVAL", REJECTED: "REJECTED" };
+function ServerCard({ s, onChanged }: { s: ServerLinkAbout; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false), [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null), L = LINK[s.state];
+  const send = async () => { setBusy(true); setMsg(null); try { const r = await api<{ ok: boolean; message: string }>("/server-connection/send-now", { method: "POST" }); setMsg({ ok: r.ok, text: r.ok ? "Report sent." : r.message }); onChanged(); } catch (e) { setMsg({ ok: false, text: errText(e) }); } finally { setBusy(false); } };
+  const help = s.state === "CONNECTING" ? `${s.last_contact_at ? `last contact ${agoShort(s.last_contact_at)}, ` : ""}retrying` : s.state === "NOT_REACHABLE" ? "CORE works normally" : s.state === "NOT_ENROLLED" ? "open Server Connection to enrol this box" : s.state === "DISABLED" ? "reporting is switched off" : "";
+  return (<section className="fp-card sab-card" aria-label="Main CORE server" data-tone={L.tone}>
+    <div className="fp-row fp-spread"><h3>MAIN CORE SERVER</h3></div>
+    <div className="fp-row"><Status shape={L.shape} tone={L.tone} size={22}><span style={{ fontFamily: "var(--fp-head)", fontSize: 21 }}>{L.word}</span></Status><span className="fp-num fp-muted" style={{ wordBreak: "break-all" }}>{s.host ?? "--"}</span></div>
+    {(help || s.reason) && <p className="fp-cap" style={{ textTransform: "none", letterSpacing: ".02em" }}>{[help, s.reason && s.state !== "CONNECTED" ? `(${s.reason})` : ""].filter(Boolean).join(" ")}</p>}
+    <dl className="ab-fields sab-grid">
+      <div><dt className="fp-cap">LAST CONTACT</dt><dd>{s.last_contact_at ? agoShort(s.last_contact_at) : "never"}</dd></div><div><dt className="fp-cap">ROUND TRIP</dt><dd>{s.round_trip_ms !== null ? `${s.round_trip_ms} ms` : "--"}</dd></div>
+      <div><dt className="fp-cap">ENROLMENT</dt><dd>{ENROL_WORD[s.enrolment] ?? s.enrolment}</dd></div><div><dt className="fp-cap">REPORTS TODAY</dt><dd>{s.reports_today.ok} ok · {s.reports_today.failed} failed</dd></div>
+    </dl>
+    {s.clock_warning && <p className="sl-warn" role="status"><b>CLOCK DIFFERENCE</b> The server time differs from this box by more than 2 minutes.</p>}
+    <div className="fp-row"><button className="fp-btn" disabled={busy || s.state === "DISABLED" || s.state === "NOT_ENROLLED"} onClick={send}>{busy ? "SENDING..." : "SEND NOW"}</button><button className="fp-btn" onClick={() => go("/settings/server-connection")}>OPEN SERVER CONNECTION</button>
+      {msg && <Chip tone={msg.ok ? "ok" : "warn"}>{msg.text}</Chip>}</div>
+  </section>);
+}
+
 export default function About({ admin, from }: { admin: boolean; from: string }) {
   const [info, setInfo] = useState<AboutInfo | null>(null), [err, setErr] = useState(""), [at, setAt] = useState(0), [dlg, setDlg] = useState<"notes" | "notices" | null>(null), [copied, setCopied] = useState("");
   const load = useCallback(() => api<AboutInfo>("/about").then((i) => { setInfo(i); setErr(""); setAt(Date.now()); }).catch((e) => setErr(errText(e))), []);
@@ -109,6 +132,7 @@ export default function About({ admin, from }: { admin: boolean; from: string })
             {admin && <Upload lic={lic} onDone={load} />}
             <div className="ab-usages"><Bar label="GATEWAYS" n={lic.usage.gateways} max={lic.limits.gateways} /><Bar label="SENSORS (ALL TYPES)" n={lic.usage.sensors} max={lic.limits.sensors} /></div>
           </section>
+          {admin && info.server_link && <ServerCard s={info.server_link} onChanged={load} />}
           {admin && c && (
             <section className="fp-card" aria-label="This computer">
               <div className="fp-row fp-spread"><h3>THIS COMPUTER</h3><span className="fp-cap" data-testid="refreshed">refreshed {hms(at)}</span></div>
@@ -136,6 +160,6 @@ export default function About({ admin, from }: { admin: boolean; from: string })
 export function MorePage({ admin, badges, online = false, nLicences = 0 }: { admin: boolean; badges: Record<string, Badge>; online?: boolean; nLicences?: number }) {
   const row = (k: string, l: string, to: string, b?: Badge) => <li key={k} style={{ padding: 0 }}><button className="fp-tab" style={{ width: "100%", minHeight: 56, display: "flex", justifyContent: "space-between", alignItems: "center" }} onClick={() => go(to)}><span>{l}</span><span style={{ display: "flex", gap: 8, alignItems: "center" }}>{b && <Chip tone={b.tone}>{b.lock && <LockIcon />}{b.word}</Chip>}<span aria-hidden>›</span></span></button></li>;
   return <main className="fp-page"><h2 style={{ fontFamily: "var(--fp-head)", margin: 0 }}>More</h2>
-    {admin && GROUPS.filter((g) => g.tabs.length > 0).map((g) => <section key={g.title} role="group" aria-label={g.title}><span className="fp-cap fp-sb-group" style={{ display: "block", margin: "14px 0 4px" }}>{g.title}</span><ul className="fp-list">{g.tabs.map(([k, l]) => row(k, l, "/settings/" + k, badges[k]))}{g.title === "System" && admin && online && row("licences", "LICENCE MANAGEMENT", "/licences", nLicences > 0 ? { tone: "warn", word: String(nLicences) } : undefined)}</ul></section>)}
+    {admin && GROUPS.filter((g) => g.tabs.length > 0).map((g) => <section key={g.title} role="group" aria-label={g.title}><span className="fp-cap fp-sb-group" style={{ display: "block", margin: "14px 0 4px" }}>{g.title}</span><ul className="fp-list">{g.tabs.map(([k, l]) => row(k, l, "/settings/" + k, badges[k]))}{g.title === "System" && admin && online && row("licences", "LICENCE MANAGEMENT", "/licences", nLicences > 0 ? { tone: "warn", word: String(nLicences) } : undefined)}{g.title === "System" && admin && online && row("fleet", "CONNECTED BOXES", "/fleet")}</ul></section>)}
     <ul className="fp-list" style={{ marginTop: admin ? 14 : undefined }}>{!admin && row("mqtt-payload", "MQTT PAYLOAD", "/settings/mqtt-payload")}{row("about", "ABOUT", "/about")}</ul></main>;
 }

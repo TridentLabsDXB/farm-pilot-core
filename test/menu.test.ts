@@ -13,7 +13,7 @@ test("Admin groups and their order: SETTINGS, DATA SOURCES, SYSTEM", () => {
     { title: "Settings", tabs: ["farm-profile", "farm-structure"] },
     { title: "Data sources", tabs: ["rs485-ports", "sensors-gateway", "plc", "vbox", "mqtt-payload", "sensors"] },
     { title: "Control devices", tabs: ["ashining-a100"] },
-    { title: "System", tabs: ["users", "backup"] },
+    { title: "System", tabs: ["users", "backup", "server-connection"] },
   ]);
   assert.match(sb, /export const TABS: \[string, string\]\[\] = GROUPS\.flatMap/);
 });
@@ -41,8 +41,8 @@ test("Phone: bottom nav ALARMS, MONITORING, CONTROL, MORE for both roles; the MO
 
 test("Every old settings route still opens its page and is highlighted under its new group", () => {
   const all = groups.flatMap((g) => g.tabs).sort();
-  assert.deepEqual(all, ["backup", "farm-profile", "farm-structure", "mqtt-payload", "plc", "rs485-ports", "sensors", "sensors-gateway", "users", "vbox"].concat("ashining-a100").sort(), "no item lost; only mqtt-payload, plc, vbox and ashining-a100 added, the other keys (= routes) unchanged");
-  for (const [k, page] of [["sensors", "SensorsPage"], ["farm-structure", "StructurePage"], ["rs485-ports", "PortsPage"], ["sensors-gateway", "GatewayPage"], ["mqtt-payload", "MqttPayloadPage"], ["plc", "PlcPage"], ["farm-profile", "FarmProfilePage"], ["users", "UsersPage"], ["backup", "BackupPage"]]) assert.match(st, new RegExp(`t === "${k}" \\? .*<${page}`), `#/settings/${k} opens ${page}`);
+  assert.deepEqual(all, ["ashining-a100", "backup", "farm-profile", "farm-structure", "mqtt-payload", "plc", "rs485-ports", "sensors", "sensors-gateway", "server-connection", "users", "vbox"], "no item lost; only mqtt-payload, plc, vbox, ashining-a100 and server-connection added, the other keys (= routes) unchanged");
+  for (const [k, page] of [["sensors", "SensorsPage"], ["farm-structure", "StructurePage"], ["rs485-ports", "PortsPage"], ["sensors-gateway", "GatewayPage"], ["mqtt-payload", "MqttPayloadPage"], ["plc", "PlcPage"], ["ashining-a100", "A100Page"], ["farm-profile", "FarmProfilePage"], ["users", "UsersPage"], ["backup", "BackupPage"], ["server-connection", "ServerConnectionPage"]]) assert.match(st, new RegExp(`t === "${k}" \\? .*<${page}`), `#/settings/${k} opens ${page}`);
   assert.match(sb, /LEGACY: Record<string, string> = \{ gateway: "sensors-gateway", structure: "farm-structure", profile: "farm-profile" \}/);
   assert.match(sb, /aria-current=\{cur === "settings" && tab === k \? "page"/, "the item is highlighted by its route key, inside whichever group holds it");
   assert.match(sb, /go\("\/settings\/" \+ k\)/); assert.match(ab, /go\(to\)/); assert.match(ab, /"\/settings\/" \+ k/);
@@ -60,4 +60,15 @@ test("PLC and V-BOX (2026-11-18): between SENSORS GATEWAY and MQTT PAYLOAD; lock
   assert.match(mq, /readOnly \? "all" : initialTab/, "Operators get the plain read-only page, no V-BOX tab");
   const lock = readFileSync("web/src/DataSourceLock.tsx", "utf8"); assert.match(lock, /GO TO ABOUT/); assert.match(lock, /go\("\/about"\)/);
   const vb = readFileSync("web/src/VboxTab.tsx", "utf8"), order = ["V-BOX PRESET", "V-BOX UNITS FOUND", "PAYLOAD MAPPING · V-BOX TAGS", "LATEST MESSAGES · V-BOX"].map((x) => vb.indexOf(x)); assert.ok(order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), "V-BOX cards in the approved order");
+});
+
+// 2026-11-19 -- GUARD (a deploy of one branch once dropped PLC, V-BOX and Ashining A100 from the bench): every item of the full Admin menu of the Online build must exist, in the order of core-menu-structure.md.
+test("full Admin menu of the Online build: no item may be missing (PLC, V-BOX, MQTT Payload, Ashining A100, Server Connection, Licence Management, Connected Boxes)", () => {
+  const order = ["farm-profile", "farm-structure", "rs485-ports", "sensors-gateway", "plc", "vbox", "mqtt-payload", "sensors", "ashining-a100", "users", "backup", "server-connection"];
+  assert.deepEqual(groups.flatMap((g) => g.tabs), order, "SETTINGS, DATA SOURCES (PLC and V-BOX before MQTT Payload), CONTROL DEVICES, SYSTEM in menu-structure order");
+  for (const w of ["PLC", "V-BOX", "MQTT PAYLOAD", "ASHINING A100", "SERVER CONNECTION"]) assert.ok(sb.includes(`"${w}"`), `${w} missing from the sidebar`);
+  assert.ok(sb.indexOf("LICENCE MANAGEMENT") > 0 && sb.indexOf("LICENCE MANAGEMENT") < sb.indexOf("CONNECTED BOXES"), "Licence Management then Connected Boxes, after Server Connection (online block follows the group tabs)");
+  assert.ok(sb.indexOf('g.tabs.map') < sb.indexOf("LICENCE MANAGEMENT"));
+  for (const w of ["LICENCE MANAGEMENT", "CONNECTED BOXES"]) assert.ok(ab.includes(w), `${w} missing from the phone MORE sheet`);
+  assert.match(st, /t === "vbox" \? <MqttPayloadPage[^\n]*initialTab="vbox"/, "V-BOX opens the V-BOX tab of the MQTT Payload page");
 });

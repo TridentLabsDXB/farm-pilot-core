@@ -5,6 +5,8 @@ Shown on the About page (RELEASE NOTES). Plain text, newest first. No network is
 ## 0.1.0 (in preparation)
 
 ### Added
+- Server Connection (SYSTEM, Admin, all builds, every licence incl. FREE): the box can report a small status message (Device ID, version, licence state, usage counts, uptime, time of last data, number of open alarms; never readings, users, contacts or the logo) over HTTPS to the main CORE server. Off until enabled and enrolled; outbound only; retries 1, 2, 5, then every 15 minutes; a server problem never affects monitoring, alarms or control. About shows a MAIN CORE SERVER card for Admins.
+- Connected Boxes (Online build, SYSTEM, Admin): the boxes that report to this server, with status, licence, usage, 30-day availability history, enrolment codes, approval, revoke and CSV export.
 - Sensors Gateway (Admin): READ GATEWAY T/H SECTION and READ GATEWAY SOIL SECTION (read-only) compare the slots in the gateway with CORE; IMPORT INTO CORE adds the sensors only the gateway holds. Audited as gateway.read_section. Soil import comes with Milestone 2b.
 - Lab bundle: serial-probe.cmd COM11 [address] [baud], a standalone COM port and gateway check that needs no database (README-LAB step 4a).
 - About page for every role: product identity, version and build, licence summary with usage, and (Admin) details of this computer.
