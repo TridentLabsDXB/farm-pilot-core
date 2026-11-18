@@ -9,7 +9,7 @@ import { loadBranding, type Branding } from "./branding.js";
 import { readBuild } from "./build.js";
 import { computerInfo, listSerialNames } from "./host.js";
 
-export interface AboutDeps { db: Db; admin: any; prof: ProfileService; licence?: () => LicenceSummary; deviceId?: () => string | null; branding?: Branding; serialPorts?: () => Promise<string[]>; }
+export interface AboutDeps { db: Db; admin: any; prof: ProfileService; licence?: () => LicenceSummary; deviceId?: () => string | null; branding?: Branding; serialPorts?: () => Promise<string[]>; serverLink?: () => unknown; }
 
 export function registerAboutRoutes(app: FastifyInstance, d: AboutDeps) {
   const branding = d.branding ?? loadBranding(), licence = d.licence ?? (() => freeSummary(d.db)), deviceId = d.deviceId ?? (() => thisDeviceId());
@@ -17,7 +17,7 @@ export function registerAboutRoutes(app: FastifyInstance, d: AboutDeps) {
   app.get("/api/about", async (req) => {
     const b = readBuild(), isAdmin = (req as any).user?.role === "admin";
     const base = { product: branding.product_name, tagline: branding.tagline, credit_line: branding.credit_line, support_contact: branding.support_contact, version: b.version, build: b.build, released: b.released, label: b.label, licence: isAdmin ? licence() : { ...licence(), grace: undefined }, uptime_s: Math.round(process.uptime()) };
-    return isAdmin ? { ...base, device_id: deviceId(), computer: await computer() } : base;
+    return isAdmin ? { ...base, device_id: deviceId(), computer: await computer(), ...(d.serverLink ? { server_link: d.serverLink() } : {}) } : base;      // 2026-11-19: server_link is Admin only; for an Operator the field does not exist
   });
   app.get("/api/about/computer", { preHandler: d.admin }, async () => computer());
 }

@@ -16,6 +16,10 @@ import { isWin, shutdownSignals } from "./platform.js";
 import { installLogCapture } from "./about/logbuf.js";
 import { LicenceService } from "./licence/service.js";
 import { MqttSourceService } from "./mqtt/service.js";
+import { ServerLink } from "./serverlink/client.js";
+import { readBuild } from "./about/build.js";
+import { osName } from "./about/host.js";
+import { thisDeviceId } from "./licence/device.js";
 
 installLogCapture();                       // keeps a sanitised copy of the last log lines for diagnostics (about/logbuf.ts)
 console.log(`database: ${config.dbPath} (data folder: ${config.dataDir})`);       // the resolved path, so a wrong DATA_DIR / DB_PATH is visible in the first log line
@@ -60,9 +64,12 @@ const lic = new LicenceService(db);       // FREE until a licence is installed; 
 // MQTT Payload source: connects only when an Admin enabled it; a broker that is down never blocks start-up (it reconnects with backoff in the background).
 const mqttSrc = new MqttSourceService(db, ingest);
 mqttSrc.start();
-const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError, ports, lic, { mqtt: mqttSrc });
+// 2026-11-19: Server Connection. Off until an Admin enables and enrols it. start() only arms a timer: it is never awaited, and nothing it does can block the lines above or below (serverlink/client.ts, ISOLATION).
+const serverLink = new ServerLink({ db, licence: () => lic.summary(), deviceId: () => thisDeviceId(), version: () => { const b = readBuild(); return { version: b.version, build: b.build }; }, os: () => osName(), defaultName: () => { try { return String((db.prepare("SELECT farm_name n FROM farm_profile WHERE id=1").get() as { n: string } | undefined)?.n ?? "FARM-PILOT CORE"); } catch { return "FARM-PILOT CORE"; } } });
+const { app, pushTelemetry: pt, pushCommand: pc } = await buildApp(db, ingest, commands, reg, gw, gwError, ports, lic, { mqtt: mqttSrc, link: serverLink });
 pushTelemetry = pt; pushCommand = pc;
 await app.listen({ host: config.host, port: config.port });
+serverLink.start();
 
 const timers = [
   setInterval(() => commands.sweep(), 1000),
@@ -75,7 +82,7 @@ setTimeout(() => runLicenceRetention(db, lic).catch((e) => console.error("retent
 let stopping = false;
 async function shutdown() {
   if (stopping) return; stopping = true; if (isWin()) setTimeout(() => process.exit(1), 15_000).unref(); timers.forEach(clearInterval);
-  await mqttSrc.stop(); await ports.stop(); await gw?.stop(); await app.close(); client.end(true); await broker.stop(); db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); process.exit(0);
+  serverLink.stop(); await mqttSrc.stop(); await ports.stop(); await gw?.stop(); await app.close(); client.end(true); await broker.stop(); db.pragma("wal_checkpoint(TRUNCATE)"); db.close(); process.exit(0);
 }
 // Windows (W1): there is no SIGTERM. Ctrl+C = SIGINT, Ctrl+Break and a service stop wrapper (NSSM/WinSW send Ctrl+C first) = SIGINT/SIGBREAK, closing the console = SIGHUP.
 // A 15 s guard makes sure a hung close cannot keep the process alive. WAL is crash-safe, so a hard kill still loses nothing already committed.

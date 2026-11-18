@@ -9,7 +9,7 @@ import { BrandMark } from "./Brand";
 export const GROUPS: { title: string; tabs: [string, string][] }[] = [
   { title: "Settings", tabs: [["farm-profile", "FARM PROFILE"], ["farm-structure", "FARM STRUCTURE"]] },
   { title: "Data sources", tabs: [["rs485-ports", "RS-485 PORTS"], ["sensors-gateway", "SENSORS GATEWAY"], ["mqtt-payload", "MQTT PAYLOAD"], ["sensors", "SENSORS"]] },
-  { title: "System", tabs: [["users", "USERS"], ["backup", "BACKUP"]] },
+  { title: "System", tabs: [["users", "USERS"], ["backup", "BACKUP"], ["server-connection", "SERVER CONNECTION"]] },
 ];
 export const TABS: [string, string][] = GROUPS.flatMap((g) => g.tabs);
 export const LEGACY: Record<string, string> = { gateway: "sensors-gateway", structure: "farm-structure", profile: "farm-profile" };
@@ -46,6 +46,8 @@ export default function Sidebar({ version, pub, cur, tab, admin, nAlarms, badges
         {g.tabs.map(([k, l]) => <button key={k} className="fp-tab" aria-current={cur === "settings" && tab === k ? "page" : undefined} onClick={() => go("/settings/" + k)}><span>{l}</span>{badges[k] && <Chip tone={badges[k]!.tone}>{badges[k]!.word}</Chip>}</button>)}
         {/* 2026-11-17: Licence Management, Online build only (online comes from /api/me), Admin only (this block). Amber count of EXPIRING + EXPIRED deployments, hidden at 0. */}
         {g.title === "System" && online && <button className="fp-tab" aria-current={cur === "licences" ? "page" : undefined} onClick={() => go("/licences")}><span>LICENCE MANAGEMENT</span>{nLicences > 0 && <span className="fp-badge fp-badge-warn" aria-label={`${nLicences} need attention`}>{nLicences}</span>}</button>}
+        {/* 2026-11-19: Connected Boxes, Online build + Admin only, directly after Licence Management (core-menu-structure.md). */}
+        {g.title === "System" && online && <button className="fp-tab" aria-current={cur === "fleet" ? "page" : undefined} onClick={() => go("/fleet")}><span>CONNECTED BOXES</span></button>}
       </div>)}
       {!admin && <button className="fp-tab" aria-current={cur === "settings" && tab === "mqtt-payload" ? "page" : undefined} onClick={() => go("/settings/mqtt-payload")}>MQTT PAYLOAD</button>}   {/* Operators: read-only page, no group heading */}
       <div className="fp-sb-bottom">

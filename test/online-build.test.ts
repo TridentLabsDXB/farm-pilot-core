@@ -21,7 +21,7 @@ test("Online build: /api/me says online, the Licence Management routes exist for
 test("The built web bundle carries every merged feature: LICENCE MANAGEMENT in SYSTEM, DATA SOURCES with MQTT PAYLOAD, the licence page, the MQTT page; no DATA POINTS", { timeout: 120_000 }, (t) => {
   if (!existsSync(vite)) return t.skip("web dependencies not installed");
   const { js } = bundle();
-  for (const w of ["LICENCE MANAGEMENT", "MQTT PAYLOAD", "Data sources", "SENSORS GATEWAY", "DOWNLOAD", "NEW DEVICES FOUND", "/licences", "/api/licence-deployments"]) assert.ok(js.includes(w), `the built bundle is missing "${w}"`);
+  for (const w of ["LICENCE MANAGEMENT", "MQTT PAYLOAD", "Data sources", "SENSORS GATEWAY", "DOWNLOAD", "NEW DEVICES FOUND", "/licences", "/api/licence-deployments", "SERVER CONNECTION", "CONNECTED BOXES", "MAIN CORE SERVER", "WHAT THE BOX REPORTS", "/fleet/boxes", "/server-connection"]) assert.ok(js.includes(w), `the built bundle is missing "${w}"`);
   assert.ok(!/Data points|DATA POINTS/.test(js), "the old group name is still in the bundle");
   const sb = readFileSync("web/src/Sidebar.tsx", "utf8"); assert.match(sb, /g\.title === "System" && online && <button[^\n]*go\("\/licences"\)[^\n]*LICENCE MANAGEMENT/, "Online + Admin only, inside the SYSTEM group");
 });

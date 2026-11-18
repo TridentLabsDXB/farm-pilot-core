@@ -32,11 +32,16 @@ import { registerDeploymentRoutes } from "./deployments/routes.js";
 import type { SigningOpts } from "./deployments/signing.js";
 import { MqttSourceService } from "./mqtt/service.js";
 import { registerMqttRoutes } from "./mqtt/routes.js";
+import { ServerLink } from "./serverlink/client.js";
+import { registerServerLinkRoutes, aboutServerLink } from "./serverlink/routes.js";
+import { registerFleetRoutes, FLEET_PUBLIC } from "./fleet/routes.js";
+import { osName } from "./about/host.js";
+import { thisDeviceId } from "./licence/device.js";
 
 const COOKIE = "core_session";
 declare module "fastify" { interface FastifyRequest { user?: AuthUser } }
 
-export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null, opts: { online?: boolean; now?: () => number; signing?: SigningOpts; mqtt?: MqttSourceService | null } = {}) {
+export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: Registry | null, gw: GatewayService | null, gwError: string | null = null, ports: PortManager | null = null, lic: LicenceService | null = null, opts: { online?: boolean; now?: () => number; signing?: SigningOpts; mqtt?: MqttSourceService | null; link?: ServerLink | null; fleetTickMs?: number } = {}) {
   const online = opts.online ?? config.online;   // 2026-11-17: Online build flag (config.online / FP_ONLINE); tests pass it explicitly
   const app = Fastify({ logger: { level: "info" }, trustProxy: config.trustProxy, bodyLimit: 64 * 1024 });
   // Every registered route is recorded, so tests can call ALL of them as an Operator (test/operator-access.test.ts).
@@ -48,7 +53,7 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   const secureFor = (proto: string) => config.cookieSecure === "true" ? true : config.cookieSecure === "false" ? false : proto === "https";
 
   app.addHook("preHandler", async (req, reply) => {
-    if (!req.url.startsWith("/api/") || req.url.startsWith("/api/login") || req.url.startsWith("/api/health") || req.url.startsWith("/api/branding")) return;
+    if (!req.url.startsWith("/api/") || req.url.startsWith("/api/login") || req.url.startsWith("/api/health") || req.url.startsWith("/api/branding") || (online && FLEET_PUBLIC.has(req.url.split("?")[0]))) return;      // 2026-11-19: the two box-facing Online routes carry their own key check (fleet/routes.ts)
     const u = userFromToken(db, req.cookies[COOKIE]);
     if (!u) return reply.code(401).send({ error: "login required" });
     req.user = u;
@@ -132,12 +137,15 @@ export async function buildApp(db: Db, ingest: Ingest, commands: Commands, reg: 
   registerProfileRoutes(app, prof, admin, () => send({ type: "scada" }));
   // Licence: FREE until a licence file is installed. It only limits ADDING sensors and gateways (see licence/service.ts); nothing here can stop polling, alarms or commands.
   const licence = lic ?? new LicenceService(db); if (reg) reg.limiter = licence; if (ports) ports.limiter = licence;
-  registerAboutRoutes(app, { db, admin, prof, licence: () => licence.summary() }); registerLicenceRoutes(app, licence, admin, () => send({ type: "scada" }));
+  // 2026-11-19: Server Connection (all builds). Reporting is NOT licence gated. index.ts passes the running client; tests get an idle one (disabled until an Admin turns it on).
+  const link = opts.link ?? new ServerLink({ db, licence: () => licence.summary(), deviceId: () => thisDeviceId(), version: () => { const b = readBuild(); return { version: b.version, build: b.build }; }, os: () => osName(), defaultName: () => prof.farmName() });
+  registerAboutRoutes(app, { db, admin, prof, licence: () => licence.summary(), serverLink: () => aboutServerLink(link) }); registerServerLinkRoutes(app, link, admin); registerLicenceRoutes(app, licence, admin, () => send({ type: "scada" }));
   registerSupportRoutes(app, { db, admin, prof, licence: () => licence.summary(), ports, gw });
   if (reg && gw) { registerGatewayRoutes(app, db, reg, gw, admin, () => send({ type: "scada" }), prof, ports); gw.on("update", () => send({ type: "scada" })); registerHistoryRoutes(app, { db, reg, svc: gw, prof, licence }); }
   else app.get("/api/gateway/status", async () => ({ enabled: false, online: false, lastOk: null, error: gwError }));
   if (ports) registerPortRoutes(app, ports, admin, () => send({ type: "ports" }));
   if (online) registerDeploymentRoutes(app, db, admin, opts.now, { keyFile: config.licenceSigningKeyFile, ...opts.signing });       // Online build only: a standalone build has no table and no route (404)
+  if (online) registerFleetRoutes(app, db, admin, opts.now, opts.fleetTickMs);            // Online build only: Connected Boxes (2026-11-19)
   // MQTT Payload source (2026-11-18). index.ts starts it; without one passed in (tests) an idle service is created so the routes still work. It never counts against the licence for now (TODO in mqtt/service.ts).
   registerMqttRoutes(app, opts.mqtt ?? new MqttSourceService(db, ingest), admin);
 
